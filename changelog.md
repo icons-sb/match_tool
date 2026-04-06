@@ -1,6 +1,6 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-04-05 07:28:12.07
+**Ultimo aggiornamento:** 2026-04-06 08:22:02.84
 
 ## Riepilogo
 
@@ -22,11 +22,11 @@ Nessuna nuova call rispetto alla rilevazione precedente.
 | Climate, Energy & Mobility | 173 |
 | Digital, Industry & Space | 171 |
 | Food, Bioeconomy & Environment | 140 |
-| Culture, Creativity & Inclusion | 109 |
+| Culture, Creativity & Inclusion | 108 |
 | Cross-cutting / Other | 77 |
 | Health & Life Sciences | 51 |
 | Security & Resilience | 47 |
-| (non classificato) | 46 |
+| (non classificato) | 47 |
 | Defence | 39 |
 | Climate-neutral & Smart Cities | 29 |
 | SME, Entrepreneurship & Market Uptake | 28 |
