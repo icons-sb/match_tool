@@ -867,39 +867,51 @@
     if (nature === 'industrial') return (a === 'IA' ? 14 : 0);
     return 0;
   }
-  function bucketAndScore(call, answers){
-    const primary = answers.thematic_cluster || '';
+  
+  function bucketAndScore(call, answers){ //primary function integrating tier assignment and composite score. Takes the enriched call and the user's responses
+    const primary = answers.thematic_cluster || ''; 
     const secondary = answers.secondary_thematic_cluster || '';
+    //extracts primary and secondary areas from the answers. If unspecified, the string is set to be empty
     const primaryAssigned = isAssignedTo(call, primary);
     const secondaryAssigned = secondary ? isAssignedTo(call, secondary) : false;
+    //verifies that the call is structurally assigned to primary area; verification is done for 2nd thematic area only if specified, otherwise empty
     const primaryHits = hitsFor(call, primary);
     const secondaryHits = secondary ? hitsFor(call, secondary) : [];
+    //retrieves keyword found in the call's full text for each area
     const otherAssigned = !primaryAssigned && !secondaryAssigned;
+    //if call belongs neither to first nor second thematic area -> to identify tier 5 and 6
 
     let bucket = 99;
+    //tier is initialised at 99, meaning no match, if no condition is met the call will be excluded
     if (!secondary) {
       if (primaryAssigned) bucket = 1;
       else if (primaryHits.length) bucket = 2;
     } else {
-      if (primaryAssigned && secondaryHits.length) bucket = 1;
-      else if (secondaryAssigned && primaryHits.length) bucket = 2;
-      else if (primaryAssigned) bucket = 3;
-      else if (secondaryAssigned) bucket = 4;
-      else if (otherAssigned && primaryHits.length && secondaryHits.length) bucket = 5;
-      else if (otherAssigned && (primaryHits.length || secondaryHits.length)) bucket = 6;
+      //Checks if second thematic area was specified in the questionnaire
+      if (primaryAssigned && secondaryHits.length) bucket = 1; //Tier 1 assignation
+      else if (secondaryAssigned && primaryHits.length) bucket = 2; //Tier 2 assignation
+      else if (primaryAssigned) bucket = 3; //Tier 3 assignation
+      else if (secondaryAssigned) bucket = 4; //Tier 4 assignation
+      else if (otherAssigned && primaryHits.length && secondaryHits.length) bucket = 5; //Tier 5 assignation
+      else if (otherAssigned && (primaryHits.length || secondaryHits.length)) bucket = 6; //Tier 6 assignation
     }
     if (bucket === 99) return null;
 
-    let score = 1000 - bucket * 100;
+    let score = 1000 - bucket * 100; //basic score - tier 1=900, tier 2=800, ...
+    //ensures calls of higher tier are never surpassed by other elements
     score += primaryAssigned ? 40 : 0;
     score += secondaryAssigned ? 18 : 0;
+    //score to reflect higher scoring for the primary thematic area
     score += Math.min(primaryHits.length, 4) * 6;
     score += Math.min(secondaryHits.length, 4) * 6;
+    //6 points for each keyword, with max. 24 points per area to ensure preference for more specific calls
     score += scoreNature(call, answers.project_nature || '');
+    //adds score calculated previously that aligns nature of research and type of action
     if ((answers.action_type || '') && answers.action_type !== 'OTHER') score += (call._action_norm === answers.action_type ? 10 : -50);
+    //if user specified type of action =/ other, +10 for correspondence, -50 for no correspondence
     if ((answers.action_type || '') === 'OTHER') score += (!['RIA','IA','CSA','COFUND'].includes(call._action_norm) ? 8 : -50);
     if (call._special && (primary === SPECIAL || secondary === SPECIAL)) score += 16;
-
+    //bonus in specific internship categories if user specified this
     return {bucket, score, primaryAssigned, secondaryAssigned, primaryHits, secondaryHits};
   }
   function applyFilters(calls, answers){
