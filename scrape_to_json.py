@@ -510,11 +510,6 @@ def topic_id_from_url(url: str) -> str:
     return s.rsplit("/", 1)[-1] if s else ""
 
 def extract_budget_per_project(page, topic_id: str) -> str | None:
-    """
-    Versione 'Cacciatore': usa un match corto dell'ID topic e forza lo scroll
-    per favorire il rendering lazy delle tabelle nella sezione
-    'Topic conditions and documents'.
-    """
     if not topic_id:
         return None
 
