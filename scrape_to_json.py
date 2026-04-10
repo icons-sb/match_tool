@@ -427,13 +427,13 @@ def read_total(page, timeout_ms=30000):
     # Debug: stampa le prime 2000 caratteri del body per capire cosa c'è
     try:
         snippet = page.locator("body").inner_text()[:2000]
-        print(f"⚠️  Testo body (primi 2000 char):\n{snippet}")
+        print(f" Testo body (primi 2000 char):\n{snippet}")
     except Exception as e:
-        print(f"⚠️  Impossibile leggere il body: {e}")
+        print(f"Impossibile leggere il body: {e}")
 
     return None
 
-def scroll_until(page, expected, max_ms=50000):
+def scroll_until(page, expected, max_ms=50000): #receives the page, defines how many links it expects and maximum waiting time
     start = time.time()
     last = -1
     stable_since = time.time()
@@ -441,6 +441,7 @@ def scroll_until(page, expected, max_ms=50000):
         accept_cookies(page)
         wait_cookie_gone(page, 3000)
         page.wait_for_timeout(700)
+    #if no link appears on page, waits up to 10 seconds, accepts cookies and waits for banner
     container = page.evaluate_handle(f"""() => {{
         const sel = `{LINK_SELECTOR}`;
         const links = document.querySelectorAll(sel);
@@ -455,6 +456,7 @@ def scroll_until(page, expected, max_ms=50000):
         }}
         return null;
     }}""")
+
     while (time.time()-start)*1000 < max_ms:
         accept_cookies(page)
         wait_cookie_gone(page, 3000)
@@ -488,15 +490,19 @@ def extract_links(page):
         () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
                   .map(a => a.getAttribute('href'))
     """)
-    out, seen = [], set()
+    #searches for all links and extracts the address
+    out, seen = [], set() #prepares empty list with the results and a list of seen links to avoid duplicates
     for h in hrefs or []:
         if not h:
             continue
+            #skips empty links 
         full = "https://ec.europa.eu" + h if h.startswith("/") else h
+        #if relative link adds the complete domain
         if full not in seen:
             seen.add(full)
             out.append(full)
     return out
+    #if link is not a duplicate adds it to the list and returns all unique links found
 
 
 # ── Budget extraction dal dettaglio topic ─────────────────────────────────────
@@ -574,20 +580,25 @@ def extract_budget_per_project(page, topic_id: str) -> str | None:
 # ── Parsing card dalla lista ──────────────────────────────────────────────────
 
 def parse_card(page, full_url: str) -> dict:
-    path = full_url.replace("https://ec.europa.eu","").split("?")[0]
+    path = full_url.replace("https://ec.europa.eu","").split("?")[0] 
+    #extracts relative path of the URL
     a = page.locator(f'a[href*="{path}"]').first
     title = clean(a.inner_text()) if a.count() else path.split("/")[-1]
+    #searches corresponding link on the page and reads the text, if not found uses the last parl of the URL as a fallback mechanism
 
     card = a.locator(
         "xpath=ancestor::*[contains(.,'Programme:') or contains(.,'Opening date:') or "
         "contains(.,'Deadline date:') or contains(.,'Type of action:')][1]"
     ).first
+    #starting from the link, looks for the container including key information such as programme, opening date, ...
     text = (card.inner_text() if card.count()
             else (a.locator("xpath=ancestor::*[1]").inner_text() if a.count() else ""))
+    #extracts the whole text from the card. if not found, uses the container's text
 
     dead = pick(RE_DEAD, text) or pick(RE_NEXT_DEAD, text)
     call_id = pick(RE_CALL_ID, full_url) or pick(RE_CALL_ID, text)
     cluster_raw = pick(RE_CLUSTER, text) or pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, call_id or "")
+    #uses text research to extract deadline, call ID and cluster, searching first in the text, 2nd in the URL and lastly in the ID
 
     return {
         "name":           title,
@@ -600,6 +611,7 @@ def parse_card(page, full_url: str) -> dict:
         "url":            full_url,
         "_needs_enrich":  False,
     }
+    #returns a dictionary with all the extracted fields and states if card needs enrichment
 
 # ── Arricchimento via XHR ────────────────────────────────────────────────────
 
