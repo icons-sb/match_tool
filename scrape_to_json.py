@@ -623,27 +623,34 @@ def _first(meta, *keys):
         if v and isinstance(v, str):
             return v.strip()
     return ""
-
+    
+ # Opens a page and extracts the missing information via XHR, while saving the call's full text.
 def _enrich_one(page, row: dict) -> bool:
-    """Apre una pagina di dettaglio, cattura i campi mancanti via XHR e salva anche il testo completo della call."""
+    # receives a page and the already extracted data, returns True or False depending on the success of the enrichment
+    
     url      = row["url"]
     captured = {}
+    # takes the call's URL and prepares an empty dictionary where to store the new data.
 
     def handle(response, _c=captured):
         if SEARCH_API in response.url and response.status == 200:
+            #intercepts responses coming from successful search APIs 
             try:
                 body = response.json()
                 for item in body.get("results", [body]):
+                    #reads the response as a json and reads the results. if no list results is found, uses the entire body as element
                     meta    = item.get("metadata", {}) or {}
                     prog_id = _first(meta, "frameworkProgramme", "programme")
                     action  = _first(meta, "typesOfAction","typeOfAction","fundingScheme")
                     cid     = _first(meta, "callIdentifier","identifier")
+                    #from results' metadata, finds the programme, the action type, the ID
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
                     if action and not _c.get("action"):
                         _c["action"] = action
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
+                        #saves in dictionary only the fields that were not already found
             except Exception:
                 pass
 
@@ -656,6 +663,7 @@ def _enrich_one(page, row: dict) -> bool:
         except Exception:
             body_text = ""
         row["full_text"] = clean(body_text) or ""
+        #opens the call's page and waits for the content to upload, then extracts the visible text and saves it with the call
 
         try:
             topic_id = topic_id_from_url(url)
@@ -668,6 +676,7 @@ def _enrich_one(page, row: dict) -> bool:
         print(f"    [ERR goto] {e}", flush=True)
     finally:
         page.remove_listener("response", handle)
+        #tries to recover ID and topic from the URL and extracts available budget for the project and stops intercepting responses
 
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
@@ -675,8 +684,10 @@ def _enrich_one(page, row: dict) -> bool:
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
+        # for each of the fields, copies it in the row of the call only if it was missing, without overwriting data
 
     return bool(captured) or bool(row.get("full_text"))
+    #returns True if it finds something useful
 
 
 def enrich(ctx, rows: list):
