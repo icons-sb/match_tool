@@ -521,9 +521,11 @@ def extract_budget_per_project(page, topic_id: str) -> str | None:
 
     parts = topic_id.split("?")[0].split("-")
     target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
+    """from topic ID removes everything after "?" and splits before and after "-". Uses only the last two pieces as search strings, 
+    because the call is often identified only by the final part of the code"""
 
     try:
-        # 1. Espansione sezione
+        # 1. Section expansion
         section_btn = page.locator("button:has-text('Topic conditions and documents')").first
         if section_btn.count() > 0:
             section_btn.scroll_into_view_if_needed()
@@ -531,14 +533,18 @@ def extract_budget_per_project(page, topic_id: str) -> str | None:
             if expanded == "false":
                 section_btn.click(force=True)
                 page.wait_for_timeout(3000)
+        """on the call page there is a section called "Topic conditions and documents", it can be closed or collapsed. 
+        the code looks for it, and if collapsed opens it"""
 
-        # 2. Scroll verso la riga target per forzare il lazy rendering
+        # 2. Scroll to the target row to force lazy rendering
         row_locator = page.locator(f"tr:has-text('{target_match}'), .wt-table-row:has-text('{target_match}')").first
         if row_locator.count() > 0:
             row_locator.scroll_into_view_if_needed()
             page.wait_for_timeout(1000)
+        """searches in the page the row that contains topic code and scrolls on it to force lazy rendering 
+        (rows are not loaded until near sight)"""
 
-        # 3. Analisi JS della riga
+        # 3. JS analysis 
         budget = page.evaluate(
             """
             (shortId) => {
@@ -546,10 +552,12 @@ def extract_budget_per_project(page, topic_id: str) -> str | None:
                 const targetRow = allElements.find(el => (el.innerText || '').includes(shortId));
 
                 if (!targetRow) return null;
+                # searches all rows and finds the one corresponding to the call ID
 
                 const cells = Array.from(targetRow.querySelectorAll('td, .wt-table-cell'))
                     .map(c => (c.innerText || '').trim())
                     .filter(Boolean);
+                    #takes all cells of the row and extracts text
 
                 const candidates = cells.filter(txt => {
                     const hasMoney =
@@ -560,6 +568,7 @@ def extract_budget_per_project(page, topic_id: str) -> str | None:
                     const isDate = /202[0-9]/.test(txt) && txt.length < 20;
                     return hasMoney && !isDate;
                 });
+                #filters cells looking for the ones that contain "€", "EUR", "million", excluding the oens that look like dates
 
                 if (!candidates.length) return null;
 
@@ -569,10 +578,12 @@ def extract_budget_per_project(page, topic_id: str) -> str | None:
             """,
             target_match,
         )
+        #prioritises cells with words with "around", "between", if not found looks at the last cell with a budget
 
         if budget:
             return re.sub(r"\s+", " ", str(budget)).strip()
         return None
+        #if budget is found, cleans it and returns it as a string
 
     except Exception:
         return None
