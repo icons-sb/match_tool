@@ -49,6 +49,25 @@ RE_ACTION    = re.compile(r"Type of action:\s*([^\|\n\r]+)",        re.IGNORECAS
 RE_CLUSTER   = re.compile(r"HORIZON-CL([1-6])",                     re.IGNORECASE)
 RE_CALL_ID   = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)",  re.IGNORECASE)
 
+# Budget patterns — ordered from most to least reliable
+# Matches: "Budget: €1,500,000" / "Total budget: 2.500.000 €" / "budget of EUR 1 500 000"
+RE_BUDGET_LABEL = re.compile(
+    r"(?:total\s+)?budget[:\s]+(?:of\s+)?(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
+    re.IGNORECASE,
+)
+RE_BUDGET_SUFFIX = re.compile(
+    r"([\d][0-9 .,]+)\s*(?:EUR|€|euro)",
+    re.IGNORECASE,
+)
+RE_BUDGET_INDICATIVE = re.compile(
+    r"indicative\s+(?:total\s+)?budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
+    re.IGNORECASE,
+)
+RE_BUDGET_EXPECTED = re.compile(
+    r"(?:total\s+)?(?:estimated|expected|available|allocated)\s+budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
+    re.IGNORECASE,
+)
+
 MONTHS = {
     "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
@@ -332,7 +351,61 @@ def beneficiary_hint(action: str, prog: str, url_benef):
 
 # ── Parsing date ──────────────────────────────────────────────────────────────
 
-def parse_date_iso(s: str) -> str:
+def parse_budget(s: str) -> int:
+    """Normalize a raw budget string to an integer euro amount.
+    Returns 0 if unparseable. Handles formats like:
+      1,500,000 / 1.500.000 / 1 500 000 / 1.5M / 2,3M
+    """
+    if not s:
+        return 0
+    s = s.strip()
+    # Millions shorthand: 1.5M or 2,3M
+    m = re.match(r"^([\d]+[.,][\d]+)\s*[Mm]$", s)
+    if m:
+        try:
+            return int(float(m.group(1).replace(",", ".")) * 1_000_000)
+        except ValueError:
+            pass
+    m2 = re.match(r"^([\d]+)\s*[Mm]$", s)
+    if m2:
+        try:
+            return int(m2.group(1)) * 1_000_000
+        except ValueError:
+            pass
+    # Strip anything that isn't a digit, comma, dot, or space
+    cleaned = re.sub(r"[^\d,. ]", "", s).strip()
+    # Detect European format: 1.500.000 or 1.500.000,00
+    if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", cleaned):
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    # American format: 1,500,000 or 1,500,000.00
+    elif re.match(r"^\d{1,3}(,\d{3})+(\.\d+)?$", cleaned):
+        cleaned = cleaned.replace(",", "")
+    else:
+        # Space-separated: 1 500 000
+        cleaned = cleaned.replace(" ", "").replace(",", ".")
+    try:
+        return int(float(cleaned))
+    except ValueError:
+        return 0
+
+
+def extract_budget_from_text(text: str) -> int:
+    """Try multiple regex patterns against page body text.
+    Returns the best (largest plausible) match in euros, or 0.
+    """
+    candidates = []
+    for rx in (RE_BUDGET_INDICATIVE, RE_BUDGET_EXPECTED, RE_BUDGET_LABEL, RE_BUDGET_SUFFIX):
+        for m in rx.finditer(text or ""):
+            val = parse_budget(m.group(1))
+            # Sanity: between €10,000 and €10 billion
+            if 10_000 <= val <= 10_000_000_000:
+                candidates.append(val)
+    if not candidates:
+        return 0
+    # Prefer the largest single figure (total budget > per-project budget)
+    return max(candidates)
+
+
     s = re.sub(r"\s+", " ", str(s or "")).strip()
     if not s:
         return ""
@@ -393,47 +466,12 @@ def wait_cookie_gone(page, max_ms=12000):
 def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
-def read_total(page, timeout_ms=30000):
-    """
-    Aspetta e legge il numero totale di risultati dalla pagina.
-    Prova più pattern per coprire eventuali variazioni del portale EU.
-    """
-    PATTERNS = [
-        re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",        re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",               re.IGNORECASE),
-        re.compile(r"found\s+(\d[\d,\.]*)\s*results?",             re.IGNORECASE),
-        re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),  # fallback largo
-    ]
+def read_total(page):
+    txt = page.locator("body").inner_text()
+    m = RE_TOTAL.search(txt or "")
+    return int(m.group(1)) if m else None
 
-    start = time.time()
-    while (time.time() - start) * 1000 < timeout_ms:
-        try:
-            txt = page.locator("body").inner_text()
-        except Exception:
-            txt = ""
-
-        for pat in PATTERNS:
-            m = pat.search(txt or "")
-            if m:
-                raw = m.group(1).replace(",", "").replace(".", "")
-                print(f" Contatore trovato con pattern '{pat.pattern}': {raw}")
-                return int(raw)
-
-        page.wait_for_timeout(1000)
-
-    # Debug: stampa le prime 2000 caratteri del body per capire cosa c'è
-    try:
-        snippet = page.locator("body").inner_text()[:2000]
-        print(f" Testo body (primi 2000 char):\n{snippet}")
-    except Exception as e:
-        print(f"Impossibile leggere il body: {e}")
-
-    return None
-
-def scroll_until(page, expected, max_ms=50000): #receives the page, defines how many links it expects and maximum waiting time
+def scroll_until(page, expected, max_ms=50000):
     start = time.time()
     last = -1
     stable_since = time.time()
@@ -441,7 +479,6 @@ def scroll_until(page, expected, max_ms=50000): #receives the page, defines how 
         accept_cookies(page)
         wait_cookie_gone(page, 3000)
         page.wait_for_timeout(700)
-    #if no link appears on page, waits up to 10 seconds, accepts cookies and waits for banner
     container = page.evaluate_handle(f"""() => {{
         const sel = `{LINK_SELECTOR}`;
         const links = document.querySelectorAll(sel);
@@ -456,7 +493,6 @@ def scroll_until(page, expected, max_ms=50000): #receives the page, defines how 
         }}
         return null;
     }}""")
-
     while (time.time()-start)*1000 < max_ms:
         accept_cookies(page)
         wait_cookie_gone(page, 3000)
@@ -490,126 +526,33 @@ def extract_links(page):
         () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
                   .map(a => a.getAttribute('href'))
     """)
-    #searches for all links and extracts the address
-    out, seen = [], set() #prepares empty list with the results and a list of seen links to avoid duplicates
+    out, seen = [], set()
     for h in hrefs or []:
         if not h:
             continue
-            #skips empty links 
         full = "https://ec.europa.eu" + h if h.startswith("/") else h
-        #if relative link adds the complete domain
         if full not in seen:
             seen.add(full)
             out.append(full)
     return out
-    #if link is not a duplicate adds it to the list and returns all unique links found
-
-
-# ── Budget extraction dal dettaglio topic ─────────────────────────────────────
-
-def topic_id_from_url(url: str) -> str:
-    s = (url or "").split("?")[0]
-    for marker in ["/topic-details/", "/competitive-calls-cs/"]:
-        i = s.lower().find(marker)
-        if i >= 0:
-            return s[i + len(marker):]
-    return s.rsplit("/", 1)[-1] if s else ""
-
-def extract_budget_per_project(page, topic_id: str) -> str | None:
-    if not topic_id:
-        return None
-
-    parts = topic_id.split("?")[0].split("-")
-    target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
-    """from topic ID removes everything after "?" and splits before and after "-". Uses only the last two pieces as search strings, 
-    because the call is often identified only by the final part of the code"""
-
-    try:
-        # 1. Section expansion
-        section_btn = page.locator("button:has-text('Topic conditions and documents')").first
-        if section_btn.count() > 0:
-            section_btn.scroll_into_view_if_needed()
-            expanded = section_btn.get_attribute("aria-expanded")
-            if expanded == "false":
-                section_btn.click(force=True)
-                page.wait_for_timeout(3000)
-        """on the call page there is a section called "Topic conditions and documents", it can be closed or collapsed. 
-        the code looks for it, and if collapsed opens it"""
-
-        # 2. Scroll to the target row to force lazy rendering
-        row_locator = page.locator(f"tr:has-text('{target_match}'), .wt-table-row:has-text('{target_match}')").first
-        if row_locator.count() > 0:
-            row_locator.scroll_into_view_if_needed()
-            page.wait_for_timeout(1000)
-        """searches in the page the row that contains topic code and scrolls on it to force lazy rendering 
-        (rows are not loaded until near sight)"""
-
-        # 3. JS analysis 
-        budget = page.evaluate(
-            """
-            (shortId) => {
-                const allElements = Array.from(document.querySelectorAll('tr, .wt-table-row'));
-                const targetRow = allElements.find(el => (el.innerText || '').includes(shortId));
-
-                if (!targetRow) return null;
-                # searches all rows and finds the one corresponding to the call ID
-
-                const cells = Array.from(targetRow.querySelectorAll('td, .wt-table-cell'))
-                    .map(c => (c.innerText || '').trim())
-                    .filter(Boolean);
-                    #takes all cells of the row and extracts text
-
-                const candidates = cells.filter(txt => {
-                    const hasMoney =
-                        txt.includes('€') ||
-                        /\\beur\\b/i.test(txt) ||
-                        /\\bmillion\\b/i.test(txt) ||
-                        /\\bmeur\\b/i.test(txt);
-                    const isDate = /202[0-9]/.test(txt) && txt.length < 20;
-                    return hasMoney && !isDate;
-                });
-                #filters cells looking for the ones that contain "€", "EUR", "million", excluding the oens that look like dates
-
-                if (!candidates.length) return null;
-
-                const specific = candidates.find(b => /around|to|between/i.test(b));
-                return specific || candidates[candidates.length - 1];
-            }
-            """,
-            target_match,
-        )
-        #prioritises cells with words with "around", "between", if not found looks at the last cell with a budget
-
-        if budget:
-            return re.sub(r"\s+", " ", str(budget)).strip()
-        return None
-        #if budget is found, cleans it and returns it as a string
-
-    except Exception:
-        return None
 
 # ── Parsing card dalla lista ──────────────────────────────────────────────────
 
 def parse_card(page, full_url: str) -> dict:
-    path = full_url.replace("https://ec.europa.eu","").split("?")[0] 
-    #extracts relative path of the URL
+    path = full_url.replace("https://ec.europa.eu","").split("?")[0]
     a = page.locator(f'a[href*="{path}"]').first
     title = clean(a.inner_text()) if a.count() else path.split("/")[-1]
-    #searches corresponding link on the page and reads the text, if not found uses the last parl of the URL as a fallback mechanism
 
     card = a.locator(
         "xpath=ancestor::*[contains(.,'Programme:') or contains(.,'Opening date:') or "
         "contains(.,'Deadline date:') or contains(.,'Type of action:')][1]"
     ).first
-    #starting from the link, looks for the container including key information such as programme, opening date, ...
     text = (card.inner_text() if card.count()
             else (a.locator("xpath=ancestor::*[1]").inner_text() if a.count() else ""))
-    #extracts the whole text from the card. if not found, uses the container's text
 
     dead = pick(RE_DEAD, text) or pick(RE_NEXT_DEAD, text)
     call_id = pick(RE_CALL_ID, full_url) or pick(RE_CALL_ID, text)
     cluster_raw = pick(RE_CLUSTER, text) or pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, call_id or "")
-    #uses text research to extract deadline, call ID and cluster, searching first in the text, 2nd in the URL and lastly in the ID
 
     return {
         "name":           title,
@@ -622,7 +565,6 @@ def parse_card(page, full_url: str) -> dict:
         "url":            full_url,
         "_needs_enrich":  False,
     }
-    #returns a dictionary with all the extracted fields and states if card needs enrichment
 
 # ── Arricchimento via XHR ────────────────────────────────────────────────────
 
@@ -634,34 +576,44 @@ def _first(meta, *keys):
         if v and isinstance(v, str):
             return v.strip()
     return ""
-    
- # Opens a page and extracts the missing information via XHR, while saving the call's full text.
+
 def _enrich_one(page, row: dict) -> bool:
-    # receives a page and the already extracted data, returns True or False depending on the success of the enrichment
-    
+    """Apre una pagina di dettaglio, cattura i campi mancanti via XHR e salva anche il testo completo della call."""
     url      = row["url"]
     captured = {}
-    # takes the call's URL and prepares an empty dictionary where to store the new data.
 
     def handle(response, _c=captured):
         if SEARCH_API in response.url and response.status == 200:
-            #intercepts responses coming from successful search APIs 
             try:
                 body = response.json()
                 for item in body.get("results", [body]):
-                    #reads the response as a json and reads the results. if no list results is found, uses the entire body as element
                     meta    = item.get("metadata", {}) or {}
                     prog_id = _first(meta, "frameworkProgramme", "programme")
                     action  = _first(meta, "typesOfAction","typeOfAction","fundingScheme")
                     cid     = _first(meta, "callIdentifier","identifier")
-                    #from results' metadata, finds the programme, the action type, the ID
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
                     if action and not _c.get("action"):
                         _c["action"] = action
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
-                        #saves in dictionary only the fields that were not already found
+
+                    # ── Budget: try every known XHR field name ────────────────
+                    if not _c.get("budget"):
+                        for key in (
+                            "budgetOverviewTotal", "totalBudget", "budget",
+                            "budgetTopicActions", "indicativeBudget",
+                            "availableBudget", "estimatedTotalContribution",
+                            "fundingRate", "maxContribution",
+                        ):
+                            raw = meta.get(key)
+                            if isinstance(raw, list):
+                                raw = raw[0] if raw else None
+                            if raw is not None:
+                                val = parse_budget(str(raw))
+                                if val > 0:
+                                    _c["budget"] = val
+                                    break
             except Exception:
                 pass
 
@@ -674,20 +626,17 @@ def _enrich_one(page, row: dict) -> bool:
         except Exception:
             body_text = ""
         row["full_text"] = clean(body_text) or ""
-        #opens the call's page and waits for the content to upload, then extracts the visible text and saves it with the call
 
-        try:
-            topic_id = topic_id_from_url(url)
-            budget = extract_budget_per_project(page, topic_id)
-            if budget:
-                row["budget"] = budget
-        except Exception:
-            pass
+        # ── Budget fallback: scan page text ──────────────────────────────────
+        if not captured.get("budget") and body_text:
+            val = extract_budget_from_text(body_text)
+            if val > 0:
+                captured["budget"] = val
+
     except Exception as e:
         print(f"    [ERR goto] {e}", flush=True)
     finally:
         page.remove_listener("response", handle)
-        #tries to recover ID and topic from the URL and extracts available budget for the project and stops intercepting responses
 
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
@@ -695,10 +644,10 @@ def _enrich_one(page, row: dict) -> bool:
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
-        # for each of the fields, copies it in the row of the call only if it was missing, without overwriting data
+    if captured.get("budget") and not row.get("budget_raw"):
+        row["budget_raw"] = captured["budget"]
 
     return bool(captured) or bool(row.get("full_text"))
-    #returns True if it finds something useful
 
 
 def enrich(ctx, rows: list):
@@ -787,7 +736,6 @@ def to_call(row: dict) -> dict:
         "cluster_label":    cluster_label,
         "thematic_cluster": thematic,
         "action":           action,
-        "budget":           row.get("budget") or "",
         "opening":          opening_raw,
         "opening_iso":      parse_date_iso(opening_raw),
         "deadline":         deadline_raw,
@@ -795,6 +743,7 @@ def to_call(row: dict) -> dict:
         "url":              url,
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
+        "budget":           row.get("budget_raw") or 0,
         "full_text":        multi["full_text"],
         "keyword_hits":     multi["keyword_hits"],
         "multi_thematic":   multi["multi_thematic"],
@@ -939,8 +888,9 @@ def main(out_path: Path):
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
                   wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(3000)   # ← aumenta da 1500 a 3000
-        total = read_total(page)
+        page.wait_for_timeout(1500)
+        accept_cookies(page)
+        wait_cookie_gone(page)
 
         total = read_total(page)
         if total is None:
