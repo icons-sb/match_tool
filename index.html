@@ -22,7 +22,6 @@
       --accent-hover: #1d4ed8;
       --tag-bg: rgba(37,99,235,0.06);
       --tag-border: rgba(37,99,235,0.16);
-      /* bucket colors — light theme */
       --b1: #16a34a; --b1-bg: rgba(22,163,74,0.08);
       --b2: #2563eb; --b2-bg: rgba(37,99,235,0.08);
       --b3: #d97706; --b3-bg: rgba(217,119,6,0.08);
@@ -197,9 +196,7 @@
     }
     .radio-group label:hover { border-color: var(--border-strong); color: var(--text); }
     .radio-group input[type="radio"] { display: none; }
-    .radio-group input[type="radio"]:checked + span {
-      color: var(--text);
-    }
+    .radio-group input[type="radio"]:checked + span { color: var(--text); }
     .radio-group label:has(input:checked) {
       border-color: var(--accent);
       background: var(--accent-dim);
@@ -257,6 +254,19 @@
     }
     .budget-chip:hover { color: var(--accent); border-color: var(--accent); }
     .budget-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    /* ── BUDGET WARNING ── */
+    .budget-warning {
+      display: none;
+      margin-top: 10px;
+      padding: 8px 14px;
+      background: rgba(217,119,6,0.08);
+      border: 1px solid rgba(217,119,6,0.25);
+      border-radius: 10px;
+      font-size: 0.8rem;
+      color: #92400e;
+    }
+    .budget-warning.visible { display: block; }
 
     /* ── ACTIONS ── */
     .form-actions {
@@ -387,9 +397,7 @@
       overflow: hidden;
       box-shadow: 0 1px 4px rgba(30,60,140,0.06);
     }
-    .call.call-clickable {
-      cursor: pointer;
-    }
+    .call.call-clickable { cursor: pointer; }
     .call::before {
       content: '';
       position: absolute;
@@ -416,7 +424,6 @@
       line-height: 1.7;
       margin-bottom: 14px;
     }
-    .meta span { margin-right: 0; }
     .meta .sep { margin: 0 6px; opacity: 0.3; }
 
     /* ── BADGES ── */
@@ -536,9 +543,6 @@
     }
     .sort-btn:not(.active):hover { color: var(--accent); }
 
-    /* ── DIVIDER LINE ── */
-    .field-divider { height: 1px; background: var(--border); margin: 0; }
-
     .download-group {
       display: flex;
       gap: 10px;
@@ -613,7 +617,9 @@
           <div class="budget-range-wrap">
             <div class="budget-range-top">
               <label class="field-label" style="margin:0">Range [EUR]</label>
-              <div class="budget-range-values"><span id="budget_min_label">0 EUR</span> – <span id="budget_max_label">20.000.000 EUR</span></div>
+              <div class="budget-range-values">
+                <span id="budget_min_label">0 EUR</span> – <span id="budget_max_label">20.000.000 EUR</span>
+              </div>
             </div>
             <div class="budget-slider-box">
               <div class="budget-track"></div>
@@ -629,6 +635,9 @@
               <button type="button" class="budget-chip" data-min="1000000" data-max="3000000">1M – 3M</button>
               <button type="button" class="budget-chip" data-min="3000000" data-max="10000000">3M – 10M</button>
               <button type="button" class="budget-chip" data-min="10000000" data-max="20000000">Più di 10M</button>
+            </div>
+            <div id="budgetWarning" class="budget-warning">
+              Nota: le call prive di budget specificato verranno escluse quando il filtro budget è attivo.
             </div>
           </div>
         </div>
@@ -690,9 +699,9 @@
   </div>
 
 <script>
-
 (() => {
   const PAGE_SIZE = 25;
+  const BUDGET_MAX = 20000000;
   const SPECIAL = 'Internships, fellowships & scholarships';
   const THEMATIC_OPTIONS = [
     'Health & Life Sciences','Culture, Creativity & Inclusion','Security & Resilience','Digital, Industry & Space',
@@ -718,93 +727,175 @@
     [SPECIAL]: TITLE_SPECIAL_KEYWORDS
   };
 
-  const form = document.getElementById('surveyForm');
-  const resetBtn = document.getElementById('resetBtn');
-  const resultsSection = document.getElementById('resultsSection');
-  const resultsEl = document.getElementById('results');
-  const resultsFooterEl = document.getElementById('resultsFooter');
+  /* ── DOM refs ── */
+  const form              = document.getElementById('surveyForm');
+  const resetBtn          = document.getElementById('resetBtn');
+  const resultsSection    = document.getElementById('resultsSection');
+  const resultsEl         = document.getElementById('results');
+  const resultsFooterEl   = document.getElementById('resultsFooter');
   const resultsProgressEl = document.getElementById('resultsProgress');
-  const loadMoreBtn = document.getElementById('loadMoreBtn');
-  const downloadResultsBtn = document.getElementById('downloadResultsBtn');
-  const downloadExcelBtn = document.getElementById('downloadExcelBtn');
-  const keywordFilterEl = document.getElementById('keyword_filter');
-  const budgetMinEl = document.getElementById('budget_min');
-  const budgetMaxEl = document.getElementById('budget_max');
-  const budgetMinLabelEl = document.getElementById('budget_min_label');
-  const budgetMaxLabelEl = document.getElementById('budget_max_label');
+  const loadMoreBtn       = document.getElementById('loadMoreBtn');
+  const downloadResultsBtn= document.getElementById('downloadResultsBtn');
+  const downloadExcelBtn  = document.getElementById('downloadExcelBtn');
+  const keywordFilterEl   = document.getElementById('keyword_filter');
+  const budgetMinEl       = document.getElementById('budget_min');
+  const budgetMaxEl       = document.getElementById('budget_max');
+  const budgetMinLabelEl  = document.getElementById('budget_min_label');
+  const budgetMaxLabelEl  = document.getElementById('budget_max_label');
   const budgetRangeFillEl = document.getElementById('budget_range_fill');
-  const budgetPresetEls = Array.from(document.querySelectorAll('.budget-chip'));
-  const lastUpdatedEl = document.getElementById('lastUpdated');
-  const primaryEl = document.getElementById('thematic_cluster');
-  const secondaryEl = document.getElementById('secondary_thematic_cluster');
+  const budgetWarningEl   = document.getElementById('budgetWarning');
+  const budgetPresetEls   = Array.from(document.querySelectorAll('.budget-chip'));
+  const lastUpdatedEl     = document.getElementById('lastUpdated');
+  const primaryEl         = document.getElementById('thematic_cluster');
+  const secondaryEl       = document.getElementById('secondary_thematic_cluster');
 
   let CALLS = [];
   let visibleCount = PAGE_SIZE;
   let lastAnswers = null;
-  let lastGeneratedResults = [];
-  let sortMode = 'relevance'; // 'relevance' | 'deadline'
+  /** All matched+scored calls from the last form submit (pre keyword/budget live filters). */
+  let lastScoredResults = [];
+  let sortMode = 'relevance';
 
-  function esc(s){ return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function norm(s){ return String(s || '').trim(); }
-  function lower(s){ return String(s || '').toLowerCase(); }
-  function projectEndIso(y,q){ return {Q1:`${y}-03-31`,Q2:`${y}-06-30`,Q3:`${y}-09-30`,Q4:`${y}-12-31`}[q] || ''; }
-  function normalizeAction(v){ const s=lower(v); if(s.includes('research and innovation action')) return 'RIA'; if(s.includes('innovation action')) return 'IA'; if(s.includes('coordination and support')) return 'CSA'; if(s.includes('cofund')) return 'COFUND'; return String(v||'').toUpperCase(); }
+  /* ── Utilities ── */
+  function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function norm(s){ return String(s||'').trim(); }
+  function lower(s){ return String(s||'').toLowerCase(); }
+  function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+  function projectEndIso(y,q){
+    return {Q1:`${y}-03-31`,Q2:`${y}-06-30`,Q3:`${y}-09-30`,Q4:`${y}-12-31`}[q]||'';
+  }
+
+  function normalizeAction(v){
+    const s=lower(v);
+    if(s.includes('research and innovation action')) return 'RIA';
+    if(s.includes('innovation action')) return 'IA';
+    if(s.includes('coordination and support')) return 'CSA';
+    if(s.includes('cofund')) return 'COFUND';
+    return String(v||'').toUpperCase();
+  }
+
+  /**
+   * Parse a budget string from the data into a number.
+   * Handles formats like "1.500.000", "1,500,000", "1500000", "€ 1.500.000", "1.5M" etc.
+   * Returns null if unparseable.
+   */
   function parseBudgetValue(value){
-    const s = String(value || '').trim();
-    if (!s) return null;
-    const match = s.match(/[0-9][0-9\s.,]*/);
-    if (!match) return null;
-    let num = match[0].replace(/\s+/g, '');
-    const hasComma = num.includes(',');
-    const hasDot = num.includes('.');
-    if (hasComma && hasDot) {
-      if (num.lastIndexOf(',') > num.lastIndexOf('.')) {
-        num = num.replace(/\./g, '').replace(',', '.');
-      } else {
-        num = num.replace(/,/g, '');
-      }
-    } else if (hasComma) {
-      num = num.replace(/\./g, '').replace(',', '.');
-    } else {
-      num = num.replace(/,/g, '');
+    if(value === null || value === undefined || value === '') return null;
+    let s = String(value).trim();
+
+    // Handle shorthand like "1.5M", "2M", "500K"
+    const shorthand = s.match(/^[€$\s]*([\d.,]+)\s*([KkMmBb])\b/);
+    if(shorthand){
+      const num = parseFloat(shorthand[1].replace(',','.'));
+      const mult = {k:1e3,m:1e6,b:1e9}[shorthand[2].toLowerCase()]||1;
+      const result = num * mult;
+      return Number.isFinite(result) ? result : null;
     }
-    const parsed = Number(num);
-    return Number.isFinite(parsed) ? parsed : null;
+
+    // Strip currency symbols, spaces, non-numeric chars except . and ,
+    s = s.replace(/[€$£\s]/g,'');
+
+    // Detect separator style:
+    // European: 1.234.567,89  → dots as thousands, comma as decimal
+    // US/ISO:   1,234,567.89  → commas as thousands, dot as decimal
+    // Ambiguous: 1.500 or 1,500 — treat as thousands separator (no decimal part)
+    const dotCount   = (s.match(/\./g)||[]).length;
+    const commaCount = (s.match(/,/g)||[]).length;
+
+    let normalized;
+    if(dotCount > 1){
+      // Multiple dots → European thousands separators (e.g. 1.234.567)
+      normalized = s.replace(/\./g,'').replace(',','.');
+    } else if(commaCount > 1){
+      // Multiple commas → US thousands separators (e.g. 1,234,567)
+      normalized = s.replace(/,/g,'');
+    } else if(dotCount === 1 && commaCount === 1){
+      // Both present — whichever comes last is the decimal separator
+      if(s.lastIndexOf(',') > s.lastIndexOf('.')){
+        // European: 1.234,56
+        normalized = s.replace('.','').replace(',','.');
+      } else {
+        // US: 1,234.56
+        normalized = s.replace(',','');
+      }
+    } else if(commaCount === 1){
+      // Single comma: could be decimal (1,5) or thousands (1,500)
+      // If exactly 3 digits follow the comma → thousands separator
+      const afterComma = s.split(',')[1]||'';
+      if(afterComma.length === 3 && /^\d+$/.test(afterComma)){
+        normalized = s.replace(',',''); // thousands
+      } else {
+        normalized = s.replace(',','.'); // decimal
+      }
+    } else {
+      // Only dots or plain number
+      if(dotCount === 1){
+        const afterDot = s.split('.')[1]||'';
+        // Dot with exactly 3 trailing digits → likely thousands separator
+        if(afterDot.length === 3 && /^\d+$/.test(afterDot)){
+          normalized = s.replace('.','');
+        } else {
+          normalized = s; // decimal dot
+        }
+      } else {
+        normalized = s;
+      }
+    }
+
+    // Keep only leading numeric part (strip any trailing text like " EUR")
+    const match = normalized.match(/^-?[\d.]+/);
+    if(!match) return null;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   }
-  function parseBudgetInput(value){
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
+
   function formatBudget(value){
-    return Number.isFinite(value) ? value.toLocaleString('it-IT', {maximumFractionDigits: 0}) + ' EUR' : '';
+    return Number.isFinite(value)
+      ? value.toLocaleString('it-IT',{maximumFractionDigits:0})+' EUR'
+      : '';
   }
+
+  /** Read current slider values; always returns {minBudget, maxBudget} as numbers. */
   function getBudgetRange(){
-    let minBudget = parseBudgetInput(budgetMinEl.value);
-    let maxBudget = parseBudgetInput(budgetMaxEl.value);
-    if (minBudget === null) minBudget = 0;
-    if (maxBudget === null) maxBudget = 20000000;
-    if (minBudget > maxBudget) [minBudget, maxBudget] = [maxBudget, minBudget];
-    return { minBudget, maxBudget };
+    let min = Number(budgetMinEl.value);
+    let max = Number(budgetMaxEl.value);
+    if(!Number.isFinite(min)) min = 0;
+    if(!Number.isFinite(max)) max = BUDGET_MAX;
+    if(min > max) [min, max] = [max, min];
+    return { minBudget: min, maxBudget: max };
   }
+
+  /** Returns true when the slider has been moved away from the full range. */
+  function budgetFilterActive(){
+    const { minBudget, maxBudget } = getBudgetRange();
+    return minBudget > 0 || maxBudget < BUDGET_MAX;
+  }
+
   function updateBudgetUi(){
     const { minBudget, maxBudget } = getBudgetRange();
-    budgetMinEl.value = String(minBudget);
-    budgetMaxEl.value = String(maxBudget);
-    if (budgetMinLabelEl) budgetMinLabelEl.textContent = formatBudget(minBudget);
-    if (budgetMaxLabelEl) budgetMaxLabelEl.textContent = formatBudget(maxBudget);
-    if (budgetRangeFillEl) {
-      const min = Number(budgetMinEl.min || 0);
-      const max = Number(budgetMinEl.max || 20000000);
-      const left = ((minBudget - min) / (max - min)) * 100;
-      const right = ((maxBudget - min) / (max - min)) * 100;
-      budgetRangeFillEl.style.left = left + '%';
-      budgetRangeFillEl.style.width = Math.max(right - left, 0) + '%';
-    }
+    budgetMinLabelEl.textContent = formatBudget(minBudget);
+    budgetMaxLabelEl.textContent = formatBudget(maxBudget);
+
+    const sliderMin = Number(budgetMinEl.min||0);
+    const sliderMax = Number(budgetMinEl.max||BUDGET_MAX);
+    const left  = ((minBudget - sliderMin) / (sliderMax - sliderMin)) * 100;
+    const right = ((maxBudget - sliderMin) / (sliderMax - sliderMin)) * 100;
+    budgetRangeFillEl.style.left  = left + '%';
+    budgetRangeFillEl.style.width = Math.max(right - left, 0) + '%';
+
     budgetPresetEls.forEach(btn => {
-      const isActive = Number(btn.dataset.min) === minBudget && Number(btn.dataset.max) === maxBudget;
-      btn.classList.toggle('active', isActive);
+      btn.classList.toggle(
+        'active',
+        Number(btn.dataset.min) === minBudget && Number(btn.dataset.max) === maxBudget
+      );
     });
+
+    // Show warning when filter is active
+    budgetWarningEl.classList.toggle('visible', budgetFilterActive());
   }
+
+  /* ── Boilerplate stripping ── */
   const BOILERPLATE_PATTERNS = [
     /food,\s*bioeconomy,\s*natural resources,\s*agriculture\s*and\s*environment/gi,
     /eu policies on climate,\s*environment,\s*transport,\s*agriculture\s*and\s*secure society/gi,
@@ -815,235 +906,298 @@
     /eu funding & tenders portal[^.]{0,80}/gi,
     /home funding calls for proposals[^.]{0,80}/gi,
   ];
-  function stripBoilerplate(text) {
-    let t = String(text || '');
-    BOILERPLATE_PATTERNS.forEach(p => { t = t.replace(p, ' '); });
+  function stripBoilerplate(text){
+    let t = String(text||'');
+    BOILERPLATE_PATTERNS.forEach(p => { t = t.replace(p,' '); });
     return t;
   }
-  function textForSearch(call){ return lower(stripBoilerplate([call.full_text, call.name, call.programme, call.cluster_label, call.thematic_cluster, call.action, call.budget].filter(Boolean).join(' '))); }
-  function titleHasSpecial(title){ const t=lower(title); return TITLE_SPECIAL_KEYWORDS.some(k => new RegExp(`(^|[^a-z])${escapeRegExp(k)}([^a-z]|$)`, 'i').test(t)); }
-  function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  /* ── Call enrichment ── */
+  function textForSearch(call){
+    return lower(stripBoilerplate([
+      call.full_text, call.name, call.programme, call.cluster_label,
+      call.thematic_cluster, call.action, call.budget
+    ].filter(Boolean).join(' ')));
+  }
+  function titleHasSpecial(title){
+    const t = lower(title);
+    return TITLE_SPECIAL_KEYWORDS.some(k => new RegExp(`(^|[^a-z])${escapeRegExp(k)}([^a-z]|$)`,'i').test(t));
+  }
   function keywordHits(text, thematic){
-    const keywords = KEYWORDS[thematic] || [];
+    const keywords = KEYWORDS[thematic]||[];
     const hits = [];
     keywords.forEach(k => {
-      const pattern = new RegExp(`(^|[^a-z])${escapeRegExp(lower(k))}([^a-z]|$)`, 'i');
-      if (pattern.test(text)) hits.push(k);
+      if(new RegExp(`(^|[^a-z])${escapeRegExp(lower(k))}([^a-z]|$)`,'i').test(text)) hits.push(k);
     });
     return [...new Set(hits)];
   }
   function enrichCall(raw){
     const call = {...raw};
-    call._assigned = norm(call.thematic_cluster);
-    call._action_norm = normalizeAction(call.action);
-    call._deadline_norm = call.deadline_iso || '';
-    call._budget_value = parseBudgetValue(call.budget);
-    call._search = textForSearch(call);
-    call._special = Boolean(call.is_special_basic_research || titleHasSpecial(call.name));
-    call._keyword_hits = {};
+    call._assigned      = norm(call.thematic_cluster);
+    call._action_norm   = normalizeAction(call.action);
+    call._deadline_norm = call.deadline_iso||'';
+    call._budget_value  = parseBudgetValue(call.budget);
+    call._search        = textForSearch(call);
+    call._special       = Boolean(call.is_special_basic_research || titleHasSpecial(call.name));
+    call._keyword_hits  = {};
     THEMATIC_OPTIONS.forEach(t => {
-      if (t === SPECIAL) return;
+      if(t === SPECIAL) return;
       const hits = keywordHits(call._search, t);
-      if (hits.length) call._keyword_hits[t] = hits;
+      if(hits.length) call._keyword_hits[t] = hits;
     });
-    if (call._special) call._keyword_hits[SPECIAL] = TITLE_SPECIAL_KEYWORDS.filter(k => lower(call.name).includes(k));
+    if(call._special) call._keyword_hits[SPECIAL] = TITLE_SPECIAL_KEYWORDS.filter(k => lower(call.name).includes(k));
     return call;
   }
+
+  /* ── Matching / scoring ── */
   function isAssignedTo(call, thematic){
-    if (!thematic) return false;
-    if (thematic === SPECIAL) return !!call._special;
+    if(!thematic) return false;
+    if(thematic === SPECIAL) return !!call._special;
     return norm(call._assigned) === thematic;
   }
   function hitsFor(call, thematic){
-    if (!thematic) return [];
-    if (thematic === SPECIAL) return call._special ? ['title match'] : [];
-    return Array.isArray(call._keyword_hits[thematic]) ? call._keyword_hits[thematic] : keywordHits(call._search, thematic);
+    if(!thematic) return [];
+    if(thematic === SPECIAL) return call._special ? ['title match'] : [];
+    return Array.isArray(call._keyword_hits[thematic])
+      ? call._keyword_hits[thematic]
+      : keywordHits(call._search, thematic);
   }
   function scoreNature(call, nature){
-    if (!nature) return 0;
+    if(!nature) return 0;
     const a = call._action_norm;
-    if (nature === 'basic') return (a === 'RIA' ? 14 : 0) + (a === 'CSA' ? 6 : 0) + (call._special ? 8 : 0);
-    if (nature === 'applied') return (a === 'RIA' ? 9 : 0) + (a === 'IA' ? 9 : 0);
-    if (nature === 'industrial') return (a === 'IA' ? 14 : 0);
+    if(nature === 'basic')    return (a==='RIA'?14:0)+(a==='CSA'?6:0)+(call._special?8:0);
+    if(nature === 'applied')  return (a==='RIA'?9:0)+(a==='IA'?9:0);
+    if(nature === 'industrial') return (a==='IA'?14:0);
     return 0;
   }
-  
-  function bucketAndScore(call, answers){ //primary function integrating tier assignment and composite score. Takes the enriched call and the user's responses
-    const primary = answers.thematic_cluster || ''; 
-    const secondary = answers.secondary_thematic_cluster || '';
-    //extracts primary and secondary areas from the answers. If unspecified, the string is set to be empty
-    const primaryAssigned = isAssignedTo(call, primary);
+  function bucketAndScore(call, answers){
+    const primary   = answers.thematic_cluster||'';
+    const secondary = answers.secondary_thematic_cluster||'';
+    const primaryAssigned   = isAssignedTo(call, primary);
     const secondaryAssigned = secondary ? isAssignedTo(call, secondary) : false;
-    //verifies that the call is structurally assigned to primary area; verification is done for 2nd thematic area only if specified, otherwise empty
-    const primaryHits = hitsFor(call, primary);
+    const primaryHits   = hitsFor(call, primary);
     const secondaryHits = secondary ? hitsFor(call, secondary) : [];
-    //retrieves keyword found in the call's full text for each area
     const otherAssigned = !primaryAssigned && !secondaryAssigned;
-    //if call belongs neither to first nor second thematic area -> to identify tier 5 and 6
 
     let bucket = 99;
-    //tier is initialised at 99, meaning no match, if no condition is met the call will be excluded
-    if (!secondary) {
-      if (primaryAssigned) bucket = 1;
-      else if (primaryHits.length) bucket = 2;
+    if(!secondary){
+      if(primaryAssigned)      bucket = 1;
+      else if(primaryHits.length) bucket = 2;
     } else {
-      //Checks if second thematic area was specified in the questionnaire
-      if (primaryAssigned && secondaryHits.length) bucket = 1; //Tier 1 assignation
-      else if (secondaryAssigned && primaryHits.length) bucket = 2; //Tier 2 assignation
-      else if (primaryAssigned) bucket = 3; //Tier 3 assignation
-      else if (secondaryAssigned) bucket = 4; //Tier 4 assignation
-      else if (otherAssigned && primaryHits.length && secondaryHits.length) bucket = 5; //Tier 5 assignation
-      else if (otherAssigned && (primaryHits.length || secondaryHits.length)) bucket = 6; //Tier 6 assignation
+      if(primaryAssigned && secondaryHits.length)                        bucket = 1;
+      else if(secondaryAssigned && primaryHits.length)                   bucket = 2;
+      else if(primaryAssigned)                                           bucket = 3;
+      else if(secondaryAssigned)                                         bucket = 4;
+      else if(otherAssigned && primaryHits.length && secondaryHits.length) bucket = 5;
+      else if(otherAssigned && (primaryHits.length || secondaryHits.length)) bucket = 6;
     }
-    if (bucket === 99) return null;
+    if(bucket === 99) return null;
 
-    let score = 1000 - bucket * 100; //basic score - tier 1=900, tier 2=800, ...
-    //ensures calls of higher tier are never surpassed by other elements
-    score += primaryAssigned ? 40 : 0;
+    let score = 1000 - bucket * 100;
+    score += primaryAssigned   ? 40 : 0;
     score += secondaryAssigned ? 18 : 0;
-    //score to reflect higher scoring for the primary thematic area
     score += Math.min(primaryHits.length, 4) * 6;
     score += Math.min(secondaryHits.length, 4) * 6;
-    //6 points for each keyword, with max. 24 points per area to ensure preference for more specific calls
-    score += scoreNature(call, answers.project_nature || '');
-    //adds score calculated previously that aligns nature of research and type of action
-    if ((answers.action_type || '') && answers.action_type !== 'OTHER') score += (call._action_norm === answers.action_type ? 10 : -50);
-    //if user specified type of action =/ other, +10 for correspondence, -50 for no correspondence
-    if ((answers.action_type || '') === 'OTHER') score += (!['RIA','IA','CSA','COFUND'].includes(call._action_norm) ? 8 : -50);
-    if (call._special && (primary === SPECIAL || secondary === SPECIAL)) score += 16;
-    //bonus in specific internship categories if user specified this
+    score += scoreNature(call, answers.project_nature||'');
+    const at = answers.action_type||'';
+    if(at && at !== 'OTHER') score += (call._action_norm === at ? 10 : -50);
+    if(at === 'OTHER')       score += (!['RIA','IA','CSA','COFUND'].includes(call._action_norm) ? 8 : -50);
+    if(call._special && (primary === SPECIAL || secondary === SPECIAL)) score += 16;
+
     return {bucket, score, primaryAssigned, secondaryAssigned, primaryHits, secondaryHits};
   }
+
+  /* ── Budget filter helper ── */
+  /**
+   * Check whether a call passes the current budget slider range.
+   * If the slider is at the full default range, all calls pass regardless of budget data.
+   * If the slider has been restricted, calls with no parseable budget are excluded.
+   */
+  function passedBudgetFilter(call){
+    if(!budgetFilterActive()) return true;   // slider untouched → no filter
+    const v = call._budget_value;
+    if(!Number.isFinite(v)) return false;    // no parseable budget → exclude when filter is active
+    const { minBudget, maxBudget } = getBudgetRange();
+    return v >= minBudget && v <= maxBudget;
+  }
+
+  /* ── Main filter pipeline ── */
+  /**
+   * applyFilters: runs once on form submit.
+   * Returns ALL calls that pass thematic + deadline + action_type matching,
+   * scored and sorted by relevance. Budget and keyword are NOT applied here —
+   * they are live filters applied in applyDisplayFilters().
+   */
   function applyFilters(calls, answers){
     const projectEnd = projectEndIso(answers.closure_year, answers.closure_quarter);
-    return calls.map(enrichCall).map(call => {
-      if (projectEnd && call._deadline_norm && call._deadline_norm <= projectEnd) return null;
-      const bs = bucketAndScore(call, answers);
-      if (!bs) return null;
-      return {...call, _bucket: bs.bucket, _score: bs.score, _primaryAssigned: bs.primaryAssigned, _secondaryAssigned: bs.secondaryAssigned, _primaryHits: bs.primaryHits, _secondaryHits: bs.secondaryHits};
-    }).filter(Boolean).sort((a,b) => {
-      if (a._bucket !== b._bucket) return a._bucket - b._bucket;
-      if (b._score !== a._score) return b._score - a._score;
-      return String(a._deadline_norm || '').localeCompare(String(b._deadline_norm || ''));
-    });
+    return calls
+      .map(enrichCall)
+      .map(call => {
+        // Deadline: call must close AFTER the project end date
+        if(projectEnd && call._deadline_norm && call._deadline_norm <= projectEnd) return null;
+        const bs = bucketAndScore(call, answers);
+        if(!bs) return null;
+        return {
+          ...call,
+          _bucket:          bs.bucket,
+          _score:           bs.score,
+          _primaryAssigned: bs.primaryAssigned,
+          _secondaryAssigned:bs.secondaryAssigned,
+          _primaryHits:     bs.primaryHits,
+          _secondaryHits:   bs.secondaryHits
+        };
+      })
+      .filter(Boolean)
+      .sort((a,b) => {
+        if(a._bucket !== b._bucket) return a._bucket - b._bucket;
+        if(b._score  !== a._score)  return b._score  - a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
   }
-  function applyLiveKeyword(results){
-    const raw = lower(keywordFilterEl.value || '').trim();
+
+  /**
+   * applyDisplayFilters: runs on every re-render (keyword typing, slider move, sort change).
+   * Applies keyword search and budget range on top of lastScoredResults.
+   */
+  function applyDisplayFilters(results){
+    const raw   = lower(keywordFilterEl.value||'').trim();
     const terms = raw.split(/\s+/).filter(Boolean);
-    const { minBudget, maxBudget } = getBudgetRange();
-    const budgetFilterActive = !(minBudget === 0 && maxBudget === 20000000);
+
     return results.filter(c => {
-      if (terms.length) {
-        const title = lower(c.name || '');
-        if (!terms.every(t => title.includes(t))) return false;
+      // 1. Keyword filter (title only — fast and intentional)
+      if(terms.length){
+        const title = lower(c.name||'');
+        if(!terms.every(t => title.includes(t))) return false;
       }
-      if (budgetFilterActive) {
-        if (!Number.isFinite(c._budget_value)) return false;
-        if (c._budget_value < minBudget) return false;
-        if (c._budget_value > maxBudget) return false;
-      }
+      // 2. Budget filter
+      if(!passedBudgetFilter(c)) return false;
       return true;
     });
   }
+
+  /* ── Rendering ── */
   function bucketLabel(call){
-    if (call._bucket === 1) return 'Primario · con keyword secondaria';
-    if (call._bucket === 2) return 'Secondario · con keyword primaria';
-    if (call._bucket === 3) return 'Primario · senza keyword secondaria';
-    if (call._bucket === 4) return 'Secondario · senza keyword primaria';
-    if (call._bucket === 5) return 'Altra area · keyword primaria + secondaria';
-    if (call._bucket === 6) return 'Altra area · keyword parziale';
+    if(call._bucket===1) return 'Primario · con keyword secondaria';
+    if(call._bucket===2) return 'Secondario · con keyword primaria';
+    if(call._bucket===3) return 'Primario · senza keyword secondaria';
+    if(call._bucket===4) return 'Secondario · senza keyword primaria';
+    if(call._bucket===5) return 'Altra area · keyword primaria + secondaria';
+    if(call._bucket===6) return 'Altra area · keyword parziale';
     return 'Match';
   }
+
   function renderSummary(a){
+    const { minBudget, maxBudget } = getBudgetRange();
+    const budgetLabel = budgetFilterActive()
+      ? `${formatBudget(minBudget)} – ${formatBudget(maxBudget)}`
+      : 'Qualsiasi';
     const items = [
-      {l:'Chiusura',v:`${esc(a.closure_year)} ${esc(a.closure_quarter)}`},
-      {l:'Natura',v:esc(a.project_nature||'Qualsiasi')},
-      {l:'Primaria',v:esc(a.thematic_cluster||'—')},
-      {l:'Secondaria',v:esc(a.secondary_thematic_cluster||'—')},
-      {l:'Action',v:esc(a.action_type||'Qualsiasi')},
-      {l:'Budget',v:`${esc(formatBudget(getBudgetRange().minBudget))} – ${esc(formatBudget(getBudgetRange().maxBudget))}`}
+      {l:'Chiusura',  v:`${esc(a.closure_year)} ${esc(a.closure_quarter)}`},
+      {l:'Natura',    v: esc(a.project_nature||'Qualsiasi')},
+      {l:'Primaria',  v: esc(a.thematic_cluster||'—')},
+      {l:'Secondaria',v: esc(a.secondary_thematic_cluster||'—')},
+      {l:'Action',    v: esc(a.action_type||'Qualsiasi')},
+      {l:'Budget',    v: esc(budgetLabel)}
     ];
-    return '<div class="summary">' + items.map(i=>`<span class="pill">${i.l}<strong>${i.v}</strong></span>`).join('') + '</div>';
+    return '<div class="summary">'
+      + items.map(i=>`<span class="pill">${i.l}<strong>${i.v}</strong></span>`).join('')
+      + '</div>';
   }
+
   function renderCalls(){
-    let filtered = applyLiveKeyword(lastGeneratedResults);
-    if (sortMode === 'deadline') {
-      filtered = [...filtered].sort((a, b) => {
-        const da = a._deadline_norm || '9999';
-        const db = b._deadline_norm || '9999';
+    let filtered = applyDisplayFilters(lastScoredResults);
+
+    if(sortMode === 'deadline'){
+      filtered = [...filtered].sort((a,b) => {
+        const da = a._deadline_norm||'9999';
+        const db = b._deadline_norm||'9999';
         return da.localeCompare(db);
       });
     }
+
     const visible = filtered.slice(0, visibleCount);
-    let html = '';
-    html += renderSummary(lastAnswers);
     document.getElementById('statsCount').innerHTML = `<strong>${filtered.length}</strong> call trovate`;
-    if (!filtered.length) {
+
+    let html = renderSummary(lastAnswers);
+
+    if(!filtered.length){
       resultsEl.innerHTML = html + '<div class="empty">Nessuna call corrisponde ai filtri attivi.</div>';
       resultsFooterEl.classList.add('hidden');
       return;
     }
+
     visible.forEach(call => {
       const meta = [
-        call.programme ? `Programme: ${esc(call.programme)}` : '',
-        call.thematic_cluster ? `Thematic area: ${esc(call.thematic_cluster)}` : '',
-        call.cluster_label ? `Horizon area: ${esc(call.cluster_label)}` : '',
-        call.action ? `Action: ${esc(call.action)}` : '',
-        call.budget ? `Budget: ${esc(call.budget)}` : '',
-        call.opening ? `Opening: ${esc(call.opening)}` : '',
-        call.deadline ? `Deadline: ${esc(call.deadline)}` : ''
+        call.programme      ? `Programme: ${esc(call.programme)}`            : '',
+        call.thematic_cluster?`Thematic area: ${esc(call.thematic_cluster)}` : '',
+        call.cluster_label  ? `Horizon area: ${esc(call.cluster_label)}`     : '',
+        call.action         ? `Action: ${esc(call.action)}`                  : '',
+        call.budget         ? `Budget: ${esc(call.budget)}`                  : '',
+        call.opening        ? `Opening: ${esc(call.opening)}`                : '',
+        call.deadline       ? `Deadline: ${esc(call.deadline)}`              : ''
       ].filter(Boolean).join(' · ');
+
       const bucketClass = `badge-b${call._bucket||6}`;
       const badges = [`<span class="badge ${bucketClass}">${bucketLabel(call)}</span>`];
-      if (call._special) badges.push('<span class="badge badge-special">internships / fellowships</span>');
-      const tags = [];
-      call._primaryHits.forEach(t => tags.push(`<span class="tag">${esc(t)}</span>`));
-      call._secondaryHits.forEach(t => tags.push(`<span class="tag">${esc(t)}</span>`));
+      if(call._special) badges.push('<span class="badge badge-special">internships / fellowships</span>');
 
-      const urlAttr = call.url ? ` data-url="${esc(call.url)}"` : '';
+      const tags = [
+        ...(call._primaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`),
+        ...(call._secondaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`)
+      ];
+
+      const urlAttr       = call.url ? ` data-url="${esc(call.url)}"` : '';
       const clickableClass = call.url ? ' call-clickable' : '';
 
       html += `<article class="call${clickableClass}" data-bucket="${call._bucket||6}"${urlAttr}>
-        <h3>${esc(call.name || '(senza nome)')}</h3>
+        <h3>${esc(call.name||'(senza nome)')}</h3>
         <div class="meta">${meta}</div>
         <div class="matchbadges">${badges.join('')}</div>
         ${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}
         ${call.url ? `<div class="call-link"><a href="${encodeURI(call.url)}" target="_blank" rel="noopener noreferrer">${esc(call.url)}</a></div>` : ''}
       </article>`;
     });
+
     resultsEl.innerHTML = html;
+
     const shown = Math.min(visibleCount, filtered.length);
     resultsProgressEl.textContent = `Stai vedendo ${shown} risultati su ${filtered.length}.`;
     resultsFooterEl.classList.remove('hidden');
     loadMoreBtn.classList.toggle('hidden', shown >= filtered.length);
   }
+
+  /* ── Select population ── */
   function populateSelects(){
-    primaryEl.innerHTML = '<option value="" selected disabled>Seleziona…</option>' + THEMATIC_OPTIONS.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
-    secondaryEl.innerHTML = '<option value="">Nessuna</option>' + THEMATIC_OPTIONS.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    primaryEl.innerHTML   = '<option value="" selected disabled>Seleziona…</option>'
+      + THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    secondaryEl.innerHTML = '<option value="">Nessuna</option>'
+      + THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
   }
 
+  /* ── Export ── */
   function getExportRows(){
-    const filtered = applyLiveKeyword(lastGeneratedResults);
-    return filtered.map(c => ({
-      name:c.name||'',
-      programme:c.programme||'',
-      thematic_cluster:c.thematic_cluster||'',
-      cluster_label:c.cluster_label||'',
-      action:c.action||'',
-      budget:c.budget||'',
-      opening:c.opening||'',
-      deadline:c.deadline||'',
-      url:c.url||'',
-      bucket:c._bucket||'',
-      score:c._score||''
+    return applyDisplayFilters(lastScoredResults).map(c=>({
+      name:             c.name||'',
+      programme:        c.programme||'',
+      thematic_cluster: c.thematic_cluster||'',
+      cluster_label:    c.cluster_label||'',
+      action:           c.action||'',
+      budget:           c.budget||'',
+      opening:          c.opening||'',
+      deadline:         c.deadline||'',
+      url:              c.url||'',
+      bucket:           c._bucket||'',
+      score:            c._score||''
     }));
   }
 
   function downloadCsv(){
     const rows = getExportRows();
-    const headers = Object.keys(rows[0] || {name:'',programme:'',thematic_cluster:'',cluster_label:'',action:'',opening:'',deadline:'',url:'',bucket:'',score:''});
-    const csv = [headers.join(',')].concat(rows.map(r => headers.map(h => '"' + String(r[h] ?? '').replace(/"/g,'""') + '"').join(','))).join('\n');
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const headers = Object.keys(rows[0]||{});
+    const csv = [headers.join(',')]
+      .concat(rows.map(r=>headers.map(h=>'"'+String(r[h]??'').replace(/"/g,'""')+'"').join(',')))
+      .join('\n');
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'results.csv';
@@ -1053,21 +1207,12 @@
 
   function downloadExcel(){
     const rows = getExportRows();
-    const headers = Object.keys(rows[0] || {name:'',programme:'',thematic_cluster:'',cluster_label:'',action:'',opening:'',deadline:'',url:'',bucket:'',score:''});
-    const table = `
-      <table>
-        <thead>
-          <tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr>
-        </thead>
-        <tbody>
-          ${rows.map(r => `<tr>${headers.map(h => `<td>${esc(r[h] ?? '')}</td>`).join('')}</tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-    const blob = new Blob(
-      ['\ufeff' + table],
-      { type: 'application/vnd.ms-excel;charset=utf-8;' }
-    );
+    const headers = Object.keys(rows[0]||{});
+    const table = `<table>
+      <thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${esc(r[h]??'')}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+    const blob = new Blob(['\ufeff'+table],{type:'application/vnd.ms-excel;charset=utf-8;'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'results.xls';
@@ -1075,24 +1220,26 @@
     URL.revokeObjectURL(a.href);
   }
 
-  form.addEventListener('submit', (e) => {
+  /* ── Event listeners ── */
+  form.addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(form);
     const answers = {
-      closure_year: fd.get('closure_year') || '',
-      closure_quarter: fd.get('closure_quarter') || '',
-      project_nature: fd.get('project_nature') || '',
-      thematic_cluster: fd.get('thematic_cluster') || '',
-      secondary_thematic_cluster: fd.get('secondary_thematic_cluster') || '',
-      action_type: fd.get('action_type') || ''
+      closure_year:               fd.get('closure_year')||'',
+      closure_quarter:            fd.get('closure_quarter')||'',
+      project_nature:             fd.get('project_nature')||'',
+      thematic_cluster:           fd.get('thematic_cluster')||'',
+      secondary_thematic_cluster: fd.get('secondary_thematic_cluster')||'',
+      action_type:                fd.get('action_type')||''
     };
-    if (answers.secondary_thematic_cluster && answers.secondary_thematic_cluster === answers.thematic_cluster) {
+    if(answers.secondary_thematic_cluster && answers.secondary_thematic_cluster === answers.thematic_cluster){
       alert('Area primaria e secondaria devono essere diverse.');
       return;
     }
     lastAnswers = answers;
     visibleCount = PAGE_SIZE;
-    lastGeneratedResults = applyFilters(CALLS, answers);
+    // Thematic + deadline scoring only — budget/keyword are live filters
+    lastScoredResults = applyFilters(CALLS, answers);
     resultsSection.classList.remove('hidden');
     renderCalls();
     resultsSection.scrollIntoView({behavior:'smooth', block:'start'});
@@ -1102,93 +1249,89 @@
   keywordFilterEl.addEventListener('input', () => {
     clearTimeout(_kwTimer);
     _kwTimer = setTimeout(() => {
-      if (lastAnswers) { visibleCount = PAGE_SIZE; renderCalls(); }
+      if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
     }, 180);
   });
 
   budgetMinEl.addEventListener('input', () => {
-    if (Number(budgetMinEl.value) > Number(budgetMaxEl.value)) budgetMinEl.value = budgetMaxEl.value;
+    if(Number(budgetMinEl.value) > Number(budgetMaxEl.value)) budgetMinEl.value = budgetMaxEl.value;
     updateBudgetUi();
-    if (lastAnswers) { visibleCount = PAGE_SIZE; renderCalls(); }
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
   });
 
   budgetMaxEl.addEventListener('input', () => {
-    if (Number(budgetMaxEl.value) < Number(budgetMinEl.value)) budgetMaxEl.value = budgetMinEl.value;
+    if(Number(budgetMaxEl.value) < Number(budgetMinEl.value)) budgetMaxEl.value = budgetMinEl.value;
     updateBudgetUi();
-    if (lastAnswers) { visibleCount = PAGE_SIZE; renderCalls(); }
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
   });
 
   budgetPresetEls.forEach(btn => btn.addEventListener('click', () => {
-    budgetMinEl.value = btn.dataset.min || '0';
-    budgetMaxEl.value = btn.dataset.max || '20000000';
+    budgetMinEl.value = btn.dataset.min||'0';
+    budgetMaxEl.value = btn.dataset.max||String(BUDGET_MAX);
     updateBudgetUi();
-    if (lastAnswers) { visibleCount = PAGE_SIZE; renderCalls(); }
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
   }));
 
-  const sortRelevanceBtn = document.getElementById('sortRelevance');
-  const sortDeadlineBtn = document.getElementById('sortDeadline');
-
-  sortRelevanceBtn.addEventListener('click', () => {
+  document.getElementById('sortRelevance').addEventListener('click', () => {
     sortMode = 'relevance';
-    sortRelevanceBtn.classList.add('active');
-    sortDeadlineBtn.classList.remove('active');
-    if (lastAnswers) { visibleCount = PAGE_SIZE; renderCalls(); }
+    document.getElementById('sortRelevance').classList.add('active');
+    document.getElementById('sortDeadline').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
   });
 
-  sortDeadlineBtn.addEventListener('click', () => {
+  document.getElementById('sortDeadline').addEventListener('click', () => {
     sortMode = 'deadline';
-    sortDeadlineBtn.classList.add('active');
-    sortRelevanceBtn.classList.remove('active');
-    if (lastAnswers) { visibleCount = PAGE_SIZE; renderCalls(); }
+    document.getElementById('sortDeadline').classList.add('active');
+    document.getElementById('sortRelevance').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
   });
 
   loadMoreBtn.addEventListener('click', () => { visibleCount += PAGE_SIZE; renderCalls(); });
-  downloadResultsBtn.addEventListener('click', () => { if (lastAnswers) downloadCsv(); });
-  downloadExcelBtn.addEventListener('click', () => { if (lastAnswers) downloadExcel(); });
+  downloadResultsBtn.addEventListener('click', () => { if(lastAnswers) downloadCsv(); });
+  downloadExcelBtn.addEventListener('click',   () => { if(lastAnswers) downloadExcel(); });
 
-  resultsEl.addEventListener('click', (e) => {
-    const link = e.target.closest('a');
-    if (link) return;
+  resultsEl.addEventListener('click', e => {
+    if(e.target.closest('a')) return;
     const card = e.target.closest('.call.call-clickable');
-    if (!card) return;
-    const url = card.dataset.url;
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if(card && card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
   });
 
   resetBtn.addEventListener('click', () => {
     form.reset();
-    secondaryEl.value='';
+    secondaryEl.value = '';
     resultsSection.classList.add('hidden');
-    resultsEl.innerHTML='';
+    resultsEl.innerHTML = '';
     resultsFooterEl.classList.add('hidden');
-    keywordFilterEl.value='';
-    budgetMinEl.value='0';
-    budgetMaxEl.value='20000000';
+    keywordFilterEl.value = '';
+    budgetMinEl.value = '0';
+    budgetMaxEl.value = String(BUDGET_MAX);
     updateBudgetUi();
+    lastAnswers = null;
+    lastScoredResults = [];
   });
 
+  /* ── Init ── */
   updateBudgetUi();
+  populateSelects();
 
   async function loadCalls(){
     try {
-      const res = await fetch('./calls.json', {cache:'no-store'});
+      const res  = await fetch('./calls.json',{cache:'no-store'});
       const data = await res.json();
-      if (data.generated) {
+      if(data.generated){
         const d = new Date(data.generated);
-        lastUpdatedEl.textContent = `Dati aggiornati al: ${d.toLocaleDateString('it-IT')} ${d.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'})} UTC`;
+        lastUpdatedEl.textContent = `Dati aggiornati al: ${d.toLocaleDateString('it-IT')} ${d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} UTC`;
       }
       CALLS = Array.isArray(data.calls) ? data.calls : [];
-    } catch (err) {
+    } catch(err){
       console.error(err);
       lastUpdatedEl.textContent = 'Errore nel caricamento di calls.json';
       CALLS = [];
     }
   }
 
-  populateSelects();
   loadCalls();
 })();
-
 </script>
 </body>
 </html>
