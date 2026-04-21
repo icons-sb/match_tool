@@ -49,6 +49,25 @@ RE_ACTION    = re.compile(r"Type of action:\s*([^\|\n\r]+)",        re.IGNORECAS
 RE_CLUSTER   = re.compile(r"HORIZON-CL([1-6])",                     re.IGNORECASE)
 RE_CALL_ID   = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)",  re.IGNORECASE)
 
+# Budget patterns — ordered from most to least reliable
+# Matches: "Budget: €1,500,000" / "Total budget: 2.500.000 €" / "budget of EUR 1 500 000"
+RE_BUDGET_LABEL = re.compile(
+    r"(?:total\s+)?budget[:\s]+(?:of\s+)?(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
+    re.IGNORECASE,
+)
+RE_BUDGET_SUFFIX = re.compile(
+    r"([\d][0-9 .,]+)\s*(?:EUR|€|euro)",
+    re.IGNORECASE,
+)
+RE_BUDGET_INDICATIVE = re.compile(
+    r"indicative\s+(?:total\s+)?budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
+    re.IGNORECASE,
+)
+RE_BUDGET_EXPECTED = re.compile(
+    r"(?:total\s+)?(?:estimated|expected|available|allocated)\s+budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
+    re.IGNORECASE,
+)
+
 MONTHS = {
     "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
@@ -332,7 +351,61 @@ def beneficiary_hint(action: str, prog: str, url_benef):
 
 # ── Parsing date ──────────────────────────────────────────────────────────────
 
-def parse_date_iso(s: str) -> str:
+def parse_budget(s: str) -> int:
+    """Normalize a raw budget string to an integer euro amount.
+    Returns 0 if unparseable. Handles formats like:
+      1,500,000 / 1.500.000 / 1 500 000 / 1.5M / 2,3M
+    """
+    if not s:
+        return 0
+    s = s.strip()
+    # Millions shorthand: 1.5M or 2,3M
+    m = re.match(r"^([\d]+[.,][\d]+)\s*[Mm]$", s)
+    if m:
+        try:
+            return int(float(m.group(1).replace(",", ".")) * 1_000_000)
+        except ValueError:
+            pass
+    m2 = re.match(r"^([\d]+)\s*[Mm]$", s)
+    if m2:
+        try:
+            return int(m2.group(1)) * 1_000_000
+        except ValueError:
+            pass
+    # Strip anything that isn't a digit, comma, dot, or space
+    cleaned = re.sub(r"[^\d,. ]", "", s).strip()
+    # Detect European format: 1.500.000 or 1.500.000,00
+    if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", cleaned):
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    # American format: 1,500,000 or 1,500,000.00
+    elif re.match(r"^\d{1,3}(,\d{3})+(\.\d+)?$", cleaned):
+        cleaned = cleaned.replace(",", "")
+    else:
+        # Space-separated: 1 500 000
+        cleaned = cleaned.replace(" ", "").replace(",", ".")
+    try:
+        return int(float(cleaned))
+    except ValueError:
+        return 0
+
+
+def extract_budget_from_text(text: str) -> int:
+    """Try multiple regex patterns against page body text.
+    Returns the best (largest plausible) match in euros, or 0.
+    """
+    candidates = []
+    for rx in (RE_BUDGET_INDICATIVE, RE_BUDGET_EXPECTED, RE_BUDGET_LABEL, RE_BUDGET_SUFFIX):
+        for m in rx.finditer(text or ""):
+            val = parse_budget(m.group(1))
+            # Sanity: between €10,000 and €10 billion
+            if 10_000 <= val <= 10_000_000_000:
+                candidates.append(val)
+    if not candidates:
+        return 0
+    # Prefer the largest single figure (total budget > per-project budget)
+    return max(candidates)
+
+
     s = re.sub(r"\s+", " ", str(s or "")).strip()
     if not s:
         return ""
@@ -463,84 +536,6 @@ def extract_links(page):
             out.append(full)
     return out
 
-
-# ── Budget extraction dal dettaglio topic ─────────────────────────────────────
-
-def topic_id_from_url(url: str) -> str:
-    s = (url or "").split("?")[0]
-    for marker in ["/topic-details/", "/competitive-calls-cs/"]:
-        i = s.lower().find(marker)
-        if i >= 0:
-            return s[i + len(marker):]
-    return s.rsplit("/", 1)[-1] if s else ""
-
-def extract_budget_per_project(page, topic_id: str) -> str | None:
-    """
-    Versione 'Cacciatore': usa un match corto dell'ID topic e forza lo scroll
-    per favorire il rendering lazy delle tabelle nella sezione
-    'Topic conditions and documents'.
-    """
-    if not topic_id:
-        return None
-
-    parts = topic_id.split("?")[0].split("-")
-    target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
-
-    try:
-        # 1. Espansione sezione
-        section_btn = page.locator("button:has-text('Topic conditions and documents')").first
-        if section_btn.count() > 0:
-            section_btn.scroll_into_view_if_needed()
-            expanded = section_btn.get_attribute("aria-expanded")
-            if expanded == "false":
-                section_btn.click(force=True)
-                page.wait_for_timeout(3000)
-
-        # 2. Scroll verso la riga target per forzare il lazy rendering
-        row_locator = page.locator(f"tr:has-text('{target_match}'), .wt-table-row:has-text('{target_match}')").first
-        if row_locator.count() > 0:
-            row_locator.scroll_into_view_if_needed()
-            page.wait_for_timeout(1000)
-
-        # 3. Analisi JS della riga
-        budget = page.evaluate(
-            """
-            (shortId) => {
-                const allElements = Array.from(document.querySelectorAll('tr, .wt-table-row'));
-                const targetRow = allElements.find(el => (el.innerText || '').includes(shortId));
-
-                if (!targetRow) return null;
-
-                const cells = Array.from(targetRow.querySelectorAll('td, .wt-table-cell'))
-                    .map(c => (c.innerText || '').trim())
-                    .filter(Boolean);
-
-                const candidates = cells.filter(txt => {
-                    const hasMoney =
-                        txt.includes('€') ||
-                        /\\beur\\b/i.test(txt) ||
-                        /\\bmillion\\b/i.test(txt) ||
-                        /\\bmeur\\b/i.test(txt);
-                    const isDate = /202[0-9]/.test(txt) && txt.length < 20;
-                    return hasMoney && !isDate;
-                });
-
-                if (!candidates.length) return null;
-
-                const specific = candidates.find(b => /around|to|between/i.test(b));
-                return specific || candidates[candidates.length - 1];
-            }
-            """,
-            target_match,
-        )
-
-        if budget:
-            return re.sub(r"\s+", " ", str(budget)).strip()
-        return None
-
-    except Exception:
-        return None
-
 # ── Parsing card dalla lista ──────────────────────────────────────────────────
 
 def parse_card(page, full_url: str) -> dict:
@@ -602,6 +597,23 @@ def _enrich_one(page, row: dict) -> bool:
                         _c["action"] = action
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
+
+                    # ── Budget: try every known XHR field name ────────────────
+                    if not _c.get("budget"):
+                        for key in (
+                            "budgetOverviewTotal", "totalBudget", "budget",
+                            "budgetTopicActions", "indicativeBudget",
+                            "availableBudget", "estimatedTotalContribution",
+                            "fundingRate", "maxContribution",
+                        ):
+                            raw = meta.get(key)
+                            if isinstance(raw, list):
+                                raw = raw[0] if raw else None
+                            if raw is not None:
+                                val = parse_budget(str(raw))
+                                if val > 0:
+                                    _c["budget"] = val
+                                    break
             except Exception:
                 pass
 
@@ -615,13 +627,12 @@ def _enrich_one(page, row: dict) -> bool:
             body_text = ""
         row["full_text"] = clean(body_text) or ""
 
-        try:
-            topic_id = topic_id_from_url(url)
-            budget = extract_budget_per_project(page, topic_id)
-            if budget:
-                row["budget"] = budget
-        except Exception:
-            pass
+        # ── Budget fallback: scan page text ──────────────────────────────────
+        if not captured.get("budget") and body_text:
+            val = extract_budget_from_text(body_text)
+            if val > 0:
+                captured["budget"] = val
+
     except Exception as e:
         print(f"    [ERR goto] {e}", flush=True)
     finally:
@@ -633,6 +644,8 @@ def _enrich_one(page, row: dict) -> bool:
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
+    if captured.get("budget") and not row.get("budget_raw"):
+        row["budget_raw"] = captured["budget"]
 
     return bool(captured) or bool(row.get("full_text"))
 
@@ -723,7 +736,6 @@ def to_call(row: dict) -> dict:
         "cluster_label":    cluster_label,
         "thematic_cluster": thematic,
         "action":           action,
-        "budget":           row.get("budget") or "",
         "opening":          opening_raw,
         "opening_iso":      parse_date_iso(opening_raw),
         "deadline":         deadline_raw,
@@ -731,6 +743,7 @@ def to_call(row: dict) -> dict:
         "url":              url,
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
+        "budget":           row.get("budget_raw") or 0,
         "full_text":        multi["full_text"],
         "keyword_hits":     multi["keyword_hits"],
         "multi_thematic":   multi["multi_thematic"],
@@ -964,6 +977,10 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
+
+
+
+
 
 
 
