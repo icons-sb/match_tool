@@ -591,11 +591,56 @@ def _first(meta, *keys):
             return v.strip()
     return ""
 
+def extract_budget_per_project_dom(page, topic_id):
+    """Logica Cacciatore: espande la tabella e preleva il budget semantico"""
+    parts = topic_id.split('?')[0].split('-')
+    target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
+    try:
+        # Espande la sezione 'Topic conditions'
+        btn = page.locator("button:has-text('Topic conditions and documents')").first
+        if btn.count() > 0:
+            btn.scroll_into_view_if_needed()
+            if btn.get_attribute("aria-expanded") == "false":
+                btn.click(force=True)
+                page.wait_for_timeout(3500)
+        
+        # Scrolla sulla riga specifica dell'ID
+        row_locator = page.locator(f"tr:has-text('{target_match}')").first
+        if row_locator.count() > 0:
+            row_locator.scroll_into_view_if_needed()
+            page.wait_for_timeout(1000)
+            
+        # Estrae il valore tramite JavaScript
+        return page.evaluate(f"""
+            (shortId) => {{
+                const allRows = Array.from(document.querySelectorAll('tr, .wt-table-row'));
+                const targetRow = allRows.find(el => el.innerText.includes(shortId));
+                if (targetRow) {{
+                    const cells = Array.from(targetRow.querySelectorAll('td, .wt-table-cell')).map(c => c.innerText.trim());
+                    const candidates = cells.filter(txt => {{
+                        const hasMoney = txt.includes('€') || txt.toLowerCase().includes('eur');
+                        const isDate = /202[0-9]/.test(txt) && txt.length < 15;
+                        return hasMoney && !isDate;
+                    }});
+                    if (candidates.length > 0) {{
+                        const specific = candidates.find(b => /around|to|between/i.test(b));
+                        return specific || candidates[candidates.length - 1];
+                    }}
+                }}
+                return null;
+            }}
+        """, target_match)
+    except: return None
+        
 def _enrich_one(page, row: dict) -> bool:
-    """Apre una pagina di dettaglio, cattura i campi mancanti via XHR
-    e salva anche il testo completo + il budget normalizzato."""
+    """
+    Apre una pagina di dettaglio, cattura i campi mancanti via XHR (handle)
+    e integra la nuova logica DOM per l'estrazione precisa del budget.
+    """
     url      = row["url"]
     captured = {}
+    # Estraiamo il topic_id dall'URL per il Cacciatore di Righe
+    topic_id = url.split('/')[-1].split('?')[0]
 
     def handle(response, _c=captured):
         if SEARCH_API in response.url and response.status == 200:
@@ -606,6 +651,7 @@ def _enrich_one(page, row: dict) -> bool:
                     prog_id = _first(meta, "frameworkProgramme", "programme")
                     action  = _first(meta, "typesOfAction","typeOfAction","fundingScheme")
                     cid     = _first(meta, "callIdentifier","identifier")
+                    
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
                     if action and not _c.get("action"):
@@ -613,17 +659,15 @@ def _enrich_one(page, row: dict) -> bool:
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
 
-                    # Budget: prova tutti i campi XHR noti
+                    # Budget da XHR (mantenuto come primo tentativo/backup)
                     if not _c.get("budget"):
                         for key in (
                             "budgetOverviewTotal", "totalBudget", "budget",
                             "budgetTopicActions", "indicativeBudget",
-                            "availableBudget", "estimatedTotalContribution",
-                            "fundingRate", "maxContribution",
+                            "availableBudget", "estimatedTotalContribution"
                         ):
                             raw = meta.get(key)
-                            if isinstance(raw, list):
-                                raw = raw[0] if raw else None
+                            if isinstance(raw, list): raw = raw[0] if raw else None
                             if raw is not None:
                                 val = parse_budget(str(raw))
                                 if val > 0:
@@ -634,33 +678,45 @@ def _enrich_one(page, row: dict) -> bool:
 
     page.on("response", handle)
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        # 1. Navigazione
+        page.goto(url, wait_until="domcontentloaded", timeout=40000)
         page.wait_for_timeout(2500)
+        
+        # 2. Estrazione testo completo (fondamentale per le tue 13 aree tematiche)
         try:
             body_text = page.locator("body").inner_text(timeout=5000)
         except Exception:
             body_text = ""
         row["full_text"] = clean(body_text) or ""
 
-        # Fallback budget: scansione del testo della pagina
-        if not captured.get("budget") and body_text:
-            val = extract_budget_from_text(body_text)
-            if val > 0:
-                captured["budget"] = val
+        # 3. LOGICA "CACCIATORE DI RIGHE" (Espansione Tabella DOM)
+        # Questa funzione deve essere definita sopra _enrich_one
+        budget_val_dom = extract_budget_per_project_dom(page, topic_id)
+        
+        if budget_val_dom:
+            # Se il cacciatore trova il valore nella tabella, ha la priorità
+            row["budget_raw"] = budget_val_dom
+        elif captured.get("budget"):
+            # Altrimenti usiamo il valore numerico trovato via XHR
+            row["budget_raw"] = captured["budget"]
+        elif body_text:
+            # Fallback finale: scansione Regex del testo
+            val_reg = extract_budget_from_text(body_text)
+            if val_reg > 0:
+                row["budget_raw"] = val_reg
 
     except Exception as e:
         print(f"    [ERR goto] {e}", flush=True)
     finally:
         page.remove_listener("response", handle)
 
+    # 4. Assegnazione finale metadati (Logica originale intatta)
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
     if captured.get("action") and not row.get("action_raw"):
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
-    if captured.get("budget") and not row.get("budget_raw"):
-        row["budget_raw"] = captured["budget"]
 
     return bool(captured) or bool(row.get("full_text"))
 
