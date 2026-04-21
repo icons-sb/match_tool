@@ -50,7 +50,6 @@ RE_CLUSTER   = re.compile(r"HORIZON-CL([1-6])",                     re.IGNORECAS
 RE_CALL_ID   = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)",  re.IGNORECASE)
 
 # Budget patterns — ordered from most to least reliable
-# Matches: "Budget: €1,500,000" / "Total budget: 2.500.000 €" / "budget of EUR 1 500 000"
 RE_BUDGET_LABEL = re.compile(
     r"(?:total\s+)?budget[:\s]+(?:of\s+)?(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
     re.IGNORECASE,
@@ -73,7 +72,7 @@ MONTHS = {
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
 }
 
-# ── Tabelle di classificazione (da make_calls_json.py) ────────────────────────
+# ── Tabelle di classificazione ────────────────────────────────────────────────
 
 PROGRAMME_MAP = {
     "43108390":"Horizon Europe","43108391":"Horizon Europe",
@@ -141,7 +140,6 @@ URL_RULES = [
     ("HLTH",     None,  "1",     "Health",                                        "Health & Life Sciences"),
     ("EIC",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
     ("EIE",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    # EIT: EITUM-BP is Cities mission; other EIT → SME
     ("EITUM-BP", None,  "M-CIT", "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
     ("EIT",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
     ("CID",      None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
@@ -151,23 +149,15 @@ URL_RULES = [
     ("JU-",      None,  "",      "",                                              "Climate, Energy & Mobility"),
     ("MSCA",     None,  "",      "",                                              "Cross-cutting / Other"),
     ("NEB",      None,  "",      "",                                              "Climate-neutral & Smart Cities"),
-    # RAISE → Digital/AI in Science
     ("RAISE",    None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("WIDERA",   None,  "",      "",                                              "Cross-cutting / Other"),
-    # INFRA subcodes: CL3-INFRA → Security; TECH/SERV/DEV/EOSC split below
-    # CL3 INFRA (security-related infrastructure) must come before generic INFRA rules
     ("CL3","INFRA",     "3",     "Civil Security for Society",                    "Security & Resilience"),
-    # INFRA-TECH → Digital (instruments, digital twins)
     ("INFRA","TECH",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    # INFRA-SERV → Digital (access to RI services, EOSC services)
     ("INFRA","SERV",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    # INFRA-DEV and INFRA-EOSC → Research infrastructure (Cross-cutting)
     ("INFRA","DEV",     "",      "",                                              "Cross-cutting / Other"),
     ("INFRA","EOSC",    "",      "",                                              "Cross-cutting / Other"),
-    # Generic INFRA fallback → Cross-cutting
     ("INFRA",    None,  "",      "",                                              "Cross-cutting / Other"),
     ("AGRIP",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    # EUAF → Digital (forensics, digital tools, surveillance)
     ("EUAF",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("DIGITAL",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("UCPM",     None,  "",      "",                                              "Cross-cutting / Other"),
@@ -184,32 +174,26 @@ URL_RULES = [
     ("I3",       None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
 ]
 
-# Numeric-ID call classification by known acronym in name
-# Used as a name-based fallback for calls without a structured URL
 NUMERIC_ID_NAME_RULES = [
-    # Health partnerships and joint calls
     ("OHAMR",       "Health & Life Sciences"),
     ("ERA4HEALTH",  "Health & Life Sciences"),
     ("ERA4 HEALTH", "Health & Life Sciences"),
     ("BRAINHEALTH", "Health & Life Sciences"),
     ("EP BRAINHEALTH","Health & Life Sciences"),
     ("ERDERA",      "Health & Life Sciences"),
-    ("BE READY",    "Health & Life Sciences"),   # id=12982 rare diseases partnership
+    ("BE READY",    "Health & Life Sciences"),
     ("OVERWEIGHT",  "Health & Life Sciences"),
     ("OBESITY",     "Health & Life Sciences"),
     ("CARDIOVASC",  "Health & Life Sciences"),
     ("CLINICAL TRIAL","Health & Life Sciences"),
     ("NEUROSCI",    "Health & Life Sciences"),
     ("RARE DISEASE","Health & Life Sciences"),
-    # Cities
     ("EITUM",       "Climate-neutral & Smart Cities"),
     ("URBAN MOBILITY","Climate-neutral & Smart Cities"),
     ("DRIVING URBAN","Climate-neutral & Smart Cities"),
-    # SME / market uptake
     ("EIC AWARDEE", "SME, Entrepreneurship & Market Uptake"),
     ("INNOMATCH",   "SME, Entrepreneurship & Market Uptake"),
     ("STARTUP",     "SME, Entrepreneurship & Market Uptake"),
-    # Food / environment
     ("FOOD SUSTAINABILITY","Food, Bioeconomy & Environment"),
     ("MARINE BIODIVERSITY","Food, Bioeconomy & Environment"),
     ("BLUEACTION",  "Food, Bioeconomy & Environment"),
@@ -241,6 +225,8 @@ TOPIC_KEYWORDS = {
     "Clean Aviation": ["aviation","aircraft","aeronautics","sustainable aviation"],
     "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
 }
+
+# ── Helpers di classificazione ────────────────────────────────────────────────
 
 def escape_rx(s: str) -> str:
     return re.escape(s or "")
@@ -275,10 +261,6 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
         if SPECIAL_BASIC_RESEARCH_CATEGORY not in multi_thematic:
             multi_thematic.append(SPECIAL_BASIC_RESEARCH_CATEGORY)
 
-    primary_or_special = thematic
-    if special and primary_or_special != SPECIAL_BASIC_RESEARCH_CATEGORY:
-        pass
-
     return {
         "full_text": text,
         "keyword_hits": keyword_hits,
@@ -302,7 +284,6 @@ def url_classify(url: str):
         if prefix not in tid:
             continue
         if subcode is not None:
-            # subcode can appear anywhere in the topic id (e.g. CL3...INFRA, INFRA...TECH)
             if subcode not in tid:
                 continue
         benef = URL_BENEFICIARY_OVERRIDE.get(prefix, None)
@@ -310,7 +291,6 @@ def url_classify(url: str):
     return "", "", "", None
 
 def name_classify(name: str):
-    """Fallback classification for numeric-ID calls based on known name keywords."""
     name_up = (name or "").upper()
     for keyword, thematic in NUMERIC_ID_NAME_RULES:
         if keyword.upper() in name_up:
@@ -349,7 +329,30 @@ def beneficiary_hint(action: str, prog: str, url_benef):
     if "external action" in p: hints.extend(["NGO","Public body","Research organisation"])
     return list(dict.fromkeys(hints))
 
-# ── Parsing date ──────────────────────────────────────────────────────────────
+# ── Parsing date e budget ─────────────────────────────────────────────────────
+
+def parse_date_iso(s: str) -> str:
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    if not s:
+        return ""
+    m = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", s)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = re.search(r"\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b", s)
+    if m:
+        try:
+            return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    m = re.search(r"\b(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\b", s)
+    if m:
+        mo = MONTHS.get(m.group(2).lower())
+        if mo:
+            try:
+                return datetime(int(m.group(3)), mo, int(m.group(1))).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+    return ""
 
 def parse_budget(s: str) -> int:
     """Normalize a raw budget string to an integer euro amount.
@@ -388,7 +391,6 @@ def parse_budget(s: str) -> int:
     except ValueError:
         return 0
 
-
 def extract_budget_from_text(text: str) -> int:
     """Try multiple regex patterns against page body text.
     Returns the best (largest plausible) match in euros, or 0.
@@ -404,29 +406,6 @@ def extract_budget_from_text(text: str) -> int:
         return 0
     # Prefer the largest single figure (total budget > per-project budget)
     return max(candidates)
-
-
-    s = re.sub(r"\s+", " ", str(s or "")).strip()
-    if not s:
-        return ""
-    m = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", s)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-    m = re.search(r"\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b", s)
-    if m:
-        try:
-            return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-    m = re.search(r"\b(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\b", s)
-    if m:
-        mo = MONTHS.get(m.group(2).lower())
-        if mo:
-            try:
-                return datetime(int(m.group(3)), mo, int(m.group(1))).strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-    return ""
 
 # ── Utilità Playwright ────────────────────────────────────────────────────────
 
@@ -466,10 +445,45 @@ def wait_cookie_gone(page, max_ms=12000):
 def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
-def read_total(page):
-    txt = page.locator("body").inner_text()
-    m = RE_TOTAL.search(txt or "")
-    return int(m.group(1)) if m else None
+def read_total(page, timeout_ms=30000):
+    """
+    Attende e legge il numero totale di risultati dalla pagina.
+    Prova più pattern per coprire eventuali variazioni del portale EU.
+    """
+    PATTERNS = [
+        re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
+        re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
+        re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",        re.IGNORECASE),
+        re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",               re.IGNORECASE),
+        re.compile(r"found\s+(\d[\d,\.]*)\s*results?",             re.IGNORECASE),
+        re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
+        re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),  # fallback largo
+    ]
+
+    start = time.time()
+    while (time.time() - start) * 1000 < timeout_ms:
+        try:
+            txt = page.locator("body").inner_text()
+        except Exception:
+            txt = ""
+
+        for pat in PATTERNS:
+            m = pat.search(txt or "")
+            if m:
+                raw = m.group(1).replace(",", "").replace(".", "")
+                print(f" Contatore trovato con pattern '{pat.pattern}': {raw}")
+                return int(raw)
+
+        page.wait_for_timeout(1000)
+
+    # Debug: stampa le prime 2000 caratteri del body
+    try:
+        snippet = page.locator("body").inner_text()[:2000]
+        print(f" Testo body (primi 2000 char):\n{snippet}")
+    except Exception as e:
+        print(f"Impossibile leggere il body: {e}")
+
+    return None
 
 def scroll_until(page, expected, max_ms=50000):
     start = time.time()
@@ -566,7 +580,7 @@ def parse_card(page, full_url: str) -> dict:
         "_needs_enrich":  False,
     }
 
-# ── Arricchimento via XHR ────────────────────────────────────────────────────
+# ── Arricchimento via XHR ─────────────────────────────────────────────────────
 
 def _first(meta, *keys):
     for k in keys:
@@ -578,7 +592,8 @@ def _first(meta, *keys):
     return ""
 
 def _enrich_one(page, row: dict) -> bool:
-    """Apre una pagina di dettaglio, cattura i campi mancanti via XHR e salva anche il testo completo della call."""
+    """Apre una pagina di dettaglio, cattura i campi mancanti via XHR
+    e salva anche il testo completo + il budget normalizzato."""
     url      = row["url"]
     captured = {}
 
@@ -598,7 +613,7 @@ def _enrich_one(page, row: dict) -> bool:
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
 
-                    # ── Budget: try every known XHR field name ────────────────
+                    # Budget: prova tutti i campi XHR noti
                     if not _c.get("budget"):
                         for key in (
                             "budgetOverviewTotal", "totalBudget", "budget",
@@ -627,7 +642,7 @@ def _enrich_one(page, row: dict) -> bool:
             body_text = ""
         row["full_text"] = clean(body_text) or ""
 
-        # ── Budget fallback: scan page text ──────────────────────────────────
+        # Fallback budget: scansione del testo della pagina
         if not captured.get("budget") and body_text:
             val = extract_budget_from_text(body_text)
             if val > 0:
@@ -666,13 +681,12 @@ def enrich(ctx, rows: list):
         print(f"  [{idx:>4}/{len(to_fix)}] {(row['name'] or '')[:60]}", flush=True)
 
         ok = False
-        for attempt in range(1, 3):   # max 2 tentativi per call
+        for attempt in range(1, 3):
             try:
                 ok = _enrich_one(page, row)
                 break
             except Exception as e:
                 print(f"    [tentativo {attempt} fallito] {e}", flush=True)
-                # Ricrea la pagina se crashata
                 try:
                     page.close()
                 except Exception:
@@ -684,7 +698,6 @@ def enrich(ctx, rows: list):
             skipped += 1
             print(f"    [SKIP] nessun dato recuperato", flush=True)
 
-        # Salvataggio intermedio ogni 100 call (sicurezza in caso di crash)
         if idx % 100 == 0:
             print(f"  [checkpoint] salvate {idx} call finora…", flush=True)
 
@@ -704,7 +717,6 @@ def to_call(row: dict) -> dict:
     call_id    = row.get("call_id") or ""
     action_raw = row.get("action_raw") or ""
 
-    # Cluster: da call_id > cluster_raw > url
     cluster_num = ""
     for src in [call_id, row.get("cluster_raw",""), url]:
         m = RE_CLUSTER.search(src or "")
@@ -712,7 +724,6 @@ def to_call(row: dict) -> dict:
             cluster_num = m.group(1)
             break
 
-    # URL overrides
     u_cnum, u_clabel, u_thematic, u_benef = url_classify(url)
     if u_cnum:
         cluster_num = u_cnum
@@ -750,14 +761,9 @@ def to_call(row: dict) -> dict:
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
-# ── Changelog ────────────────────────────────────────────────────────────────
+# ── Changelog ─────────────────────────────────────────────────────────────────
 
 def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, generated: str):
-    """
-    Confronta old_calls e new_calls per URL.
-    Scrive changelog.md con call aggiunte, rimosse e statistiche.
-    Aggiunge una riga anche a changelog_history.md (log cumulativo).
-    """
     old_by_url = {c["url"]: c for c in old_calls}
     new_by_url = {c["url"]: c for c in new_calls}
 
@@ -767,7 +773,6 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     added   = [new_by_url[u] for u in sorted(new_urls - old_urls)]
     removed = [old_by_url[u] for u in sorted(old_urls - new_urls)]
 
-    # Conta per area tematica
     def thematic_counts(calls):
         tc = {}
         for c in calls:
@@ -775,7 +780,7 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
             tc[k] = tc.get(k, 0) + 1
         return tc
 
-    date_str = generated[:10]  # YYYY-MM-DD
+    date_str = generated[:10]
 
     lines = []
     lines.append(f"# Changelog calls.json")
@@ -795,7 +800,6 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     if added:
         lines.append(f"## Call aggiunte ({len(added)})")
         lines.append(f"")
-        # Group by thematic
         by_thematic = {}
         for c in added:
             t = c.get("thematic_cluster") or "(non classificato)"
@@ -844,14 +848,12 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     changelog_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\n📋 Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
 
-    # Aggiorna history cumulativa
     history_path = changelog_path.parent / "changelog_history.md"
     history_line = (
         f"| {date_str} | {len(new_calls)} | +{len(added)} | -{len(removed)} |"
     )
     if history_path.exists():
         hist = history_path.read_text(encoding="utf-8")
-        # Aggiunge riga dopo l'header della tabella
         if history_line not in hist:
             hist = hist.rstrip() + "\n" + history_line + "\n"
             history_path.write_text(hist, encoding="utf-8")
@@ -864,7 +866,6 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         )
         history_path.write_text(header, encoding="utf-8")
     print(f"📋 History aggiornata: {history_path}")
-
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -888,13 +889,13 @@ def main(out_path: Path):
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
                   wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(3000)
         accept_cookies(page)
         wait_cookie_gone(page)
 
         total = read_total(page)
         if total is None:
-            print("❌ Non riesco a leggere 'item(s) found'.")
+            print("❌ Non riesco a leggere il contatore delle call.")
             browser.close()
             return
         max_pages = math.ceil(total / PAGE_SIZE)
@@ -921,8 +922,7 @@ def main(out_path: Path):
             time.sleep(0.1)
 
         # ── Passo 2: arricchimento ────────────────────────────────────────────
-        needs = rows[:]
-        print(f"\n═══ Passo 2: arricchimento {len(needs)} call su {len(rows)} totali ═══", flush=True)
+        print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
         enrich(ctx, rows)
         browser.close()
 
@@ -935,7 +935,6 @@ def main(out_path: Path):
             seen.add(call["url"])
             calls.append(call)
 
-    # Statistiche
     tc = {}
     for c in calls:
         k = c["thematic_cluster"] or "(non classificato)"
@@ -947,7 +946,7 @@ def main(out_path: Path):
 
     generated = datetime.now(timezone.utc).isoformat()
 
-    # ── Changelog: confronta con il dataset precedente ────────────────────────
+    # ── Changelog ────────────────────────────────────────────────────────────
     old_calls = []
     if out_path.exists():
         try:
@@ -960,7 +959,7 @@ def main(out_path: Path):
     changelog_path = out_path.parent / "changelog.md"
     write_changelog(old_calls, calls, changelog_path, generated)
 
-    # ── Salva nuovo dataset ───────────────────────────────────────────────────
+    # ── Salva ─────────────────────────────────────────────────────────────────
     payload = {
         "generated": generated,
         "calls": calls,
