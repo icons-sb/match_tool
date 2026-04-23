@@ -1176,6 +1176,8 @@
   const GITHUB_REPO     = 'INSERISCI_NOME_REPO';
   const GITHUB_TOKEN    = 'INSERISCI_GITHUB_PAT';   // public_repo scope
   const WORKFLOW_FILE   = 'autofill_lookup.yml';
+  // jsDelivr ha cache più breve di raw.githubusercontent (10 min vs fino a 5 min con purge)
+  // ma usiamo raw con cache-bust aggressivo tramite query string timestamp
   const CACHE_FILE_URL  = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/autofill_cache.json`;
 
   /**
@@ -1225,7 +1227,9 @@
 
         const cache = await cacheResp.json();
         if (cache[requestId]) {
-          return cache[requestId].result;
+          const res = cache[requestId].result;
+          console.log('[autofill] risultato da Actions:', JSON.stringify(res));
+          return res;
         }
       } catch { /* ignora errori di rete transitori */ }
 
@@ -1294,6 +1298,9 @@
    * Inietta i risultati nei campi del form e mostra il feedback.
    */
   function applyAutofillResult(rawInput, claudeResult, localMatch, parsed) {
+    console.log('[autofill] applyAutofillResult:', {
+      claudeResult, localMatch: !!localMatch, parsed
+    });
     // ── Merge: GitHub Actions > dataset locale > parsing strutturale ──
     const finalThematic = claudeResult?.primary_thematic
       || (localMatch && localMatch.thematic_cluster)
