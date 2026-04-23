@@ -1114,85 +1114,6 @@
   }
 
   /**
-   * Chiama la stessa search API intercettata dallo scraper Python
-   * (SEARCH_API = "search-api/prod/rest/search").
-   *
-   * La risposta ha struttura:
-   *   { results: [{ metadata: { typesOfAction:[], ... }, title, content:[{title,text}] }] }
-   *
-   * Speculare a handle() in _enrich_one() del Python.
-   */
-  async function fetchFromSearchApi(topicId) {
-    const clean = topicId.trim();
-
-    function buildUrl(dataSet) {
-      return `https://api.tech.ec.europa.eu/search-api/prod/rest/search?` +
-        `apiKey=SEDIA` +
-        `&text=%22${encodeURIComponent(clean)}%22` +
-        `&pageSize=1&pageNumber=1` +
-        `&dataSet=${dataSet}` +
-        `&fields=metadata,title,content`;
-    }
-
-    async function tryFetch(url) {
-      const res = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(9000)
-      });
-      if (!res.ok) return null;
-      const json = await res.json();
-      return json?.results?.[0] || null;
-    }
-
-    let item = null;
-    // Prova prima topicDataSet (stesso dataset usato dallo scraper per i topic Horizon)
-    try { item = await tryFetch(buildUrl('topicDataSet')); }    catch { /* fallback */ }
-    // Fallback: opportunityDataSet
-    if (!item) {
-      try { item = await tryFetch(buildUrl('opportunityDataSet')); } catch { /* noop */ }
-    }
-    if (!item) return null;
-
-    const meta = item.metadata || {};
-
-    // _first() del Python: primo valore da array o stringa diretta
-    function firstVal(...keys) {
-      for (const k of keys) {
-        const v = meta[k];
-        if (Array.isArray(v) && v.length) return String(v[0]).trim();
-        if (v && typeof v === 'string')   return v.trim();
-      }
-      return '';
-    }
-
-    // Stessa estrazione Python: typesOfAction / typeOfAction / fundingScheme
-    const actionRaw = firstVal('typesOfAction', 'typeOfAction', 'fundingScheme', 'typeOfMga');
-
-    // Titolo
-    const title = Array.isArray(item.title)
-      ? (item.title[0] || '')
-      : (item.title || firstVal('title') || '');
-
-    // Full text: content array (come full_text dello scraper)
-    const contentParts = Array.isArray(item.content)
-      ? item.content.map(c => `${c.title || ''} ${c.text || ''}`).join(' ')
-      : (typeof item.content === 'string' ? item.content : '');
-
-    const keywordsPart = Array.isArray(meta.keywords)
-      ? meta.keywords.join(' ')
-      : (meta.keywords || '');
-
-    const fullText = [
-      title, contentParts, keywordsPart,
-      meta.objective, meta.description, meta.intro,
-      meta.destinationGroup, meta.programmePart,
-      firstVal('legalBasis')
-    ].filter(Boolean).join(' ');
-
-    return { actionRaw, title, fullText, meta };
-  }
-
-  /**
    * Ricerca fuzzy nel dataset locale calls.json.
    */
   function findInLocalCalls(id) {
@@ -1206,12 +1127,95 @@
   }
 
   /**
+   * Usa la Claude API con web_search per cercare il topic ID sul portale EU,
+   * estrarre action type, titolo e testo completo, e restituire JSON strutturato.
+   *
+   * Claude riceve le stesse istruzioni dello scraper Python:
+   *   - cerca "site:ec.europa.eu <topicId>" o la URL diretta del topic
+   *   - dal testo della pagina estrae Type of action
+   *   - restituisce SOLO JSON, nessun testo aggiuntivo
+   */
+  async function lookupViaClaudeWebSearch(topicId) {
+    const THEMATIC_LIST = THEMATIC_OPTIONS.join('\n');
+
+    const prompt = `Cerca sul portale EU Funding & Tenders la call o il topic con identificatore: "${topicId}"
+
+La pagina si trova tipicamente a un URL come:
+https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${topicId}
+
+oppure cercando "${topicId} site:ec.europa.eu" su Google.
+
+Dal testo della pagina estrai:
+1. Il titolo completo della call/topic
+2. Il "Type of action" (di solito compare come "Type of action: Research and Innovation Action" o simili)
+3. Il testo completo della pagina (objective, description, scope, expected outcomes — tutto quello che trovi)
+
+Poi, basandoti sul testo completo, classifica la call nelle seguenti aree tematiche:
+
+${THEMATIC_LIST}
+
+Regole di classificazione:
+- "primary_thematic": l'area che meglio descrive il focus principale della call
+- "secondary_thematic": la seconda area più rilevante (solo se chiaramente presente nel testo, altrimenti null)
+- "action_type": uno tra "RIA", "IA", "CSA", "COFUND", o null se non trovato
+  - "Research and Innovation Action" → "RIA"
+  - "Innovation Action" → "IA"  
+  - "Coordination and Support Action" → "CSA"
+  - qualsiasi variante di "cofund" → "COFUND"
+
+Rispondi SOLO con questo JSON (nessun testo prima o dopo, nessun markdown):
+{
+  "title": "titolo completo",
+  "action_type": "RIA" | "IA" | "CSA" | "COFUND" | null,
+  "primary_thematic": "esatta stringa dall'elenco sopra" | null,
+  "secondary_thematic": "esatta stringa dall'elenco sopra" | null,
+  "secondary_keywords": ["keyword1", "keyword2"],
+  "found": true | false
+}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Claude API error ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+
+    // Estrai il testo dalla risposta (può essere preceduto da tool_use blocks)
+    const textBlock = data.content
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+
+    if (!textBlock) return null;
+
+    // Pulisci eventuali backtick markdown e parsa JSON
+    const cleaned = textBlock.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      // Prova a estrarre JSON con regex se c'è testo extra
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) return JSON.parse(jsonMatch[0]);
+      return null;
+    }
+  }
+
+  /**
    * Handler principale autofill.
-   * Pipeline speculare al Python:
-   *   1. parseCallId()        → thematic da struttura ID (url_classify)
-   *   2. fetchFromSearchApi() → actionRaw da metadata.typesOfAction, fullText
-   *   3. normalizeActionStr() → normalize_action() Python
-   *   4. classifyMultitopic() → classify_multitopic() Python → area secondaria
+   * Strategia a due livelli:
+   *   1. Istantaneo: parseCallId() dal dataset locale (fallback strutturale)
+   *   2. Web search: Claude cerca la pagina EU e estrae i dati reali
    */
   async function doAutofill() {
     const rawInput = callNumberInput.value.trim();
@@ -1221,50 +1225,45 @@
     }
 
     autofillBtn.disabled = true;
-    showFeedback('loading', null, 'Interrogazione EU Funding &amp; Tenders search API…');
+    showFeedback('loading', null, 'Ricerca sul portale EU Funding &amp; Tenders…');
 
-    // Step 1 — parsing strutturale dell'ID (istantaneo)
-    const parsed = parseCallId(rawInput);
-
-    // Step 2 — dataset locale (istantaneo)
+    // Step 1 — istantaneo: parsing strutturale + dataset locale
+    const parsed     = parseCallId(rawInput);
     const localMatch = findInLocalCalls(rawInput);
 
-    // Step 3 — search API (stesso endpoint intercettato dallo scraper)
-    let apiResult = null;
-    try { apiResult = await fetchFromSearchApi(rawInput); } catch { /* noop */ }
+    // Step 2 — Claude API con web search
+    showFeedback('loading', null, 'Claude sta cercando la call sul portale EU…');
+    let claudeResult = null;
+    try {
+      claudeResult = await lookupViaClaudeWebSearch(rawInput);
+    } catch (err) {
+      console.warn('Claude API lookup failed:', err);
+    }
 
     autofillBtn.disabled = false;
 
-    // ── Merge: locale > parsing strutturale (API non fornisce thematic affidabile)
-    const finalThematic = (localMatch && localMatch.thematic_cluster) || parsed.thematic;
+    // ── Merge: Claude web search > dataset locale > parsing strutturale ──
+    const finalThematic = claudeResult?.primary_thematic
+      || (localMatch && localMatch.thematic_cluster)
+      || parsed.thematic;
 
-    // Action type: search API (typesOfAction) > dataset locale > parsing ID
-    const actionFromApi   = apiResult ? normalizeActionStr(apiResult.actionRaw) : '';
-    const actionFromLocal = localMatch ? normalizeAction(localMatch.action) : '';
-    const finalAction     = actionFromApi || actionFromLocal || parsed.actionType || '';
+    const finalSecondary = claudeResult?.secondary_thematic
+      || null;
 
-    const finalTitle = apiResult?.title || (localMatch && localMatch.name) || null;
+    const finalAction = claudeResult?.action_type
+      || (localMatch ? normalizeAction(localMatch.action) : '')
+      || parsed.actionType
+      || '';
 
-    // ── Corpus per classify_multitopic ──
-    // API full text > full_text locale > nome locale
-    const corpus = [
-      apiResult?.fullText,
-      localMatch?.full_text,
-      localMatch?.name,
-    ].filter(Boolean).join(' ');
-
-    // ── Area secondaria via classifyMultitopic ──
-    const multiScores  = corpus ? classifyMultitopic(corpus, finalThematic) : [];
-    // Soglia ≥2 keyword per evitare falsi positivi (stessa logica del Python)
-    const bestSecondary = multiScores.find(s => s.count >= 2) || null;
-    const finalSecondary = bestSecondary && bestSecondary.thematic !== finalThematic
-      ? bestSecondary.thematic : null;
+    const finalTitle = claudeResult?.title
+      || (localMatch && localMatch.name)
+      || null;
 
     if (!finalThematic && !finalAction) {
-      showFeedback('warning', '⚠', `
-        Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>.<br>
-        Verifica il formato (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>) e compila manualmente.
-      `);
+      const notFoundMsg = claudeResult && !claudeResult.found
+        ? `La call <strong>${esc(rawInput)}</strong> non è stata trovata sul portale EU. Verifica l'ID e compila manualmente.`
+        : `Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>. Verifica il formato (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>) e compila manualmente.`;
+      showFeedback('warning', '⚠', notFoundMsg);
       return;
     }
 
@@ -1280,32 +1279,31 @@
       }
     }
 
-    if (finalSecondary) {
+    if (finalSecondary && finalSecondary !== finalThematic) {
       const matched2 = THEMATIC_OPTIONS.find(o => o === finalSecondary);
       if (matched2) {
         secondaryEl.value = matched2;
         flashInjected(secondaryEl);
+        const kwHint = claudeResult?.secondary_keywords?.slice(0,3).join(', ') || '';
         injected.push({
           label: 'Area secondaria',
           value: matched2,
-          hint: `${bestSecondary.count} kw: ${bestSecondary.hits.slice(0,3).join(', ')}${bestSecondary.hits.length > 3 ? '…' : ''}`
+          hint: kwHint || null
         });
       }
     }
 
-    if (finalAction) {
+    if (finalAction && ['RIA','IA','CSA','COFUND'].includes(finalAction)) {
       const atEl = document.getElementById('action_type');
-      if (['RIA','IA','CSA','COFUND'].includes(finalAction)) {
-        atEl.value = finalAction;
-        flashInjected(atEl);
-        injected.push({ label: 'Action type', value: finalAction });
-      }
+      atEl.value = finalAction;
+      flashInjected(atEl);
+      injected.push({ label: 'Action type', value: finalAction });
     }
 
     // ── Feedback ──
     let msg = `Compilazione per <strong>${esc(rawInput)}</strong>.`;
     if (finalTitle) {
-      msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(finalTitle.substring(0,110))}${finalTitle.length > 110 ? '…' : ''}</em>`;
+      msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(finalTitle.substring(0,120))}${finalTitle.length > 120 ? '…' : ''}</em>`;
     }
 
     const chipsHtml = injected.map(i => {
@@ -1315,9 +1313,9 @@
       return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
     }).join('');
 
-    const sourceNote = apiResult
-      ? `<small style="opacity:0.58">Fonte: EU Funding &amp; Tenders search API${!corpus ? ' — testo completo non disponibile' : ''}.</small>`
-      : `<small style="opacity:0.58">Search API non raggiungibile — dati da ID strutturale${localMatch ? ' + dataset locale' : ''}.</small>`;
+    const sourceNote = claudeResult
+      ? `<small style="opacity:0.58">Dati estratti dal portale EU via web search.</small>`
+      : `<small style="opacity:0.58">Web search non disponibile — dati da ID strutturale${localMatch ? ' + dataset locale' : ''}.</small>`;
 
     if (injected.length === 0) {
       showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
