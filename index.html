@@ -738,31 +738,41 @@
       <form id="surveyForm">
 
         <!-- ── SEZIONE 00: AUTO-FILL ── -->
-        <div class="autofill-section">
-          <div class="autofill-label-row">
-            <span class="section-label" style="margin-bottom:0">
-              <span class="num">00</span>Auto-compilazione da numero call
-            </span>
-            <span class="autofill-badge">Opzionale</span>
-          </div>
+       <div class="autofill-section">
+  <div class="autofill-label-row">
+    <span class="section-label" style="margin-bottom:0">
+      <span class="num">00</span>Auto-compilazione da numero call
+    </span>
+    <span class="autofill-badge">Opzionale</span>
+  </div>
 
-          <div class="autofill-input-row">
-            <div class="autofill-input-wrap">
-              <input
-                id="callNumberInput"
-                type="text"
-                placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">✕</button>
-            </div>
-            <button type="button" id="autofillBtn" class="btn-autofill">Cerca e compila</button>
-          </div>
+  <div class="autofill-input-row">
+    <div class="autofill-input-wrap">
+      <input
+        id="callNumberInput"
+        type="text"
+        placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">✕</button>
+    </div>
+    <button type="button" id="autofillBtn" class="btn-autofill">Cerca e compila</button>
+  </div>
 
-          <div id="autofillFeedback" class="autofill-feedback"></div>
-        </div>
+  <div id="autofillFeedback" class="autofill-feedback"></div>
 
+  <div class="grid" style="margin-top: 20px;">
+    <div>
+      <label class="field-label">Tipo di Azione (Rilevato)</label>
+      <input type="text" id="action_type_input" placeholder="In attesa..." readonly style="background: var(--surface); border-style: dashed;">
+    </div>
+    <div>
+      <label class="field-label">Area Tematica Secondaria (Rilevata)</label>
+      <input type="text" id="secondary_area_input" placeholder="In attesa..." readonly style="background: var(--surface); border-style: dashed;">
+    </div>
+  </div>
+</div>
         <div class="field-section">
           <span class="section-label"><span class="num">01</span>Timeframe progetto</span>
           <div class="grid">
@@ -1362,7 +1372,40 @@ Rispondi SOLO con questo JSON (nessun testo prima o dopo, nessun markdown):
     if (e.key === 'Enter') { e.preventDefault(); doAutofill(); }
   });
 
-  autofillBtn.addEventListener('click', doAutofill);
+  autofillBtn.addEventListener('click', async () => {
+    const val = callNumberInput.value.trim();
+    if(!val) return;
+
+    autofillFeedback.className = 'autofill-feedback loading';
+    autofillFeedback.innerHTML = '<div class="spinner"></div><span>Scraping live dal portale EU...</span>';
+
+    try {
+        // Chiamata al server Python locale
+        const response = await fetch(`http://localhost:8000/autofill?id=${val}`);
+        const data = await response.json();
+
+        // Riempimento campi esistenti
+        titleInput.value = data.title;
+        // ... altri campi ...
+
+        // NUOVI CAMPI
+        const actionEl = document.getElementById('action_type_input');
+        const secondaryEl = document.getElementById('secondary_area_input');
+        
+        actionEl.value = data.action_type;
+        secondaryEl.value = data.secondary_area;
+
+        // Feedback visivo
+        actionEl.classList.add('injected');
+        secondaryEl.classList.add('injected');
+
+        autofillFeedback.className = 'autofill-feedback success';
+        autofillFeedback.innerHTML = '<span>Dati estratti con successo!</span>';
+    } catch (err) {
+        autofillFeedback.className = 'autofill-feedback error';
+        autofillFeedback.innerHTML = '<span>Errore durante lo scraping live.</span>';
+    }
+});
 
   /* ═══════════════════════════════════════════════════════
      UTILITIES
