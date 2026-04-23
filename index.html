@@ -989,209 +989,229 @@
 
   /* ═══════════════════════════════════════════════════════
      AUTO-FILL LOGIC
+     Logica speculare allo scraper Python scrape_to_json.py:
+       parseCallId()        ≡ url_classify() + resolve_thematic()
+       fetchFromSearchApi() ≡ page.on("response", handle) su SEARCH_API
+       normalizeActionStr() ≡ normalize_action()
+       classifyMultitopic() ≡ classify_multitopic()
   ═══════════════════════════════════════════════════════ */
 
   /**
-   * Parse a Horizon call/topic identifier and extract known fields.
-   * Works purely from the string — no network call needed for basic fields.
-   * Returns { thematic, actionType, year, clusterCode, programmeHint }
+   * Equivalente JS di url_classify() + resolve_thematic() Python.
+   * Stessa tabella URL_RULES e THEMATIC_MAP del Python, stesso ordine.
    */
   function parseCallId(raw) {
     const id = raw.trim().toUpperCase();
-    const result = { thematic: null, actionType: null, year: null, clusterCode: null, programmeHint: null };
+    const result = { thematic: null, actionType: null };
 
-    // ── Year extraction ── e.g. 2022, 2023, 2024, 2025, 2026
-    const yearMatch = id.match(/\b(20\d{2})\b/);
-    if (yearMatch) result.year = yearMatch[1];
+    // CL1–CL6 → THEMATIC_MAP Python
+    const CL_MAP = {
+      '1':'Health & Life Sciences', '2':'Culture, Creativity & Inclusion',
+      '3':'Security & Resilience',  '4':'Digital, Industry & Space',
+      '5':'Climate, Energy & Mobility', '6':'Food, Bioeconomy & Environment',
+    };
+    const clMatch = id.match(/HORIZON-CL([1-6])-/);
+    if (clMatch) result.thematic = CL_MAP[clMatch[1]] || null;
 
-    // ── Cluster code extraction ──
-    // Handles: HORIZON-CL6-..., HORIZON-CL1-..., HORIZON-MSCA-..., etc.
-    const clusterMatch = id.match(/(?:^|[-_])((CL[1-9]|MSCA|ERC|EIC|EIE|IIA|WIDERA|INFRA|DEF|SESAR|CITIES))(?:[-_]|$)/);
-    if (clusterMatch) {
-      result.clusterCode = clusterMatch[1];
-      result.thematic = CLUSTER_TO_THEMATIC[result.clusterCode] || null;
-    }
-
-    // ── Fallback: scan all known cluster codes anywhere in the string ──
+    // URL_RULES — stesso ordine del Python (primo match vince)
     if (!result.thematic) {
-      for (const [code, thematic] of Object.entries(CLUSTER_TO_THEMATIC)) {
-        const re = new RegExp('(?:^|[-_])(' + code.replace(/-/g,'[-_]') + ')(?:[-_]|$)', 'i');
-        if (re.test(id)) {
-          result.clusterCode = code;
-          result.thematic = thematic;
-          break;
-        }
+      const RULES = [
+        { prefix:'MISS', sub:'CIT',    thematic:'Climate-neutral & Smart Cities' },
+        { prefix:'MISS', sub:'OCEAN',  thematic:'Healthy Oceans, Seas, Coastal & Inland Waters' },
+        { prefix:'MISS', sub:'CLIMA',  thematic:'Climate, Energy & Mobility' },
+        { prefix:'MISS', sub:'CANCER', thematic:'Health & Life Sciences' },
+        { prefix:'MISS', sub:'SOIL',   thematic:'Food, Bioeconomy & Environment' },
+        { prefix:'MISS', sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'HLTH', sub:null,     thematic:'Health & Life Sciences' },
+        { prefix:'EIC',  sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+        { prefix:'EIE',  sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+        { prefix:'EIT',  sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+        { prefix:'CID',  sub:null,     thematic:'Climate, Energy & Mobility' },
+        { prefix:'EURATOM', sub:null,  thematic:'Climate, Energy & Mobility' },
+        { prefix:'EUROHPC', sub:null,  thematic:'Digital, Industry & Space' },
+        { prefix:'JU-CLEAN-AVIATION', sub:null, thematic:'Clean Aviation' },
+        { prefix:'JU-',  sub:null,     thematic:'Climate, Energy & Mobility' },
+        { prefix:'MSCA', sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'NEB',  sub:null,     thematic:'Climate-neutral & Smart Cities' },
+        { prefix:'RAISE',sub:null,     thematic:'Digital, Industry & Space' },
+        { prefix:'WIDERA',sub:null,    thematic:'Cross-cutting / Other' },
+        { prefix:'CL3',  sub:'INFRA',  thematic:'Security & Resilience' },
+        { prefix:'INFRA',sub:'TECH',   thematic:'Digital, Industry & Space' },
+        { prefix:'INFRA',sub:'SERV',   thematic:'Digital, Industry & Space' },
+        { prefix:'INFRA',sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'AGRIP',sub:null,     thematic:'Food, Bioeconomy & Environment' },
+        { prefix:'EUAF', sub:null,     thematic:'Digital, Industry & Space' },
+        { prefix:'DIGITAL',sub:null,   thematic:'Digital, Industry & Space' },
+        { prefix:'RFCS', sub:null,     thematic:'Climate, Energy & Mobility' },
+        { prefix:'EUBA', sub:null,     thematic:'External Action & International Cooperation' },
+        { prefix:'PPPA', sub:'CHIPS',  thematic:'Digital, Industry & Space' },
+        { prefix:'PPPA', sub:'MEDIA',  thematic:'Culture, Creativity & Inclusion' },
+        { prefix:'PPPA', sub:null,     thematic:'Digital, Industry & Space' },
+        { prefix:'RENEWFM',sub:null,   thematic:'Climate, Energy & Mobility' },
+        { prefix:'SOCPL',sub:null,     thematic:'Culture, Creativity & Inclusion' },
+        { prefix:'ERC',  sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'EMFAF',sub:null,     thematic:'Food, Bioeconomy & Environment' },
+        { prefix:'JUST', sub:null,     thematic:'Culture, Creativity & Inclusion' },
+        { prefix:'I3',   sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+      ];
+      for (const rule of RULES) {
+        if (!id.includes(rule.prefix)) continue;
+        if (rule.sub && !id.includes(rule.sub)) continue;
+        result.thematic = rule.thematic;
+        break;
       }
     }
 
-    // ── Action type extraction from the call ID itself ──
+    // Action type da suffisso nell'ID (es. ...-RIA, ...-IA)
     for (const { pattern, value } of ACTION_TYPE_PATTERNS) {
       if (pattern.test(id)) { result.actionType = value; break; }
     }
 
-    // ── Programme hint ──
-    if (id.startsWith('HORIZON')) result.programmeHint = 'Horizon Europe';
-    else if (id.startsWith('H2020') || id.startsWith('H-2020')) result.programmeHint = 'Horizon 2020';
-    else if (id.startsWith('LIFE')) result.programmeHint = 'LIFE Programme';
-    else if (id.startsWith('CEF')) result.programmeHint = 'Connecting Europe Facility';
-    else if (id.startsWith('ERASMUS') || id.startsWith('KA')) result.programmeHint = 'Erasmus+';
-    else if (id.startsWith('EIT')) result.programmeHint = 'EIT';
-
     return result;
   }
 
   /**
-   * Try multiple EU Funding & Tenders Portal API endpoints.
-   * Returns { data, fullText } where data is the JSON object and fullText is
-   * any additional scraped prose we can use for keyword matching.
+   * Equivalente JS di normalize_action() Python.
+   * Gestisce stringhe verbose ("Research and Innovation Action")
+   * e valori compatti dell'API ("HORIZON-RIA", "HORIZON-IA", ecc.).
    */
-  async function fetchFromEuApi(topicId) {
-    const cleanId = topicId.trim().toUpperCase();
-
-    // Endpoint 1: topic detail (works for topic IDs like HORIZON-CL6-2022-GOVERNANCE-01-01)
-    const topicUrl = `https://api.ec.europa.eu/funding-tenders/opportunities/data-models/topicDetails/topic/${encodeURIComponent(cleanId)}`;
-    // Endpoint 2: search by identifier (works for call IDs without the last segment)
-    const searchUrl = `https://api.ec.europa.eu/funding-tenders/opportunities/data-models/referenceData/searchTopics?keywords=${encodeURIComponent(cleanId)}&pageSize=1`;
-
-    const headers = { 'Accept': 'application/json' };
-    const sig = AbortSignal.timeout(8000);
-
-    let data = null;
-    let fullText = '';
-
-    // Try topic endpoint first
-    try {
-      const res = await fetch(topicUrl, { method: 'GET', headers, signal: sig });
-      if (res.ok) {
-        const json = await res.json();
-        // The real API wraps the payload inside a "TopicDetails" key or returns it directly
-        data = json?.TopicDetails || json?.topicDetails || json;
-      }
-    } catch { /* try next */ }
-
-    // Fallback: search endpoint
-    if (!data) {
-      try {
-        const res2 = await fetch(searchUrl, { method: 'GET', headers, signal: AbortSignal.timeout(6000) });
-        if (res2.ok) {
-          const json2 = await res2.json();
-          // Search results are usually under results[0] or topics[0]
-          const first = json2?.results?.[0] || json2?.topics?.[0] || json2?.[0];
-          if (first) data = first;
-        }
-      } catch { /* noop */ }
-    }
-
-    // Build a full-text corpus from whatever we got — used for keyword matching
-    if (data) {
-      fullText = [
-        data.title, data.topicTitle, data.callTitle,
-        data.objective, data.description, data.intro,
-        data.sidePanel, data.keywords,
-        // Some API responses nest content under a "content" array of {title,text} objects
-        ...(Array.isArray(data.content)
-          ? data.content.map(c => `${c.title||''} ${c.text||''}`)
-          : []),
-        // "tags" can be an array of strings or objects
-        ...(Array.isArray(data.tags) ? data.tags.map(t => typeof t === 'string' ? t : t?.name || '') : []),
-        data.destinationGroup, data.programmePart, data.typeOfAction
-      ].filter(Boolean).join(' ');
-    }
-
-    return data ? { data, fullText } : null;
+  function normalizeActionStr(v) {
+    if (!v) return '';
+    const s = v.toLowerCase();
+    if (s.includes('research and innovation action')) return 'RIA';
+    if (s.includes('innovation action'))              return 'IA';
+    if (s.includes('coordination and support'))       return 'CSA';
+    if (s.includes('cofund'))                         return 'COFUND';
+    const u = v.toUpperCase();
+    if (/\bHORIZON-RIA\b/.test(u) || /\bRIA\b/.test(u))               return 'RIA';
+    if (/\bHORIZON-IA\b/.test(u)  || /(?<![A-Z])IA(?![A-Z])/.test(u)) return 'IA';
+    if (/\bHORIZON-CSA\b/.test(u) || /\bCSA\b/.test(u))               return 'CSA';
+    if (/COFUND/.test(u))                                               return 'COFUND';
+    return '';
   }
 
   /**
-   * Extract usable fields from the EU API response bundle { data, fullText }.
-   * Returns { actionType, title, thematic, fullText }
+   * Equivalente JS di classify_multitopic() Python.
+   * Keyword matching su text contro tutti i bucket KEYWORDS,
+   * esclude excludeThematic (area primaria), restituisce array
+   * ordinato per hit decrescenti.
    */
-  function parseEuApiResponse(bundle) {
-    if (!bundle) return {};
-    const { data, fullText } = bundle;
-    const result = { fullText: fullText || '' };
-
-    // ── Action type ──
-    // The real Horizon Europe API uses typeOfAction with values like
-    // "HORIZON-RIA", "HORIZON-IA", "HORIZON-CSA", "HORIZON-COFUND-EJP", etc.
-    const actionCandidates = [
-      data.typeOfAction,
-      data.actionType,
-      data.ccm2Id,
-      data.callType,
-      // Sometimes it's inside an array
-      ...(Array.isArray(data.typeOfAction) ? data.typeOfAction : []),
-    ].filter(Boolean).map(v => String(v).toUpperCase());
-
-    for (const raw of actionCandidates) {
-      if (raw.includes('RIA') || raw.includes('RESEARCH-AND-INNOVATION')) { result.actionType = 'RIA'; break; }
-      if (raw.includes('-IA') || raw.includes('INNOVATION-ACTION') || raw === 'IA') { result.actionType = 'IA'; break; }
-      if (raw.includes('CSA') || raw.includes('COORDINATION-AND-SUPPORT')) { result.actionType = 'CSA'; break; }
-      if (raw.includes('COFUND') || raw.includes('CO-FUND')) { result.actionType = 'COFUND'; break; }
-    }
-
-    // ── Title ──
-    const title = data.title || data.topicTitle || data.callTitle || '';
-    if (title) result.title = String(title).trim();
-
-    // ── Primary thematic from cluster code in API fields ──
-    const clusterCandidates = [
-      data.programmePart, data.destinationGroup, data.clusterCode,
-      data.cluster, data.programmeCode, data.callIdentifier,
-      // Some APIs return the topic identifier itself, from which we can re-parse
-      data.topicIdentifier, data.identifier
-    ].filter(Boolean).map(v => String(v).toUpperCase());
-
-    for (const cand of clusterCandidates) {
-      for (const [code, thematic] of Object.entries(CLUSTER_TO_THEMATIC)) {
-        const re = new RegExp('(?:^|[-_])' + code.replace(/-/g,'[-_]') + '(?:[-_]|$)', 'i');
-        if (re.test(cand)) { result.thematic = thematic; break; }
-      }
-      if (result.thematic) break;
-    }
-
-    return result;
-  }
-
-  /**
-   * Given a corpus of text and a primary thematic to exclude, run keyword
-   * matching against all KEYWORDS buckets and return the best secondary match.
-   * Returns { thematic, hits } or null.
-   */
-  function inferSecondaryThematic(text, excludeThematic) {
-    if (!text) return null;
+  function classifyMultitopic(text, excludeThematic) {
+    if (!text) return [];
     const t = text.toLowerCase();
     const scores = [];
-
-    for (const [thematic, keywords] of Object.entries(KEYWORDS)) {
+    for (const [thematic, kws] of Object.entries(KEYWORDS)) {
       if (thematic === excludeThematic) continue;
-      if (thematic === SPECIAL) continue; // special bucket not useful as secondary
-      const hits = keywords.filter(k => {
-        const re = new RegExp('(?:^|[^a-z])' + k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '(?:[^a-z]|$)', 'i');
+      if (thematic === SPECIAL) continue;
+      const hits = kws.filter(k => {
+        const re = new RegExp('(?<![a-z])' + k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '(?![a-z])', 'i');
         return re.test(t);
       });
-      if (hits.length > 0) scores.push({ thematic, hits, count: hits.length });
+      if (hits.length) scores.push({ thematic, hits, count: hits.length });
     }
-
-    if (!scores.length) return null;
     scores.sort((a, b) => b.count - a.count);
-    return scores[0];
+    return scores;
   }
 
   /**
-   * Fuzzy-search within local CALLS array for a call/topic ID match.
+   * Chiama la stessa search API intercettata dallo scraper Python
+   * (SEARCH_API = "search-api/prod/rest/search").
+   *
+   * La risposta ha struttura:
+   *   { results: [{ metadata: { typesOfAction:[], ... }, title, content:[{title,text}] }] }
+   *
+   * Speculare a handle() in _enrich_one() del Python.
+   */
+  async function fetchFromSearchApi(topicId) {
+    const clean = topicId.trim();
+
+    function buildUrl(dataSet) {
+      return `https://api.tech.ec.europa.eu/search-api/prod/rest/search?` +
+        `apiKey=SEDIA` +
+        `&text=%22${encodeURIComponent(clean)}%22` +
+        `&pageSize=1&pageNumber=1` +
+        `&dataSet=${dataSet}` +
+        `&fields=metadata,title,content`;
+    }
+
+    async function tryFetch(url) {
+      const res = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(9000)
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json?.results?.[0] || null;
+    }
+
+    let item = null;
+    // Prova prima topicDataSet (stesso dataset usato dallo scraper per i topic Horizon)
+    try { item = await tryFetch(buildUrl('topicDataSet')); }    catch { /* fallback */ }
+    // Fallback: opportunityDataSet
+    if (!item) {
+      try { item = await tryFetch(buildUrl('opportunityDataSet')); } catch { /* noop */ }
+    }
+    if (!item) return null;
+
+    const meta = item.metadata || {};
+
+    // _first() del Python: primo valore da array o stringa diretta
+    function firstVal(...keys) {
+      for (const k of keys) {
+        const v = meta[k];
+        if (Array.isArray(v) && v.length) return String(v[0]).trim();
+        if (v && typeof v === 'string')   return v.trim();
+      }
+      return '';
+    }
+
+    // Stessa estrazione Python: typesOfAction / typeOfAction / fundingScheme
+    const actionRaw = firstVal('typesOfAction', 'typeOfAction', 'fundingScheme', 'typeOfMga');
+
+    // Titolo
+    const title = Array.isArray(item.title)
+      ? (item.title[0] || '')
+      : (item.title || firstVal('title') || '');
+
+    // Full text: content array (come full_text dello scraper)
+    const contentParts = Array.isArray(item.content)
+      ? item.content.map(c => `${c.title || ''} ${c.text || ''}`).join(' ')
+      : (typeof item.content === 'string' ? item.content : '');
+
+    const keywordsPart = Array.isArray(meta.keywords)
+      ? meta.keywords.join(' ')
+      : (meta.keywords || '');
+
+    const fullText = [
+      title, contentParts, keywordsPart,
+      meta.objective, meta.description, meta.intro,
+      meta.destinationGroup, meta.programmePart,
+      firstVal('legalBasis')
+    ].filter(Boolean).join(' ');
+
+    return { actionRaw, title, fullText, meta };
+  }
+
+  /**
+   * Ricerca fuzzy nel dataset locale calls.json.
    */
   function findInLocalCalls(id) {
     const idUp = id.trim().toUpperCase();
     return CALLS.find(c => {
       const nameUp = String(c.name || '').toUpperCase();
       const urlUp  = String(c.url  || '').toUpperCase();
-      return nameUp.includes(idUp) || idUp.includes(nameUp.substring(0,20)) || urlUp.includes(idUp);
+      return nameUp.includes(idUp) || urlUp.includes(idUp) ||
+             (idUp.length > 10 && idUp.includes(nameUp.substring(0, 15)));
     }) || null;
   }
 
   /**
-   * Main autofill handler — called on button click or Enter key.
-   * Fills: area primaria, area secondaria, action type.
+   * Handler principale autofill.
+   * Pipeline speculare al Python:
+   *   1. parseCallId()        → thematic da struttura ID (url_classify)
+   *   2. fetchFromSearchApi() → actionRaw da metadata.typesOfAction, fullText
+   *   3. normalizeActionStr() → normalize_action() Python
+   *   4. classifyMultitopic() → classify_multitopic() Python → area secondaria
    */
   async function doAutofill() {
     const rawInput = callNumberInput.value.trim();
@@ -1201,61 +1221,54 @@
     }
 
     autofillBtn.disabled = true;
-    showFeedback('loading', null, 'Ricerca in corso su EU Funding & Tenders Portal…');
+    showFeedback('loading', null, 'Interrogazione EU Funding &amp; Tenders search API…');
 
-    // Step 1: parse from the ID string itself (instant, no network)
+    // Step 1 — parsing strutturale dell'ID (istantaneo)
     const parsed = parseCallId(rawInput);
 
-    // Step 2: try local CALLS array (instant)
+    // Step 2 — dataset locale (istantaneo)
     const localMatch = findInLocalCalls(rawInput);
 
-    // Step 3: EU API — await fully so we get full text for keyword matching
-    let apiBundled = null;
-    try { apiBundled = await fetchFromEuApi(rawInput); } catch { /* noop */ }
-    const apiParsed = parseEuApiResponse(apiBundled);
+    // Step 3 — search API (stesso endpoint intercettato dallo scraper)
+    let apiResult = null;
+    try { apiResult = await fetchFromSearchApi(rawInput); } catch { /* noop */ }
 
     autofillBtn.disabled = false;
 
-    // ── Merge priority: API > local CALLS > parsed-from-ID ──
-    const finalThematic = apiParsed.thematic
-      || (localMatch && localMatch.thematic_cluster)
-      || parsed.thematic;
+    // ── Merge: locale > parsing strutturale (API non fornisce thematic affidabile)
+    const finalThematic = (localMatch && localMatch.thematic_cluster) || parsed.thematic;
 
-    const finalAction = apiParsed.actionType
-      || (localMatch && normalizeAction(localMatch.action))
-      || parsed.actionType;
+    // Action type: search API (typesOfAction) > dataset locale > parsing ID
+    const actionFromApi   = apiResult ? normalizeActionStr(apiResult.actionRaw) : '';
+    const actionFromLocal = localMatch ? normalizeAction(localMatch.action) : '';
+    const finalAction     = actionFromApi || actionFromLocal || parsed.actionType || '';
 
-    const finalTitle = apiParsed.title || (localMatch && localMatch.name) || null;
+    const finalTitle = apiResult?.title || (localMatch && localMatch.name) || null;
 
-    // ── Build full text corpus for secondary matching ──
-    // Priority: API full text > local match full_text > local match name
+    // ── Corpus per classify_multitopic ──
+    // API full text > full_text locale > nome locale
     const corpus = [
-      apiParsed.fullText,
-      localMatch && localMatch.full_text,
-      localMatch && localMatch.name,
-      // Also include the raw ID itself — destination-group keywords sometimes appear there
-      rawInput
+      apiResult?.fullText,
+      localMatch?.full_text,
+      localMatch?.name,
     ].filter(Boolean).join(' ');
 
-    // ── Infer secondary thematic from corpus ──
-    const secondaryInference = finalThematic
-      ? inferSecondaryThematic(corpus, finalThematic)
-      : null;
-
-    const finalSecondary = secondaryInference && secondaryInference.count >= 2
-      ? secondaryInference.thematic
-      : null;
+    // ── Area secondaria via classifyMultitopic ──
+    const multiScores  = corpus ? classifyMultitopic(corpus, finalThematic) : [];
+    // Soglia ≥2 keyword per evitare falsi positivi (stessa logica del Python)
+    const bestSecondary = multiScores.find(s => s.count >= 2) || null;
+    const finalSecondary = bestSecondary && bestSecondary.thematic !== finalThematic
+      ? bestSecondary.thematic : null;
 
     if (!finalThematic && !finalAction) {
       showFeedback('warning', '⚠', `
         Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>.<br>
-        Verifica il formato dell'ID (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>)
-        e compila i campi manualmente.
+        Verifica il formato (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>) e compila manualmente.
       `);
       return;
     }
 
-    // ── Inject into form fields ──
+    // ── Iniezione nei campi del form ──
     const injected = [];
 
     if (finalThematic) {
@@ -1267,7 +1280,7 @@
       }
     }
 
-    if (finalSecondary && finalSecondary !== finalThematic) {
+    if (finalSecondary) {
       const matched2 = THEMATIC_OPTIONS.find(o => o === finalSecondary);
       if (matched2) {
         secondaryEl.value = matched2;
@@ -1275,41 +1288,44 @@
         injected.push({
           label: 'Area secondaria',
           value: matched2,
-          hint: `${secondaryInference.count} keyword riscontrate`
+          hint: `${bestSecondary.count} kw: ${bestSecondary.hits.slice(0,3).join(', ')}${bestSecondary.hits.length > 3 ? '…' : ''}`
         });
       }
     }
 
     if (finalAction) {
       const atEl = document.getElementById('action_type');
-      const validActions = ['RIA','IA','CSA','COFUND'];
-      if (validActions.includes(finalAction)) {
+      if (['RIA','IA','CSA','COFUND'].includes(finalAction)) {
         atEl.value = finalAction;
         flashInjected(atEl);
         injected.push({ label: 'Action type', value: finalAction });
       }
     }
 
-    // ── Build success message ──
-    let msg = `Compilazione completata per <strong>${esc(rawInput)}</strong>.`;
-    if (finalTitle) msg += `<br><em style="opacity:0.75">${esc(finalTitle.substring(0,100))}${finalTitle.length > 100 ? '…' : ''}</em>`;
+    // ── Feedback ──
+    let msg = `Compilazione per <strong>${esc(rawInput)}</strong>.`;
+    if (finalTitle) {
+      msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(finalTitle.substring(0,110))}${finalTitle.length > 110 ? '…' : ''}</em>`;
+    }
 
     const chipsHtml = injected.map(i => {
-      const hintSpan = i.hint ? ` <span style="opacity:0.6;font-weight:400">(${esc(i.hint)})</span>` : '';
+      const hintSpan = i.hint
+        ? ` <span style="opacity:0.6;font-weight:400;font-size:0.88em">(${esc(i.hint)})</span>`
+        : '';
       return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
     }).join('');
 
-    const sourceNote = apiBundled
-      ? '<small style="opacity:0.6">Dati da EU Funding &amp; Tenders Portal.</small>'
-      : '<small style="opacity:0.6">API EU non disponibile — dati ricavati dall\'ID. Verifica manualmente.</small>';
+    const sourceNote = apiResult
+      ? `<small style="opacity:0.58">Fonte: EU Funding &amp; Tenders search API${!corpus ? ' — testo completo non disponibile' : ''}.</small>`
+      : `<small style="opacity:0.58">Search API non raggiungibile — dati da ID strutturale${localMatch ? ' + dataset locale' : ''}.</small>`;
 
     if (injected.length === 0) {
-      showFeedback('warning', '⚠', `${msg}<br>Nessun campo compatibile trovato — compila manualmente.`);
+      showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
     } else {
       showFeedback('success', '✓', `
         ${msg}
         <div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>
-        <div style="margin-top:8px">${sourceNote} <small style="opacity:0.6">Puoi modificare i campi in qualsiasi momento.</small></div>
+        <div style="margin-top:8px">${sourceNote} <small style="opacity:0.58">Puoi modificare i campi in qualsiasi momento.</small></div>
       `);
     }
   }
