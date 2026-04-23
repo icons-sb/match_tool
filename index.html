@@ -1154,26 +1154,6 @@
    * Il backend gestisce autenticazione e CORS: il frontend
    * non ha bisogno di conoscere la API key.
    */
-  const BACKEND_URL = 'http://localhost:8000';
-
-  async function lookupViaClaudeWebSearch(topicId) {
-    const response = await fetch(`${BACKEND_URL}/api/autofill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        topic_id: topicId,
-        thematic_options: THEMATIC_OPTIONS
-      })
-    });
-
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.json()).detail || ''; } catch {}
-      throw new Error(`Backend error ${response.status}: ${detail || response.statusText}`);
-    }
-
-    return await response.json();
-  }
 
   /**
    * Handler principale autofill.
@@ -1189,20 +1169,13 @@
     }
 
     autofillBtn.disabled = true;
-    showFeedback('loading', null, 'Ricerca sul portale EU Funding &amp; Tenders…');
 
-    // Step 1 — istantaneo: parsing strutturale + dataset locale
+    // Ricerca nel dataset locale + parsing strutturale ID
     const parsed     = parseCallId(rawInput);
     const localMatch = findInLocalCalls(rawInput);
 
-    // Step 2 — tentativo lookup via backend (opzionale, fallisce silenziosamente)
-    let claudeResult = null;
-    try {
-      claudeResult = await lookupViaClaudeWebSearch(rawInput);
-    } catch (err) {
-      // Backend non disponibile (GitHub Pages): procediamo con dati locali
-      console.info('Backend non raggiungibile, uso dati locali:', err.message);
-    }
+    // Lookup solo locale: dataset calls.json + parsing strutturale ID
+    const claudeResult = null;
 
     autofillBtn.disabled = false;
 
@@ -1282,8 +1255,8 @@
     }).join('');
 
     const sourceNote = localMatch
-      ? `<small style="opacity:0.58">Dati da dataset locale${localSecondary ? ' (area secondaria da multi_thematic)' : ''}.</small>`
-      : `<small style="opacity:0.58">Dati da parsing strutturale ID.</small>`;
+      ? `<small style="opacity:0.58">Dati da dataset locale${localSecondary ? ' · area secondaria da keyword hits' : ''}.</small>`
+      : `<small style="opacity:0.58">Dati da parsing strutturale ID · non trovato nel dataset.</small>`;
 
     if (injected.length === 0) {
       showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
