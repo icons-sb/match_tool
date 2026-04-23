@@ -1,0 +1,159 @@
+name: Autofill Call Lookup
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic_id:
+        description: "EU call/topic ID to look up"
+        required: true
+        type: string
+      request_id:
+        description: "Unique request ID (timestamp) to avoid collisions"
+        required: true
+        type: string
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Lookup call via Claude API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TOPIC_ID: ${{ github.event.inputs.topic_id }}
+          REQUEST_ID: ${{ github.event.inputs.request_id }}
+        run: |
+          python3 - << 'PYEOF'
+          import os, json, httpx, re, sys
+
+          topic_id   = os.environ["TOPIC_ID"].strip()
+          request_id = os.environ["REQUEST_ID"].strip()
+          api_key    = os.environ["ANTHROPIC_API_KEY"]
+
+          THEMATIC_OPTIONS = [
+              "Clean Aviation", "Climate, Energy & Mobility",
+              "Climate-neutral & Smart Cities", "Culture, Creativity & Inclusion",
+              "Defence", "Digital, Industry & Space",
+              "External Action & International Cooperation",
+              "Food, Bioeconomy & Environment", "Health & Life Sciences",
+              "Healthy Oceans, Seas, Coastal & Inland Waters",
+              "Internships, fellowships & scholarships",
+              "Security & Resilience", "SME, Entrepreneurship & Market Uptake",
+              "Cross-cutting / Other"
+          ]
+          thematic_list = "\n".join(f"- {t}" for t in THEMATIC_OPTIONS)
+
+          prompt = f"""Cerca sul portale EU Funding & Tenders la call o il topic con identificatore: "{topic_id}"
+
+          La pagina si trova tipicamente a:
+          https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{topic_id}
+
+          oppure cerca "{topic_id} site:ec.europa.eu" su Google.
+
+          Estrai dal testo della pagina:
+          1. Titolo completo della call/topic
+          2. "Type of action" (es. "Research and Innovation Action")
+          3. Testo completo (objective, description, scope, expected outcomes)
+
+          Poi classifica la call in queste aree tematiche:
+          {thematic_list}
+
+          Regole:
+          - "primary_thematic": area principale
+          - "secondary_thematic": seconda area (solo se chiaramente presente, altrimenti null)
+          - "action_type": "RIA" | "IA" | "CSA" | "COFUND" | null
+            - "Research and Innovation Action" → "RIA"
+            - "Innovation Action" → "IA"
+            - "Coordination and Support Action" → "CSA"
+            - "cofund" → "COFUND"
+
+          Rispondi SOLO con JSON, nessun testo o markdown:
+          {{
+            "title": "...",
+            "action_type": "RIA" | "IA" | "CSA" | "COFUND" | null,
+            "primary_thematic": "..." | null,
+            "secondary_thematic": "..." | null,
+            "secondary_keywords": ["..."],
+            "found": true | false
+          }}"""
+
+          payload = {
+              "model": "claude-sonnet-4-20250514",
+              "max_tokens": 1000,
+              "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+              "messages": [{"role": "user", "content": prompt}],
+          }
+          headers = {
+              "Content-Type": "application/json",
+              "x-api-key": api_key,
+              "anthropic-version": "2023-06-01",
+          }
+
+          try:
+              resp = httpx.post(
+                  "https://api.anthropic.com/v1/messages",
+                  json=payload, headers=headers, timeout=60.0
+              )
+              resp.raise_for_status()
+              data = resp.json()
+
+              text = "\n".join(
+                  b["text"] for b in data.get("content", []) if b.get("type") == "text"
+              ).strip()
+
+              cleaned = re.sub(r"```json\s*|```", "", text).strip()
+              try:
+                  result = json.loads(cleaned)
+              except json.JSONDecodeError:
+                  m = re.search(r"\{[\s\S]*\}", cleaned)
+                  result = json.loads(m.group(0)) if m else {"found": False, "error": "parse_error"}
+
+          except Exception as e:
+              result = {"found": False, "error": str(e)}
+
+          # Leggi cache esistente
+          cache_path = "autofill_cache.json"
+          try:
+              with open(cache_path) as f:
+                  cache = json.load(f)
+          except Exception:
+              cache = {}
+
+          # Scrivi risultato indicizzato per request_id
+          cache[request_id] = {
+              "topic_id": topic_id,
+              "result": result
+          }
+
+          # Mantieni solo gli ultimi 50 risultati per non far crescere il file
+          if len(cache) > 50:
+              oldest_keys = sorted(cache.keys())[:-50]
+              for k in oldest_keys:
+                  del cache[k]
+
+          with open(cache_path, "w") as f:
+              json.dump(cache, f, indent=2, ensure_ascii=False)
+
+          print(f"Done: {json.dumps(result, ensure_ascii=False)}")
+          PYEOF
+
+      - name: Commit result
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add autofill_cache.json
+          git diff --staged --quiet || git commit -m "autofill: ${{ github.event.inputs.topic_id }} [${{ github.event.inputs.request_id }}]"
+          git push
