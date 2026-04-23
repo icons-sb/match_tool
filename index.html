@@ -28,6 +28,9 @@
       --b4: #0891b2; --b4-bg: rgba(8,145,178,0.08);
       --b5: #7c3aed; --b5-bg: rgba(124,58,237,0.08);
       --b6: rgba(17,24,39,0.35); --b6-bg: rgba(17,24,39,0.04);
+      --success: #16a34a; --success-bg: rgba(22,163,74,0.08);
+      --warning: #d97706; --warning-bg: rgba(217,119,6,0.08);
+      --error: #dc2626; --error-bg: rgba(220,38,38,0.08);
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
@@ -177,6 +180,171 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-dim);
     }
+
+    /* ── AUTOFILL SECTION ── */
+    .autofill-section {
+      background: linear-gradient(135deg, rgba(37,99,235,0.04) 0%, rgba(37,99,235,0.02) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 28px 32px;
+    }
+    .autofill-label-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .autofill-label-row .section-label {
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+    .autofill-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(37,99,235,0.22);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-left: 10px;
+    }
+    .autofill-input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .autofill-input-wrap {
+      flex: 1;
+      min-width: 260px;
+      position: relative;
+    }
+    .autofill-input-wrap input[type="text"] {
+      font-family: 'DM Mono', 'Courier New', monospace;
+      letter-spacing: 0.04em;
+      padding-right: 38px;
+    }
+    .autofill-clear-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted2);
+      font-size: 1rem;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 6px;
+      display: none;
+      transition: color 0.15s;
+    }
+    .autofill-clear-btn:hover { color: var(--text); }
+    .autofill-clear-btn.visible { display: flex; align-items: center; justify-content: center; }
+    .btn-autofill {
+      background: var(--accent);
+      color: #fff;
+      padding: 11px 22px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-family: inherit;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: all 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-autofill:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-autofill:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    /* Autofill feedback banner */
+    .autofill-feedback {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .autofill-feedback.success {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--success-bg);
+      border: 1px solid rgba(22,163,74,0.22);
+      color: #14532d;
+    }
+    .autofill-feedback.warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--warning-bg);
+      border: 1px solid rgba(217,119,6,0.22);
+      color: #78350f;
+    }
+    .autofill-feedback.error {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--error-bg);
+      border: 1px solid rgba(220,38,38,0.22);
+      color: #7f1d1d;
+    }
+    .autofill-feedback.loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      color: var(--muted);
+    }
+    .autofill-feedback-icon { flex-shrink: 0; font-size: 1rem; }
+    .autofill-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .autofill-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      background: rgba(22,163,74,0.08);
+      border: 1px solid rgba(22,163,74,0.20);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      color: #14532d;
+      font-weight: 500;
+    }
+    .autofill-chip .chip-label { color: rgba(20,83,45,0.6); margin-right: 5px; font-weight: 400; }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(17,24,39,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* Autofill highlight on injected fields */
+    @keyframes injectPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.35); border-color: var(--success); }
+      60%  { box-shadow: 0 0 0 6px rgba(22,163,74,0); border-color: var(--success); }
+      100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+    }
+    .injected { animation: injectPulse 1.2s ease-out forwards; }
 
     /* ── RADIO ── */
     .radio-group { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -506,9 +674,11 @@
       .page { padding: 36px 20px 72px; }
       .grid { grid-template-columns: 1fr; }
       .field-section { padding: 20px; }
+      .autofill-section { padding: 20px; }
       .form-actions { padding: 20px; }
       .call { padding: 18px 20px 16px; }
       .toolbar { flex-direction: column; align-items: stretch; }
+      .autofill-input-row { flex-direction: column; }
     }
 
     /* ── SORT TOGGLE ── */
@@ -566,6 +736,32 @@
 
     <section class="form-card">
       <form id="surveyForm">
+
+        <!-- ── SEZIONE 00: AUTO-FILL ── -->
+        <div class="autofill-section">
+          <div class="autofill-label-row">
+            <span class="section-label" style="margin-bottom:0">
+              <span class="num">00</span>Auto-compilazione da numero call
+            </span>
+            <span class="autofill-badge">Opzionale</span>
+          </div>
+
+          <div class="autofill-input-row">
+            <div class="autofill-input-wrap">
+              <input
+                id="callNumberInput"
+                type="text"
+                placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">✕</button>
+            </div>
+            <button type="button" id="autofillBtn" class="btn-autofill">Cerca e compila</button>
+          </div>
+
+          <div id="autofillFeedback" class="autofill-feedback"></div>
+        </div>
 
         <div class="field-section">
           <span class="section-label"><span class="num">01</span>Timeframe progetto</span>
@@ -704,7 +900,7 @@
   const BUDGET_MAX = 20000000;
   const SPECIAL = 'Internships, fellowships & scholarships';
   const THEMATIC_OPTIONS = [
-    'Clean Aviation','Climate, Energy & Mobility', 'Climate-neutral & Smart Cities','Culture, Creativity & Inclusion', 'Defence', 
+    'Clean Aviation','Climate, Energy & Mobility', 'Climate-neutral & Smart Cities','Culture, Creativity & Inclusion', 'Defence',
     'Digital, Industry & Space','External Action & International Cooperation','Food, Bioeconomy & Environment', 'Health & Life Sciences',
     'Healthy Oceans, Seas, Coastal & Inland Waters', SPECIAL, 'Security & Resilience', 'SME, Entrepreneurship & Market Uptake',
     'Cross-cutting / Other'
@@ -726,6 +922,39 @@
     'Cross-cutting / Other': ['interdisciplinary','cross-cutting','widening','research infrastructure','eosc'],
     [SPECIAL]: TITLE_SPECIAL_KEYWORDS
   };
+
+  /* ── Horizon cluster → thematic area mapping ── */
+  const CLUSTER_TO_THEMATIC = {
+    'CL1': 'Health & Life Sciences',
+    'CL2': 'Culture, Creativity & Inclusion',
+    'CL3': 'Security & Resilience',
+    'CL4': 'Digital, Industry & Space',
+    'CL5': 'Climate, Energy & Mobility',
+    'CL6': 'Food, Bioeconomy & Environment',
+    'CL7': 'Healthy Oceans, Seas, Coastal & Inland Waters',
+    'MSCA': SPECIAL,
+    'ERC': SPECIAL,
+    'EIE': 'SME, Entrepreneurship & Market Uptake',
+    'EIC': 'SME, Entrepreneurship & Market Uptake',
+    'IIA': 'External Action & International Cooperation',
+    'WIDERA': 'Cross-cutting / Other',
+    'INFRA': 'Cross-cutting / Other',
+    'DEF': 'Defence',
+    'SESAR': 'Clean Aviation',
+    'JU-CLEAN-AVIATION': 'Clean Aviation',
+    'CITIES': 'Climate-neutral & Smart Cities'
+  };
+
+  /* ── Action type patterns in call IDs ── */
+  const ACTION_TYPE_PATTERNS = [
+    { pattern: /\bRIA\b/i,    value: 'RIA' },
+    { pattern: /\bIA\b/i,     value: 'IA' },
+    { pattern: /\bCSA\b/i,    value: 'CSA' },
+    { pattern: /\bCOFUND\b/i, value: 'COFUND' }
+  ];
+
+  /* ── EU Funding & Tenders API base URL ── */
+  const EU_API_BASE = 'https://api.ec.europa.eu/funding-tenders/opportunities/data-models/topicDetails/topic';
 
   /* ── DOM refs ── */
   const form              = document.getElementById('surveyForm');
@@ -749,14 +978,258 @@
   const primaryEl         = document.getElementById('thematic_cluster');
   const secondaryEl       = document.getElementById('secondary_thematic_cluster');
 
+  /* ── Autofill DOM refs ── */
+  const callNumberInput   = document.getElementById('callNumberInput');
+  const autofillBtn       = document.getElementById('autofillBtn');
+  const autofillClearBtn  = document.getElementById('autofillClearBtn');
+  const autofillFeedback  = document.getElementById('autofillFeedback');
+
   let CALLS = [];
   let visibleCount = PAGE_SIZE;
   let lastAnswers = null;
-  /** All matched+scored calls from the last form submit (pre keyword/budget live filters). */
   let lastScoredResults = [];
   let sortMode = 'relevance';
 
-  /* ── Utilities ── */
+  /* ═══════════════════════════════════════════════════════
+     AUTO-FILL LOGIC
+  ═══════════════════════════════════════════════════════ */
+
+  /**
+   * Parse a Horizon call/topic identifier and extract known fields.
+   * Works purely from the string — no network call needed for basic fields.
+   * Returns { thematic, actionType, year, clusterCode, programmeHint }
+   */
+  function parseCallId(raw) {
+    const id = raw.trim().toUpperCase();
+    const result = { thematic: null, actionType: null, year: null, clusterCode: null, programmeHint: null };
+
+    // ── Year extraction ── e.g. 2022, 2023, 2024, 2025, 2026
+    const yearMatch = id.match(/\b(20\d{2})\b/);
+    if (yearMatch) result.year = yearMatch[1];
+
+    // ── Cluster code extraction ──
+    // Handles: HORIZON-CL6-..., HORIZON-CL1-..., HORIZON-MSCA-..., etc.
+    const clusterMatch = id.match(/(?:^|[-_])((CL[1-9]|MSCA|ERC|EIC|EIE|IIA|WIDERA|INFRA|DEF|SESAR|CITIES))(?:[-_]|$)/);
+    if (clusterMatch) {
+      result.clusterCode = clusterMatch[1];
+      result.thematic = CLUSTER_TO_THEMATIC[result.clusterCode] || null;
+    }
+
+    // ── Fallback: scan all known cluster codes anywhere in the string ──
+    if (!result.thematic) {
+      for (const [code, thematic] of Object.entries(CLUSTER_TO_THEMATIC)) {
+        const re = new RegExp('(?:^|[-_])(' + code.replace(/-/g,'[-_]') + ')(?:[-_]|$)', 'i');
+        if (re.test(id)) {
+          result.clusterCode = code;
+          result.thematic = thematic;
+          break;
+        }
+      }
+    }
+
+    // ── Action type extraction from the call ID itself ──
+    for (const { pattern, value } of ACTION_TYPE_PATTERNS) {
+      if (pattern.test(id)) { result.actionType = value; break; }
+    }
+
+    // ── Programme hint ──
+    if (id.startsWith('HORIZON')) result.programmeHint = 'Horizon Europe';
+    else if (id.startsWith('H2020') || id.startsWith('H-2020')) result.programmeHint = 'Horizon 2020';
+    else if (id.startsWith('LIFE')) result.programmeHint = 'LIFE Programme';
+    else if (id.startsWith('CEF')) result.programmeHint = 'Connecting Europe Facility';
+    else if (id.startsWith('ERASMUS') || id.startsWith('KA')) result.programmeHint = 'Erasmus+';
+    else if (id.startsWith('EIT')) result.programmeHint = 'EIT';
+
+    return result;
+  }
+
+  /**
+   * Try to fetch richer data from the EU Funding & Tenders Portal API.
+   * Returns enriched data object or null if unavailable/blocked.
+   */
+  async function fetchFromEuApi(topicId) {
+    const cleanId = topicId.trim().toUpperCase();
+    const url = `${EU_API_BASE}/${encodeURIComponent(cleanId)}`;
+    try {
+      const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(6000) });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Extract usable fields from the EU API response.
+   */
+  function parseEuApiResponse(data) {
+    if (!data) return {};
+    const result = {};
+
+    // Try to get action type from ccm2Id or typeOfAction fields
+    const actionRaw = data.typeOfAction || data.ccm2Id || data.callType || '';
+    if (actionRaw) {
+      const aUp = String(actionRaw).toUpperCase();
+      if (aUp.includes('RIA') || aUp.includes('RESEARCH-AND-INNOVATION')) result.actionType = 'RIA';
+      else if (aUp.includes('IA') || aUp.includes('INNOVATION-ACTION')) result.actionType = 'IA';
+      else if (aUp.includes('CSA') || aUp.includes('COORDINATION-AND-SUPPORT')) result.actionType = 'CSA';
+      else if (aUp.includes('COFUND') || aUp.includes('CO-FUND')) result.actionType = 'COFUND';
+    }
+
+    // Title for display
+    const title = data.title || data.topicTitle || data.callTitle || '';
+    if (title) result.title = title;
+
+    // Cluster / destination
+    const dest = data.destinationGroup || data.clusterCode || data.programmePart || '';
+    if (dest) {
+      const destUp = String(dest).toUpperCase();
+      for (const [code, thematic] of Object.entries(CLUSTER_TO_THEMATIC)) {
+        if (destUp.includes(code)) { result.thematic = thematic; break; }
+      }
+    }
+
+    // Deadline from the API
+    const deadline = data.deadlineDate || data.submissionDeadline || '';
+    if (deadline) result.deadlineRaw = deadline;
+
+    // Budget
+    const budget = data.budgetPerProject || data.totalBudget || data.budgetOverview || '';
+    if (budget) result.budgetRaw = String(budget);
+
+    return result;
+  }
+
+  /**
+   * Fuzzy-search within local CALLS array for a call/topic ID match.
+   */
+  function findInLocalCalls(id) {
+    const idUp = id.trim().toUpperCase();
+    return CALLS.find(c => {
+      const nameUp = String(c.name || '').toUpperCase();
+      const urlUp  = String(c.url  || '').toUpperCase();
+      return nameUp.includes(idUp) || idUp.includes(nameUp.substring(0,20)) || urlUp.includes(idUp);
+    }) || null;
+  }
+
+  /**
+   * Main autofill handler — called on button click or Enter key.
+   */
+  async function doAutofill() {
+    const rawInput = callNumberInput.value.trim();
+    if (!rawInput) {
+      showFeedback('error', '✕', 'Inserisci un numero di call o topic ID prima di procedere.');
+      return;
+    }
+
+    autofillBtn.disabled = true;
+    showFeedback('loading', null, 'Ricerca in corso…');
+
+    // Step 1: parse from the ID string itself
+    const parsed = parseCallId(rawInput);
+
+    // Step 2: try local CALLS array
+    const localMatch = findInLocalCalls(rawInput);
+
+    // Step 3: try EU API (fire-and-forget, non-blocking)
+    let apiData = null;
+    try { apiData = await fetchFromEuApi(rawInput); } catch { /* noop */ }
+    const apiParsed = parseEuApiResponse(apiData);
+
+    // Step 4: merge — API > local > parsed-from-id
+    const finalThematic  = apiParsed.thematic  || (localMatch && localMatch.thematic_cluster) || parsed.thematic;
+    const finalAction    = apiParsed.actionType || (localMatch && normalizeAction(localMatch.action)) || parsed.actionType;
+    const finalTitle     = apiParsed.title      || (localMatch && localMatch.name) || null;
+
+    autofillBtn.disabled = false;
+
+    if (!finalThematic && !finalAction) {
+      showFeedback('warning', '⚠', `
+        Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>.<br>
+        Verifica che l'ID sia nel formato corretto (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>)
+        e compila i campi manualmente.
+      `);
+      return;
+    }
+
+    // ── Inject into form ──
+    const injected = [];
+
+    if (finalThematic) {
+      const matched = THEMATIC_OPTIONS.find(o => o === finalThematic);
+      if (matched) {
+        primaryEl.value = matched;
+        flashInjected(primaryEl);
+        injected.push({ label: 'Area primaria', value: matched });
+      }
+    }
+
+    if (finalAction) {
+      const atEl = document.getElementById('action_type');
+      const validActions = ['RIA','IA','CSA','COFUND'];
+      if (validActions.includes(finalAction)) {
+        atEl.value = finalAction;
+        flashInjected(atEl);
+        injected.push({ label: 'Action type', value: finalAction });
+      }
+    }
+
+    // ── Build success feedback ──
+    let chipsHtml = injected.map(i =>
+      `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}</span>`
+    ).join('');
+
+    let msg = `Compilazione completata per <strong>${esc(rawInput)}</strong>.`;
+    if (finalTitle) msg += ` &nbsp;·&nbsp; <em>${esc(finalTitle.substring(0,80))}${finalTitle.length>80?'…':''}</em>`;
+    if (injected.length === 0) {
+      showFeedback('warning', '⚠', `${msg}<br>Nessun campo compatibile trovato — compila manualmente.`);
+    } else {
+      showFeedback('success', '✓', `${msg}<div class="autofill-chips">${chipsHtml}</div><br>
+        <small style="opacity:0.75">Puoi modificare i campi compilati in qualsiasi momento.</small>`);
+    }
+  }
+
+  function showFeedback(type, icon, html) {
+    autofillFeedback.className = `autofill-feedback ${type}`;
+    if (type === 'loading') {
+      autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
+    } else {
+      autofillFeedback.innerHTML = `<span class="autofill-feedback-icon">${icon||''}</span><div>${html}</div>`;
+    }
+  }
+
+  function flashInjected(el) {
+    el.classList.remove('injected');
+    void el.offsetWidth; // reflow
+    el.classList.add('injected');
+    setTimeout(() => el.classList.remove('injected'), 1400);
+  }
+
+  /* ── Autofill event listeners ── */
+  callNumberInput.addEventListener('input', () => {
+    const hasValue = callNumberInput.value.trim().length > 0;
+    autofillClearBtn.classList.toggle('visible', hasValue);
+    if (!hasValue) autofillFeedback.className = 'autofill-feedback';
+  });
+
+  autofillClearBtn.addEventListener('click', () => {
+    callNumberInput.value = '';
+    autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className = 'autofill-feedback';
+    callNumberInput.focus();
+  });
+
+  callNumberInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); doAutofill(); }
+  });
+
+  autofillBtn.addEventListener('click', doAutofill);
+
+  /* ═══════════════════════════════════════════════════════
+     UTILITIES
+  ═══════════════════════════════════════════════════════ */
+
   function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function norm(s){ return String(s||'').trim(); }
   function lower(s){ return String(s||'').toLowerCase(); }
@@ -775,16 +1248,9 @@
     return String(v||'').toUpperCase();
   }
 
-  /**
-   * Parse a budget string from the data into a number.
-   * Handles formats like "1.500.000", "1,500,000", "1500000", "€ 1.500.000", "1.5M" etc.
-   * Returns null if unparseable.
-   */
   function parseBudgetValue(value){
     if(value === null || value === undefined || value === '') return null;
     let s = String(value).trim();
-
-    // Handle shorthand like "1.5M", "2M", "500K"
     const shorthand = s.match(/^[€$\s]*([\d.,]+)\s*([KkMmBb])\b/);
     if(shorthand){
       const num = parseFloat(shorthand[1].replace(',','.'));
@@ -792,58 +1258,26 @@
       const result = num * mult;
       return Number.isFinite(result) ? result : null;
     }
-
-    // Strip currency symbols, spaces, non-numeric chars except . and ,
     s = s.replace(/[€$£\s]/g,'');
-
-    // Detect separator style:
-    // European: 1.234.567,89  → dots as thousands, comma as decimal
-    // US/ISO:   1,234,567.89  → commas as thousands, dot as decimal
-    // Ambiguous: 1.500 or 1,500 — treat as thousands separator (no decimal part)
     const dotCount   = (s.match(/\./g)||[]).length;
     const commaCount = (s.match(/,/g)||[]).length;
-
     let normalized;
-    if(dotCount > 1){
-      // Multiple dots → European thousands separators (e.g. 1.234.567)
-      normalized = s.replace(/\./g,'').replace(',','.');
-    } else if(commaCount > 1){
-      // Multiple commas → US thousands separators (e.g. 1,234,567)
-      normalized = s.replace(/,/g,'');
-    } else if(dotCount === 1 && commaCount === 1){
-      // Both present — whichever comes last is the decimal separator
-      if(s.lastIndexOf(',') > s.lastIndexOf('.')){
-        // European: 1.234,56
-        normalized = s.replace('.','').replace(',','.');
-      } else {
-        // US: 1,234.56
-        normalized = s.replace(',','');
-      }
+    if(dotCount > 1){ normalized = s.replace(/\./g,'').replace(',','.'); }
+    else if(commaCount > 1){ normalized = s.replace(/,/g,''); }
+    else if(dotCount === 1 && commaCount === 1){
+      if(s.lastIndexOf(',') > s.lastIndexOf('.')){ normalized = s.replace('.','').replace(',','.'); }
+      else { normalized = s.replace(',',''); }
     } else if(commaCount === 1){
-      // Single comma: could be decimal (1,5) or thousands (1,500)
-      // If exactly 3 digits follow the comma → thousands separator
       const afterComma = s.split(',')[1]||'';
-      if(afterComma.length === 3 && /^\d+$/.test(afterComma)){
-        normalized = s.replace(',',''); // thousands
-      } else {
-        normalized = s.replace(',','.'); // decimal
-      }
+      if(afterComma.length === 3 && /^\d+$/.test(afterComma)){ normalized = s.replace(',',''); }
+      else { normalized = s.replace(',','.'); }
     } else {
-      // Only dots or plain number
       if(dotCount === 1){
         const afterDot = s.split('.')[1]||'';
-        // Dot with exactly 3 trailing digits → likely thousands separator
-        if(afterDot.length === 3 && /^\d+$/.test(afterDot)){
-          normalized = s.replace('.','');
-        } else {
-          normalized = s; // decimal dot
-        }
-      } else {
-        normalized = s;
-      }
+        if(afterDot.length === 3 && /^\d+$/.test(afterDot)){ normalized = s.replace('.',''); }
+        else { normalized = s; }
+      } else { normalized = s; }
     }
-
-    // Keep only leading numeric part (strip any trailing text like " EUR")
     const match = normalized.match(/^-?[\d.]+/);
     if(!match) return null;
     const parsed = Number(match[0]);
@@ -856,7 +1290,6 @@
       : '';
   }
 
-  /** Read current slider values; always returns {minBudget, maxBudget} as numbers. */
   function getBudgetRange(){
     let min = Number(budgetMinEl.value);
     let max = Number(budgetMaxEl.value);
@@ -866,7 +1299,6 @@
     return { minBudget: min, maxBudget: max };
   }
 
-  /** Returns true when the slider has been moved away from the full range. */
   function budgetFilterActive(){
     const { minBudget, maxBudget } = getBudgetRange();
     return minBudget > 0 || maxBudget < BUDGET_MAX;
@@ -876,22 +1308,15 @@
     const { minBudget, maxBudget } = getBudgetRange();
     budgetMinLabelEl.textContent = formatBudget(minBudget);
     budgetMaxLabelEl.textContent = formatBudget(maxBudget);
-
     const sliderMin = Number(budgetMinEl.min||0);
     const sliderMax = Number(budgetMinEl.max||BUDGET_MAX);
     const left  = ((minBudget - sliderMin) / (sliderMax - sliderMin)) * 100;
     const right = ((maxBudget - sliderMin) / (sliderMax - sliderMin)) * 100;
     budgetRangeFillEl.style.left  = left + '%';
     budgetRangeFillEl.style.width = Math.max(right - left, 0) + '%';
-
     budgetPresetEls.forEach(btn => {
-      btn.classList.toggle(
-        'active',
-        Number(btn.dataset.min) === minBudget && Number(btn.dataset.max) === maxBudget
-      );
+      btn.classList.toggle('active', Number(btn.dataset.min) === minBudget && Number(btn.dataset.max) === maxBudget);
     });
-
-    // Show warning when filter is active
     budgetWarningEl.classList.toggle('visible', budgetFilterActive());
   }
 
@@ -981,13 +1406,13 @@
 
     let bucket = 99;
     if(!secondary){
-      if(primaryAssigned)      bucket = 1;
+      if(primaryAssigned)         bucket = 1;
       else if(primaryHits.length) bucket = 2;
     } else {
-      if(primaryAssigned && secondaryHits.length)                        bucket = 1;
-      else if(secondaryAssigned && primaryHits.length)                   bucket = 2;
-      else if(primaryAssigned)                                           bucket = 3;
-      else if(secondaryAssigned)                                         bucket = 4;
+      if(primaryAssigned && secondaryHits.length)                          bucket = 1;
+      else if(secondaryAssigned && primaryHits.length)                     bucket = 2;
+      else if(primaryAssigned)                                             bucket = 3;
+      else if(secondaryAssigned)                                           bucket = 4;
       else if(otherAssigned && primaryHits.length && secondaryHits.length) bucket = 5;
       else if(otherAssigned && (primaryHits.length || secondaryHits.length)) bucket = 6;
     }
@@ -1008,43 +1433,31 @@
   }
 
   /* ── Budget filter helper ── */
-  /**
-   * Check whether a call passes the current budget slider range.
-   * If the slider is at the full default range, all calls pass regardless of budget data.
-   * If the slider has been restricted, calls with no parseable budget are excluded.
-   */
   function passedBudgetFilter(call){
-    if(!budgetFilterActive()) return true;   // slider untouched → no filter
+    if(!budgetFilterActive()) return true;
     const v = call._budget_value;
-    if(!Number.isFinite(v)) return false;    // no parseable budget → exclude when filter is active
+    if(!Number.isFinite(v)) return false;
     const { minBudget, maxBudget } = getBudgetRange();
     return v >= minBudget && v <= maxBudget;
   }
 
   /* ── Main filter pipeline ── */
-  /**
-   * applyFilters: runs once on form submit.
-   * Returns ALL calls that pass thematic + deadline + action_type matching,
-   * scored and sorted by relevance. Budget and keyword are NOT applied here —
-   * they are live filters applied in applyDisplayFilters().
-   */
   function applyFilters(calls, answers){
     const projectEnd = projectEndIso(answers.closure_year, answers.closure_quarter);
     return calls
       .map(enrichCall)
       .map(call => {
-        // Deadline: call must close AFTER the project end date
         if(projectEnd && call._deadline_norm && call._deadline_norm <= projectEnd) return null;
         const bs = bucketAndScore(call, answers);
         if(!bs) return null;
         return {
           ...call,
-          _bucket:          bs.bucket,
-          _score:           bs.score,
-          _primaryAssigned: bs.primaryAssigned,
+          _bucket:           bs.bucket,
+          _score:            bs.score,
+          _primaryAssigned:  bs.primaryAssigned,
           _secondaryAssigned:bs.secondaryAssigned,
-          _primaryHits:     bs.primaryHits,
-          _secondaryHits:   bs.secondaryHits
+          _primaryHits:      bs.primaryHits,
+          _secondaryHits:    bs.secondaryHits
         };
       })
       .filter(Boolean)
@@ -1055,21 +1468,14 @@
       });
   }
 
-  /**
-   * applyDisplayFilters: runs on every re-render (keyword typing, slider move, sort change).
-   * Applies keyword search and budget range on top of lastScoredResults.
-   */
   function applyDisplayFilters(results){
     const raw   = lower(keywordFilterEl.value||'').trim();
     const terms = raw.split(/\s+/).filter(Boolean);
-
     return results.filter(c => {
-      // 1. Keyword filter (title only — fast and intentional)
       if(terms.length){
         const title = lower(c.name||'');
         if(!terms.every(t => title.includes(t))) return false;
       }
-      // 2. Budget filter
       if(!passedBudgetFilter(c)) return false;
       return true;
     });
@@ -1128,13 +1534,13 @@
 
     visible.forEach(call => {
       const meta = [
-        call.programme      ? `Programme: ${esc(call.programme)}`            : '',
-        call.thematic_cluster?`Thematic area: ${esc(call.thematic_cluster)}` : '',
-        call.cluster_label  ? `Horizon area: ${esc(call.cluster_label)}`     : '',
-        call.action         ? `Action: ${esc(call.action)}`                  : '',
-        call.budget         ? `Budget: ${esc(call.budget)}`                  : '',
-        call.opening        ? `Opening: ${esc(call.opening)}`                : '',
-        call.deadline       ? `Deadline: ${esc(call.deadline)}`              : ''
+        call.programme       ? `Programme: ${esc(call.programme)}`            : '',
+        call.thematic_cluster? `Thematic area: ${esc(call.thematic_cluster)}` : '',
+        call.cluster_label   ? `Horizon area: ${esc(call.cluster_label)}`     : '',
+        call.action          ? `Action: ${esc(call.action)}`                  : '',
+        call.budget          ? `Budget: ${esc(call.budget)}`                  : '',
+        call.opening         ? `Opening: ${esc(call.opening)}`                : '',
+        call.deadline        ? `Deadline: ${esc(call.deadline)}`              : ''
       ].filter(Boolean).join(' · ');
 
       const bucketClass = `badge-b${call._bucket||6}`;
@@ -1220,7 +1626,7 @@
     URL.revokeObjectURL(a.href);
   }
 
-  /* ── Event listeners ── */
+  /* ── Form event listeners ── */
   form.addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -1238,7 +1644,6 @@
     }
     lastAnswers = answers;
     visibleCount = PAGE_SIZE;
-    // Thematic + deadline scoring only — budget/keyword are live filters
     lastScoredResults = applyFilters(CALLS, answers);
     resultsSection.classList.remove('hidden');
     renderCalls();
@@ -1308,6 +1713,9 @@
     updateBudgetUi();
     lastAnswers = null;
     lastScoredResults = [];
+    callNumberInput.value = '';
+    autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className = 'autofill-feedback';
   });
 
   /* ── Init ── */
