@@ -1159,19 +1159,91 @@
     return null;
   }
 
+  /* ═══════════════════════════════════════════════════════
+     AUTOFILL — GitHub Actions workflow_dispatch + polling
+     
+     Configurazione (costanti qui sotto):
+       GITHUB_OWNER  — es. "mio-org"
+       GITHUB_REPO   — es. "funding-matcher"
+       GITHUB_TOKEN  — Personal Access Token con scope "repo" (public_repo)
+                       oppure un token fine-grained con permessi
+                       "Actions: write" e "Contents: read"
+                       VA INCOLLATO QUI (è solo in lettura sul repo pubblico,
+                       il rischio è minimo; in alternativa chiedilo all'utente)
+  ═══════════════════════════════════════════════════════ */
+
+  const GITHUB_OWNER    = 'INSERISCI_ORG_O_USERNAME';
+  const GITHUB_REPO     = 'INSERISCI_NOME_REPO';
+  const GITHUB_TOKEN    = 'INSERISCI_GITHUB_PAT';   // public_repo scope
+  const WORKFLOW_FILE   = 'autofill_lookup.yml';
+  const CACHE_FILE_URL  = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/autofill_cache.json`;
+
   /**
-   * Chiama il backend Python locale (/api/autofill) che fa da proxy
-   * verso l'API Anthropic con web_search abilitato.
-   *
-   * Il backend gestisce autenticazione e CORS: il frontend
-   * non ha bisogno di conoscere la API key.
+   * Triggera il workflow Actions e aspetta il risultato in polling.
+   * 1. POST /repos/:owner/:repo/actions/workflows/:workflow/dispatches
+   * 2. Polling su autofill_cache.json (raw GitHub) ogni 5s, max 90s
    */
+  async function lookupViaGitHubActions(topicId) {
+    const requestId = Date.now().toString();
+
+    // 1 — Triggera il workflow
+    const dispatchResp = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept':        'application/vnd.github+json',
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: { topic_id: topicId, request_id: requestId }
+        })
+      }
+    );
+
+    if (!dispatchResp.ok) {
+      const txt = await dispatchResp.text();
+      throw new Error(`GitHub dispatch failed ${dispatchResp.status}: ${txt.slice(0, 200)}`);
+    }
+
+    // 2 — Polling su autofill_cache.json
+    const POLL_INTERVAL_MS = 5000;
+    const POLL_MAX_MS      = 90000;
+    const t0 = Date.now();
+
+    while (Date.now() - t0 < POLL_MAX_MS) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+      try {
+        // cache-bust con timestamp per evitare che GitHub serva versione vecchia
+        const cacheResp = await fetch(`${CACHE_FILE_URL}?t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (!cacheResp.ok) continue;
+
+        const cache = await cacheResp.json();
+        if (cache[requestId]) {
+          return cache[requestId].result;
+        }
+      } catch { /* ignora errori di rete transitori */ }
+
+      // Aggiorna feedback con tempo trascorso
+      const elapsed = Math.round((Date.now() - t0) / 1000);
+      showFeedback('loading', null,
+        `Ricerca in corso sul portale EU… <span style="opacity:0.6">(${elapsed}s)</span>`
+      );
+    }
+
+    throw new Error('Timeout: il workflow non ha risposto entro 90 secondi.');
+  }
 
   /**
    * Handler principale autofill.
    * Strategia a due livelli:
-   *   1. Istantaneo: parseCallId() dal dataset locale (fallback strutturale)
-   *   2. Web search: Claude cerca la pagina EU e estrae i dati reali
+   *   1. Istantaneo: dataset locale + parsing strutturale ID
+   *   2. GitHub Actions: Claude cerca la pagina EU con web_search
    */
   async function doAutofill() {
     const rawInput = callNumberInput.value.trim();
@@ -1182,21 +1254,51 @@
 
     autofillBtn.disabled = true;
 
-    // Ricerca nel dataset locale + parsing strutturale ID
+    // Step 1 — istantaneo: dataset locale + parsing strutturale
     const parsed     = parseCallId(rawInput);
     const localMatch = findInLocalCalls(rawInput);
 
-    // Lookup solo locale: dataset calls.json + parsing strutturale ID
-    const claudeResult = null;
+    // Se trovato nel dataset locale, inietta subito senza aspettare Actions
+    if (localMatch) {
+      autofillBtn.disabled = false;
+      applyAutofillResult(rawInput, null, localMatch, parsed);
+      return;
+    }
+
+    // Step 2 — call non nel dataset: lookup via GitHub Actions
+    if (!GITHUB_TOKEN || GITHUB_TOKEN === 'INSERISCI_GITHUB_PAT') {
+      // Token non configurato: usa solo il parsing strutturale
+      autofillBtn.disabled = false;
+      applyAutofillResult(rawInput, null, null, parsed);
+      return;
+    }
+
+    showFeedback('loading', null, 'Ricerca in corso sul portale EU… <span style="opacity:0.6">(0s)</span>');
+
+    let claudeResult = null;
+    try {
+      claudeResult = await lookupViaGitHubActions(rawInput);
+    } catch (err) {
+      console.warn('GitHub Actions lookup failed:', err.message);
+      showFeedback('warning', '⚠',
+        `Ricerca automatica fallita: ${err.message}<br>` +
+        `Compilazione con dati strutturali dall'ID.`
+      );
+    }
 
     autofillBtn.disabled = false;
+    applyAutofillResult(rawInput, claudeResult, null, parsed);
+  }
 
-    // ── Merge: Claude web search > dataset locale > parsing strutturale ──
+  /**
+   * Inietta i risultati nei campi del form e mostra il feedback.
+   */
+  function applyAutofillResult(rawInput, claudeResult, localMatch, parsed) {
+    // ── Merge: GitHub Actions > dataset locale > parsing strutturale ──
     const finalThematic = claudeResult?.primary_thematic
       || (localMatch && localMatch.thematic_cluster)
       || parsed.thematic;
 
-    // Fallback area secondaria: primo tema in multi_thematic che non sia il primario
     const localSecondary = localMatch
       ? (localMatch.multi_thematic || []).find(t => t !== finalThematic && THEMATIC_OPTIONS.includes(t)) || null
       : null;
@@ -1212,10 +1314,10 @@
       || null;
 
     if (!finalThematic && !finalAction) {
-      const notFoundMsg = claudeResult && !claudeResult.found
-        ? `La call <strong>${esc(rawInput)}</strong> non è stata trovata sul portale EU. Verifica l'ID e compila manualmente.`
-        : `Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>. Verifica il formato (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>) e compila manualmente.`;
-      showFeedback('warning', '⚠', notFoundMsg);
+      showFeedback('warning', '⚠',
+        `Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>. ` +
+        `Verifica il formato (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>) e compila manualmente.`
+      );
       return;
     }
 
@@ -1238,11 +1340,7 @@
         flashInjected(secondaryEl);
         const localKwHint = (localMatch?.keyword_hits?.[matched2] || []).slice(0,3).join(', ');
         const kwHint = claudeResult?.secondary_keywords?.slice(0,3).join(', ') || localKwHint || '';
-        injected.push({
-          label: 'Area secondaria',
-          value: matched2,
-          hint: kwHint || null
-        });
+        injected.push({ label: 'Area secondaria', value: matched2, hint: kwHint || null });
       }
     }
 
@@ -1266,9 +1364,11 @@
       return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
     }).join('');
 
-    const sourceNote = localMatch
-      ? `<small style="opacity:0.58">Dati da dataset locale${localSecondary ? ' · area secondaria da keyword hits' : ''}.</small>`
-      : `<small style="opacity:0.58">Dati da parsing strutturale ID · non trovato nel dataset.</small>`;
+    const sourceNote = claudeResult
+      ? `<small style="opacity:0.58">Dati estratti dal portale EU via web search.</small>`
+      : localMatch
+        ? `<small style="opacity:0.58">Dati da dataset locale.</small>`
+        : `<small style="opacity:0.58">Dati da parsing strutturale ID.</small>`;
 
     if (injected.length === 0) {
       showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
@@ -1281,7 +1381,7 @@
     }
   }
 
-  function showFeedback(type, icon, html) {
+    function showFeedback(type, icon, html) {
     autofillFeedback.className = `autofill-feedback ${type}`;
     if (type === 'loading') {
       autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
