@@ -1114,16 +1114,37 @@
   }
 
   /**
-   * Ricerca fuzzy nel dataset locale calls.json.
+   * Ricerca nel dataset locale calls.json per topic ID.
+   *
+   * Strategia (ordine di priorità):
+   *   1. Match esatto del topic ID nell'URL  (es. topic-details/HORIZON-CL5-2027-07-D3-16)
+   *   2. Match parziale: l'ID inserito inizia con il topic ID dell'URL o viceversa
+   *   3. Match sul campo call_id (ID abbreviato senza il suffix topic)
    */
   function findInLocalCalls(id) {
     const idUp = id.trim().toUpperCase();
-    return CALLS.find(c => {
-      const nameUp = String(c.name || '').toUpperCase();
-      const urlUp  = String(c.url  || '').toUpperCase();
-      return nameUp.includes(idUp) || urlUp.includes(idUp) ||
-             (idUp.length > 10 && idUp.includes(nameUp.substring(0, 15)));
-    }) || null;
+
+    function topicIdFromUrl(url) {
+      const m = String(url || '').match(/topic-details\/([^?#/]+)/i);
+      return m ? m[1].toUpperCase() : '';
+    }
+
+    // 1. Match esatto topic ID nell'URL
+    let found = CALLS.find(c => topicIdFromUrl(c.url) === idUp);
+    if (found) return found;
+
+    // 2. Match parziale (utile se l'utente omette il suffix numerico)
+    found = CALLS.find(c => {
+      const tid = topicIdFromUrl(c.url);
+      return tid && (tid.startsWith(idUp) || idUp.startsWith(tid));
+    });
+    if (found) return found;
+
+    // 3. Match sul campo call_id (es. "HORIZON-CL5-2027-07")
+    found = CALLS.find(c => String(c.call_id || '').toUpperCase() === idUp);
+    if (found) return found;
+
+    return null;
   }
 
   /**
@@ -1174,13 +1195,13 @@
     const parsed     = parseCallId(rawInput);
     const localMatch = findInLocalCalls(rawInput);
 
-    // Step 2 — Claude API con web search
-    showFeedback('loading', null, 'Claude sta cercando la call sul portale EU…');
+    // Step 2 — tentativo lookup via backend (opzionale, fallisce silenziosamente)
     let claudeResult = null;
     try {
       claudeResult = await lookupViaClaudeWebSearch(rawInput);
     } catch (err) {
-      console.warn('Claude API lookup failed:', err);
+      // Backend non disponibile (GitHub Pages): procediamo con dati locali
+      console.info('Backend non raggiungibile, uso dati locali:', err.message);
     }
 
     autofillBtn.disabled = false;
@@ -1190,8 +1211,11 @@
       || (localMatch && localMatch.thematic_cluster)
       || parsed.thematic;
 
-    const finalSecondary = claudeResult?.secondary_thematic
-      || null;
+    // Fallback area secondaria: primo tema in multi_thematic che non sia il primario
+    const localSecondary = localMatch
+      ? (localMatch.multi_thematic || []).find(t => t !== finalThematic && THEMATIC_OPTIONS.includes(t)) || null
+      : null;
+    const finalSecondary = claudeResult?.secondary_thematic || localSecondary || null;
 
     const finalAction = claudeResult?.action_type
       || (localMatch ? normalizeAction(localMatch.action) : '')
@@ -1227,7 +1251,8 @@
       if (matched2) {
         secondaryEl.value = matched2;
         flashInjected(secondaryEl);
-        const kwHint = claudeResult?.secondary_keywords?.slice(0,3).join(', ') || '';
+        const localKwHint = (localMatch?.keyword_hits?.[matched2] || []).slice(0,3).join(', ');
+        const kwHint = claudeResult?.secondary_keywords?.slice(0,3).join(', ') || localKwHint || '';
         injected.push({
           label: 'Area secondaria',
           value: matched2,
@@ -1256,9 +1281,9 @@
       return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
     }).join('');
 
-    const sourceNote = claudeResult
-      ? `<small style="opacity:0.58">Dati estratti dal portale EU via backend + web search.</small>`
-      : `<small style="opacity:0.58">Backend non raggiungibile — dati da ID strutturale${localMatch ? ' + dataset locale' : ''}.</small>`;
+    const sourceNote = localMatch
+      ? `<small style="opacity:0.58">Dati da dataset locale${localSecondary ? ' (area secondaria da multi_thematic)' : ''}.</small>`
+      : `<small style="opacity:0.58">Dati da parsing strutturale ID.</small>`;
 
     if (injected.length === 0) {
       showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
