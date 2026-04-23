@@ -1140,8 +1140,20 @@
     });
     if (found) return found;
 
-    // 3. Match sul campo call_id (es. "HORIZON-CL5-2027-07")
+    // 3. Match esatto sul campo call_id (es. "HORIZON-CL5-2027-07")
     found = CALLS.find(c => String(c.call_id || '').toUpperCase() === idUp);
+    if (found) return found;
+
+    // 4. Match parziale su call_id (l'utente può aver incollato un ID che
+    //    inizia con il call_id, o viceversa)
+    found = CALLS.find(c => {
+      const cid = String(c.call_id || '').toUpperCase();
+      return cid && (cid.startsWith(idUp) || idUp.startsWith(cid));
+    });
+    if (found) return found;
+
+    // 5. Match su qualsiasi parte dell'URL (fallback generico)
+    found = CALLS.find(c => String(c.url || '').toUpperCase().includes(idUp));
     if (found) return found;
 
     return null;
