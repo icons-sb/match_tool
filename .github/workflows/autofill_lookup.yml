@@ -56,39 +56,39 @@ jobs:
           ]
           thematic_list = "\n".join(f"- {t}" for t in THEMATIC_OPTIONS)
 
-          prompt = f"""Cerca sul portale EU Funding & Tenders la call o il topic con identificatore: "{topic_id}"
+          prompt = f"""Cerca sul portale EU Funding & Tenders il topic con identificatore: "{topic_id}"
 
-          La pagina si trova tipicamente a:
+          URL diretto della pagina:
           https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{topic_id}
 
-          oppure cerca "{topic_id} site:ec.europa.eu" su Google.
+          Recupera il testo completo della pagina (titolo, tipo di azione, obiettivi, scope, expected outcomes, keywords).
+          Se la pagina non è direttamente accessibile, cerca "{topic_id} site:ec.europa.eu" e leggi i risultati.
 
-          Estrai dal testo della pagina:
-          1. Titolo completo della call/topic
-          2. "Type of action" (es. "Research and Innovation Action")
-          3. Testo completo (objective, description, scope, expected outcomes)
+          Con il testo trovato, rispondi con questo JSON (SOLO JSON, zero testo o markdown attorno):
+          {{
+            "title": "titolo completo della call",
+            "action_type": "RIA" | "IA" | "CSA" | "COFUND" | null,
+            "primary_thematic": "area tematica principale — scegli UNA di quelle elencate sotto",
+            "secondary_thematic": "OBBLIGATORIO: seconda area tematica più rilevante — scegli UNA di quelle elencate sotto, diversa dalla primaria. Quasi tutte le call EU toccano almeno due aree. Scegli l'area secondaria più pertinente al testo anche se il collegamento è indiretto.",
+            "secondary_keywords": ["3-5 parole chiave dal testo che motivano la scelta dell'area secondaria"],
+            "found": true | false
+          }}
 
-          Poi classifica la call in queste aree tematiche:
+          Aree tematiche disponibili (copia la stringa esatta):
           {thematic_list}
 
-          Regole:
-          - "primary_thematic": area principale
-          - "secondary_thematic": seconda area (solo se chiaramente presente, altrimenti null)
-          - "action_type": "RIA" | "IA" | "CSA" | "COFUND" | null
-            - "Research and Innovation Action" → "RIA"
-            - "Innovation Action" → "IA"
-            - "Coordination and Support Action" → "CSA"
-            - "cofund" → "COFUND"
+          Regole per action_type:
+          - "Research and Innovation Action" → "RIA"
+          - "Innovation Action" → "IA"
+          - "Coordination and Support Action" → "CSA"
+          - qualsiasi variante di "cofund" → "COFUND"
+          - Se non trovato → null
 
-          Rispondi SOLO con JSON, nessun testo o markdown:
-          {{
-            "title": "...",
-            "action_type": "RIA" | "IA" | "CSA" | "COFUND" | null,
-            "primary_thematic": "..." | null,
-            "secondary_thematic": "..." | null,
-            "secondary_keywords": ["..."],
-            "found": true | false
-          }}"""
+          Regola IMPORTANTE per secondary_thematic:
+          - NON mettere null a meno che la call non tratti UN SOLO tema in modo esclusivo
+          - Scegli sempre la seconda area più rilevante tra quelle disponibili
+          - secondary_thematic DEVE essere diversa da primary_thematic
+          """
 
           payload = {
               "model": "claude-sonnet-4-20250514",
