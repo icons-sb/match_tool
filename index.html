@@ -1666,19 +1666,22 @@
       });
   }
 
-  function applyDisplayFilters(results){
+ function applyDisplayFilters(results){
     const raw   = lower(keywordFilterEl.value||'').trim();
     const terms = raw.split(/\s+/).filter(Boolean);
     return results.filter(c => {
       if(terms.length){
-        const title = lower(c.name||'');
-        if(!terms.every(t => title.includes(t))) return false;
+        const fullText = c._search || lower([
+          c.name, c.full_text, c.programme, c.cluster_label,
+          c.thematic_cluster, c.action, c.budget
+        ].filter(Boolean).join(' '));
+        if(!terms.every(t => fullText.includes(t))) return false;
       }
       if(!passedBudgetFilter(c)) return false;
       return true;
     });
   }
-
+  
   /* ── Rendering ── */
   function bucketLabel(call){
     if(call._bucket===1) return 'Primario · con keyword secondaria';
