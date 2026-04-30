@@ -873,7 +873,7 @@
 
       <div class="toolbar">
         <div class="tb-search">
-          <label class="field-label" for="keyword_filter">Filtra per keyword</label>
+          <label class="field-label" for="keyword_filter">Filtra per keyword (testo completo)</label>
           <input id="keyword_filter" type="text" placeholder="Es. hydrogen, robotics, cancer…" />
         </div>
         <div>
@@ -989,22 +989,12 @@
 
   /* ═══════════════════════════════════════════════════════
      AUTO-FILL LOGIC
-     Logica speculare allo scraper Python scrape_to_json.py:
-       parseCallId()        ≡ url_classify() + resolve_thematic()
-       fetchFromSearchApi() ≡ page.on("response", handle) su SEARCH_API
-       normalizeActionStr() ≡ normalize_action()
-       classifyMultitopic() ≡ classify_multitopic()
   ═══════════════════════════════════════════════════════ */
 
-  /**
-   * Equivalente JS di url_classify() + resolve_thematic() Python.
-   * Stessa tabella URL_RULES e THEMATIC_MAP del Python, stesso ordine.
-   */
   function parseCallId(raw) {
     const id = raw.trim().toUpperCase();
     const result = { thematic: null, actionType: null };
 
-    // CL1–CL6 → THEMATIC_MAP Python
     const CL_MAP = {
       '1':'Health & Life Sciences', '2':'Culture, Creativity & Inclusion',
       '3':'Security & Resilience',  '4':'Digital, Industry & Space',
@@ -1013,7 +1003,6 @@
     const clMatch = id.match(/HORIZON-CL([1-6])-/);
     if (clMatch) result.thematic = CL_MAP[clMatch[1]] || null;
 
-    // URL_RULES — stesso ordine del Python (primo match vince)
     if (!result.thematic) {
       const RULES = [
         { prefix:'MISS', sub:'CIT',    thematic:'Climate-neutral & Smart Cities' },
@@ -1062,7 +1051,6 @@
       }
     }
 
-    // Action type da suffisso nell'ID (es. ...-RIA, ...-IA)
     for (const { pattern, value } of ACTION_TYPE_PATTERNS) {
       if (pattern.test(id)) { result.actionType = value; break; }
     }
@@ -1070,11 +1058,6 @@
     return result;
   }
 
-  /**
-   * Equivalente JS di normalize_action() Python.
-   * Gestisce stringhe verbose ("Research and Innovation Action")
-   * e valori compatti dell'API ("HORIZON-RIA", "HORIZON-IA", ecc.).
-   */
   function normalizeActionStr(v) {
     if (!v) return '';
     const s = v.toLowerCase();
@@ -1090,12 +1073,6 @@
     return '';
   }
 
-  /**
-   * Equivalente JS di classify_multitopic() Python.
-   * Keyword matching su text contro tutti i bucket KEYWORDS,
-   * esclude excludeThematic (area primaria), restituisce array
-   * ordinato per hit decrescenti.
-   */
   function classifyMultitopic(text, excludeThematic) {
     if (!text) return [];
     const t = text.toLowerCase();
@@ -1113,14 +1090,6 @@
     return scores;
   }
 
-  /**
-   * Ricerca nel dataset locale calls.json per topic ID.
-   *
-   * Strategia (ordine di priorità):
-   *   1. Match esatto del topic ID nell'URL  (es. topic-details/HORIZON-CL5-2027-07-D3-16)
-   *   2. Match parziale: l'ID inserito inizia con il topic ID dell'URL o viceversa
-   *   3. Match sul campo call_id (ID abbreviato senza il suffix topic)
-   */
   function findInLocalCalls(id) {
     const idUp = id.trim().toUpperCase();
 
@@ -1129,66 +1098,40 @@
       return m ? m[1].toUpperCase() : '';
     }
 
-    // 1. Match esatto topic ID nell'URL
     let found = CALLS.find(c => topicIdFromUrl(c.url) === idUp);
     if (found) return found;
 
-    // 2. Match parziale (utile se l'utente omette il suffix numerico)
     found = CALLS.find(c => {
       const tid = topicIdFromUrl(c.url);
       return tid && (tid.startsWith(idUp) || idUp.startsWith(tid));
     });
     if (found) return found;
 
-    // 3. Match esatto sul campo call_id (es. "HORIZON-CL5-2027-07")
     found = CALLS.find(c => String(c.call_id || '').toUpperCase() === idUp);
     if (found) return found;
 
-    // 4. Match parziale su call_id (l'utente può aver incollato un ID che
-    //    inizia con il call_id, o viceversa)
     found = CALLS.find(c => {
       const cid = String(c.call_id || '').toUpperCase();
       return cid && (cid.startsWith(idUp) || idUp.startsWith(cid));
     });
     if (found) return found;
 
-    // 5. Match su qualsiasi parte dell'URL (fallback generico)
     found = CALLS.find(c => String(c.url || '').toUpperCase().includes(idUp));
     if (found) return found;
 
     return null;
   }
 
-  /* ═══════════════════════════════════════════════════════
-     AUTOFILL — GitHub Actions workflow_dispatch + polling
-     
-     Configurazione (costanti qui sotto):
-       GITHUB_OWNER  — es. "mio-org"
-       GITHUB_REPO   — es. "funding-matcher"
-       GITHUB_TOKEN  — Personal Access Token con scope "repo" (public_repo)
-                       oppure un token fine-grained con permessi
-                       "Actions: write" e "Contents: read"
-                       VA INCOLLATO QUI (è solo in lettura sul repo pubblico,
-                       il rischio è minimo; in alternativa chiedilo all'utente)
-  ═══════════════════════════════════════════════════════ */
-
+  /* ── GitHub Actions config ── */
   const GITHUB_OWNER    = 'INSERISCI_ORG_O_USERNAME';
   const GITHUB_REPO     = 'INSERISCI_NOME_REPO';
-  const GITHUB_TOKEN    = 'INSERISCI_GITHUB_PAT';   // public_repo scope
+  const GITHUB_TOKEN    = 'INSERISCI_GITHUB_PAT';
   const WORKFLOW_FILE   = 'autofill_lookup.yml';
-  // jsDelivr ha cache più breve di raw.githubusercontent (10 min vs fino a 5 min con purge)
-  // ma usiamo raw con cache-bust aggressivo tramite query string timestamp
   const CACHE_FILE_URL  = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/autofill_cache.json`;
 
-  /**
-   * Triggera il workflow Actions e aspetta il risultato in polling.
-   * 1. POST /repos/:owner/:repo/actions/workflows/:workflow/dispatches
-   * 2. Polling su autofill_cache.json (raw GitHub) ogni 5s, max 90s
-   */
   async function lookupViaGitHubActions(topicId) {
     const requestId = Date.now().toString();
 
-    // 1 — Triggera il workflow
     const dispatchResp = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
       {
@@ -1210,7 +1153,6 @@
       throw new Error(`GitHub dispatch failed ${dispatchResp.status}: ${txt.slice(0, 200)}`);
     }
 
-    // 2 — Polling su autofill_cache.json
     const POLL_INTERVAL_MS = 5000;
     const POLL_MAX_MS      = 90000;
     const t0 = Date.now();
@@ -1219,7 +1161,6 @@
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
       try {
-        // cache-bust con timestamp per evitare che GitHub serva versione vecchia
         const cacheResp = await fetch(`${CACHE_FILE_URL}?t=${Date.now()}`, {
           headers: { 'Cache-Control': 'no-cache' }
         });
@@ -1233,7 +1174,6 @@
         }
       } catch { /* ignora errori di rete transitori */ }
 
-      // Aggiorna feedback con tempo trascorso
       const elapsed = Math.round((Date.now() - t0) / 1000);
       showFeedback('loading', null,
         `Ricerca in corso sul portale EU… <span style="opacity:0.6">(${elapsed}s)</span>`
@@ -1243,12 +1183,6 @@
     throw new Error('Timeout: il workflow non ha risposto entro 90 secondi.');
   }
 
-  /**
-   * Handler principale autofill.
-   * Strategia a due livelli:
-   *   1. Istantaneo: dataset locale + parsing strutturale ID
-   *   2. GitHub Actions: Claude cerca la pagina EU con web_search
-   */
   async function doAutofill() {
     const rawInput = callNumberInput.value.trim();
     if (!rawInput) {
@@ -1258,20 +1192,16 @@
 
     autofillBtn.disabled = true;
 
-    // Step 1 — istantaneo: dataset locale + parsing strutturale
     const parsed     = parseCallId(rawInput);
     const localMatch = findInLocalCalls(rawInput);
 
-    // Se trovato nel dataset locale, inietta subito senza aspettare Actions
     if (localMatch) {
       autofillBtn.disabled = false;
       applyAutofillResult(rawInput, null, localMatch, parsed);
       return;
     }
 
-    // Step 2 — call non nel dataset: lookup via GitHub Actions
     if (!GITHUB_TOKEN || GITHUB_TOKEN === 'INSERISCI_GITHUB_PAT') {
-      // Token non configurato: usa solo il parsing strutturale
       autofillBtn.disabled = false;
       applyAutofillResult(rawInput, null, null, parsed);
       return;
@@ -1294,14 +1224,11 @@
     applyAutofillResult(rawInput, claudeResult, null, parsed);
   }
 
-  /**
-   * Inietta i risultati nei campi del form e mostra il feedback.
-   */
   function applyAutofillResult(rawInput, claudeResult, localMatch, parsed) {
     console.log('[autofill] applyAutofillResult:', {
       claudeResult, localMatch: !!localMatch, parsed
     });
-    // ── Merge: GitHub Actions > dataset locale > parsing strutturale ──
+
     const finalThematic = claudeResult?.primary_thematic
       || (localMatch && localMatch.thematic_cluster)
       || parsed.thematic;
@@ -1328,7 +1255,6 @@
       return;
     }
 
-    // ── Iniezione nei campi del form ──
     const injected = [];
 
     if (finalThematic) {
@@ -1358,7 +1284,6 @@
       injected.push({ label: 'Action type', value: finalAction });
     }
 
-    // ── Feedback ──
     let msg = `Compilazione per <strong>${esc(rawInput)}</strong>.`;
     if (finalTitle) {
       msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(finalTitle.substring(0,120))}${finalTitle.length > 120 ? '…' : ''}</em>`;
@@ -1388,7 +1313,7 @@
     }
   }
 
-    function showFeedback(type, icon, html) {
+  function showFeedback(type, icon, html) {
     autofillFeedback.className = `autofill-feedback ${type}`;
     if (type === 'loading') {
       autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
@@ -1399,7 +1324,7 @@
 
   function flashInjected(el) {
     el.classList.remove('injected');
-    void el.offsetWidth; // reflow
+    void el.offsetWidth;
     el.classList.add('injected');
     setTimeout(() => el.classList.remove('injected'), 1400);
   }
@@ -1666,11 +1591,14 @@
       });
   }
 
- function applyDisplayFilters(results){
+  /* ── ✅ FIXED: keyword filter now searches full text, not just title ── */
+  function applyDisplayFilters(results){
     const raw   = lower(keywordFilterEl.value||'').trim();
     const terms = raw.split(/\s+/).filter(Boolean);
     return results.filter(c => {
       if(terms.length){
+        // Search across the full indexed text (full_text, name, programme,
+        // cluster_label, thematic_cluster, action, budget) — not just the title.
         const fullText = c._search || lower([
           c.name, c.full_text, c.programme, c.cluster_label,
           c.thematic_cluster, c.action, c.budget
@@ -1681,7 +1609,7 @@
       return true;
     });
   }
-  
+
   /* ── Rendering ── */
   function bucketLabel(call){
     if(call._bucket===1) return 'Primario · con keyword secondaria';
@@ -1720,6 +1648,14 @@
         const db = b._deadline_norm||'9999';
         return da.localeCompare(db);
       });
+    } else {
+      // Always re-sort explicitly by relevance (bucket → score → deadline)
+      // so the thematic ranking is preserved even after keyword filtering.
+      filtered = [...filtered].sort((a,b) => {
+        if(a._bucket !== b._bucket) return a._bucket - b._bucket;
+        if(b._score  !== a._score)  return b._score  - a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
     }
 
     const visible = filtered.slice(0, visibleCount);
@@ -1753,7 +1689,7 @@
         ...(call._secondaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`)
       ];
 
-      const urlAttr       = call.url ? ` data-url="${esc(call.url)}"` : '';
+      const urlAttr        = call.url ? ` data-url="${esc(call.url)}"` : '';
       const clickableClass = call.url ? ' call-clickable' : '';
 
       html += `<article class="call${clickableClass}" data-bucket="${call._bucket||6}"${urlAttr}>
