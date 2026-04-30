@@ -2,15 +2,24 @@ name: Update EU Calls
 
 on:
   schedule:
-    - cron: "0 2 * * *"   # ogni notte alle 02:00 UTC (04:00 ora italiana)
-  workflow_dispatch:       # run manuale dal tab Actions
+    - cron: "0 2 * * *"      # every night at 02:00 UTC (04:00 Italian time)
+    - cron: "0 3 1 * *"      # 1st of every month at 03:00 UTC for closed calls
+  workflow_dispatch:
+    inputs:
+      run_closed_calls:
+        description: "Also run scrape_closed_calls.py"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   scrape-and-commit:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -29,10 +38,16 @@ jobs:
         run: python scrape_to_json.py --out calls.json
         timeout-minutes: 90
 
+      - name: Scrape closed EU calls → closed_calls.json
+        # Runs on the 1st of each month OR when manually triggered with run_closed_calls=true
+        if: github.event.schedule == '0 3 1 * *' || inputs.run_closed_calls == 'true'
+        run: python scrape_closed_calls.py --out closed_calls.json
+        timeout-minutes: 240
+
       - name: Commit updated files
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add calls.json changelog.md changelog_history.md
+          git add calls.json changelog.md changelog_history.md closed_calls.json
           git diff --staged --quiet || git commit -m "chore: update calls [$(date -u +%Y-%m-%d)]"
           git push
