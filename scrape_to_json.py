@@ -1,1040 +1,1910 @@
-"""
-scrape_to_json.py
-─────────────────
-Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json
-direttamente, senza passare per Excel.
-Incorpora tutta la logica di classificazione di make_calls_json.py.
-
-Uso:
-    python scrape_to_json.py              # scrive calls.json nella cartella corrente
-    python scrape_to_json.py --out /path  # percorso custom
-"""
-
-import re
-import math
-import time
-import json
-import argparse
-from datetime import datetime, timezone
-from pathlib import Path
-
-from playwright.sync_api import sync_playwright
-
-# ── Parametri ─────────────────────────────────────────────────────────────────
-
-PAGE_SIZE = 50
-
-LIST_URL = (
-    "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
-    "/opportunities/calls-for-proposals"
-    "?order=DESC&pageNumber={page}&pageSize={ps}&sortBy=startDate"
-    "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
-)
-
-SEARCH_API  = "search-api/prod/rest/search"
-COOKIE_TEXT = "This site uses cookies"
-
-LINK_SELECTOR = (
-    'a[href*="/topic-details/"], '
-    'a[href*="/competitive-calls-cs/"], '
-    'a[href*="/prospect-details/"]'
-)
-
-RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(s\)\s*found", re.IGNORECASE)
-RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
-RE_DEAD      = re.compile(r"Deadline date:\s*([^\|\n\r]+)",         re.IGNORECASE)
-RE_NEXT_DEAD = re.compile(r"Next deadline:\s*([^\|\n\r]+)",         re.IGNORECASE)
-RE_PROG      = re.compile(r"Programme:\s*([^\|\n\r]+)",             re.IGNORECASE)
-RE_ACTION    = re.compile(r"Type of action:\s*([^\|\n\r]+)",        re.IGNORECASE)
-RE_CLUSTER   = re.compile(r"HORIZON-CL([1-6])",                     re.IGNORECASE)
-RE_CALL_ID   = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)",  re.IGNORECASE)
-
-# Budget patterns — ordered from most to least reliable
-RE_BUDGET_LABEL = re.compile(
-    r"(?:total\s+)?budget[:\s]+(?:of\s+)?(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
-    re.IGNORECASE,
-)
-RE_BUDGET_SUFFIX = re.compile(
-    r"([\d][0-9 .,]+)\s*(?:EUR|€|euro)",
-    re.IGNORECASE,
-)
-RE_BUDGET_INDICATIVE = re.compile(
-    r"indicative\s+(?:total\s+)?budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
-    re.IGNORECASE,
-)
-RE_BUDGET_EXPECTED = re.compile(
-    r"(?:total\s+)?(?:estimated|expected|available|allocated)\s+budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
-    re.IGNORECASE,
-)
-
-MONTHS = {
-    "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
-    "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
-}
-
-# ── Tabelle di classificazione ────────────────────────────────────────────────
-
-PROGRAMME_MAP = {
-    "43108390":"Horizon Europe","43108391":"Horizon Europe",
-    "43152860":"Digital Europe Programme","111111":"EU External Action-Prospect",
-    "44181033":"European Defence Fund","43353764":"Erasmus+",
-    "43251589":"CERV","43251814":"Creative Europe (CREA)",
-    "43252476":"Single Market Programme (SMP)","43298664":"AGRIP",
-    "43251842":"EUAF","43298916":"Euratom",
-    "43089234":"Innovation Fund (INNOVFUND)","43637601":"PPPA",
-    "44416173":"I3","45532249":"EUBA",
-    "43252368":"Internal Security Fund (ISF)","43252449":"RFCS",
-    "43298203":"UCPM","43254037":"European Solidarity Corps (ESC)",
-    "44773066":"Just Transition Mechanism (JTM)",
-    "43251567":"Connecting Europe Facility (CEF)",
-    "43252386":"JUST","43252433":"Pericles IV","43252517":"SOCPL",
-    "43253967":"RENEWFM","43254019":"European Social Fund+ (ESF+)",
-    "43392145":"EMFAF",
-}
-
-THEMATIC_MAP = {
-    "1":"Health & Life Sciences","2":"Culture, Creativity & Inclusion",
-    "3":"Security & Resilience","4":"Digital, Industry & Space",
-    "5":"Climate, Energy & Mobility","6":"Food, Bioeconomy & Environment",
-    "M-CIT":"Climate-neutral & Smart Cities",
-    "M-OCEAN":"Healthy Oceans, Seas, Coastal & Inland Waters",
-}
-
-PROGRAMME_THEMATIC_MAP = [
-    ("European Defence Fund",           "Defence"),
-    ("EDF",                             "Defence"),
-    ("EU External Action",              "External Action & International Cooperation"),
-    ("EU External Action-Prospect",     "External Action & International Cooperation"),
-    ("Single Market Programme",         "SME, Entrepreneurship & Market Uptake"),
-    ("CERV",                            "Culture, Creativity & Inclusion"),
-    ("Creative Europe",                 "Culture, Creativity & Inclusion"),
-    ("Erasmus+",                        "Culture, Creativity & Inclusion"),
-    ("European Social Fund+",           "Culture, Creativity & Inclusion"),
-    ("Just Transition",                 "Climate, Energy & Mobility"),
-    ("Innovation Fund",                 "Climate, Energy & Mobility"),
-    ("EMFAF",                           "Food, Bioeconomy & Environment"),
-    ("LIFE",                            "Food, Bioeconomy & Environment"),
-    ("Euratom",                         "Climate, Energy & Mobility"),
-    ("Connecting Europe",               "Climate, Energy & Mobility"),
-    ("Internal Security Fund",          "Security & Resilience"),
-    ("European Solidarity Corps",       "Culture, Creativity & Inclusion"),
-    ("Digital Europe",                  "Digital, Industry & Space"),
-    ("RENEWFM",                         "Climate, Energy & Mobility"),
-    ("SOCPL",                           "Culture, Creativity & Inclusion"),
-    ("JUST",                            "Culture, Creativity & Inclusion"),
-    ("Pericles IV",                     "Culture, Creativity & Inclusion"),
-    ("I3",                              "SME, Entrepreneurship & Market Uptake"),
-    ("ERC",                             "Cross-cutting / Other"),
-    ("43392145",                        "Food, Bioeconomy & Environment"),
-    ("Horizon Europe",                  "Cross-cutting / Other"),
-]
-
-# (prefix, subcode_or_None, cluster_num, cluster_label, thematic)
-URL_RULES = [
-    ("MISS","CIT",      "M-CIT", "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
-    ("MISS","OCEAN",    "M-OCEAN","Healthy Oceans, Seas, Coastal & Inland Waters","Healthy Oceans, Seas, Coastal & Inland Waters"),
-    ("MISS","CLIMA",    "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("MISS","CANCER",   "1",     "Health",                                        "Health & Life Sciences"),
-    ("MISS","SOIL",     "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("MISS","CROSS",    "",      "",                                              "Cross-cutting / Other"),
-    ("HLTH",     None,  "1",     "Health",                                        "Health & Life Sciences"),
-    ("EIC",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    ("EIE",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    ("EITUM-BP", None,  "M-CIT", "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
-    ("EIT",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    ("CID",      None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("EURATOM",  None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("EUROHPC",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("JU-CLEAN-AVIATION",None,"","",                                              "Clean Aviation"),
-    ("JU-",      None,  "",      "",                                              "Climate, Energy & Mobility"),
-    ("MSCA",     None,  "",      "",                                              "Cross-cutting / Other"),
-    ("NEB",      None,  "",      "",                                              "Climate-neutral & Smart Cities"),
-    ("RAISE",    None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("WIDERA",   None,  "",      "",                                              "Cross-cutting / Other"),
-    ("CL3","INFRA",     "3",     "Civil Security for Society",                    "Security & Resilience"),
-    ("INFRA","TECH",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("INFRA","SERV",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("INFRA","DEV",     "",      "",                                              "Cross-cutting / Other"),
-    ("INFRA","EOSC",    "",      "",                                              "Cross-cutting / Other"),
-    ("INFRA",    None,  "",      "",                                              "Cross-cutting / Other"),
-    ("AGRIP",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("EUAF",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("DIGITAL",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("UCPM",     None,  "",      "",                                              "Cross-cutting / Other"),
-    ("RFCS",     None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("EUBA",     None,  "",      "",                                              "External Action & International Cooperation"),
-    ("PPPA","CHIPS",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("PPPA","MEDIA",    "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("PPPA",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("RENEWFM",  None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("SOCPL",    None,  "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("ERC",      None,  "",      "",                                              "Cross-cutting / Other"),
-    ("EMFAF",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("JUST",     None,  "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("I3",       None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-]
-
-NUMERIC_ID_NAME_RULES = [
-    ("OHAMR",       "Health & Life Sciences"),
-    ("ERA4HEALTH",  "Health & Life Sciences"),
-    ("ERA4 HEALTH", "Health & Life Sciences"),
-    ("BRAINHEALTH", "Health & Life Sciences"),
-    ("EP BRAINHEALTH","Health & Life Sciences"),
-    ("ERDERA",      "Health & Life Sciences"),
-    ("BE READY",    "Health & Life Sciences"),
-    ("OVERWEIGHT",  "Health & Life Sciences"),
-    ("OBESITY",     "Health & Life Sciences"),
-    ("CARDIOVASC",  "Health & Life Sciences"),
-    ("CLINICAL TRIAL","Health & Life Sciences"),
-    ("NEUROSCI",    "Health & Life Sciences"),
-    ("RARE DISEASE","Health & Life Sciences"),
-    ("EITUM",       "Climate-neutral & Smart Cities"),
-    ("URBAN MOBILITY","Climate-neutral & Smart Cities"),
-    ("DRIVING URBAN","Climate-neutral & Smart Cities"),
-    ("EIC AWARDEE", "SME, Entrepreneurship & Market Uptake"),
-    ("INNOMATCH",   "SME, Entrepreneurship & Market Uptake"),
-    ("STARTUP",     "SME, Entrepreneurship & Market Uptake"),
-    ("FOOD SUSTAINABILITY","Food, Bioeconomy & Environment"),
-    ("MARINE BIODIVERSITY","Food, Bioeconomy & Environment"),
-    ("BLUEACTION",  "Food, Bioeconomy & Environment"),
-    ("TASC-RESTOREMED","Food, Bioeconomy & Environment"),
-    ("RESTORE",     "Food, Bioeconomy & Environment"),
-    ("FERMENTED",   "Food, Bioeconomy & Environment"),
-]
-
-URL_BENEFICIARY_OVERRIDE = {
-    "MSCA":  ["Research organisation"],
-    "INFRA": ["Research organisation"],
-    "EUBA":  ["Public body"],
-}
-
-SPECIAL_BASIC_RESEARCH_CATEGORY = "Internships, fellowships & scholarships"
-SPECIAL_TITLE_KEYWORDS = ["internship","internships","fellowship","fellowships","msca","scholarship","scholarships"]
-TOPIC_KEYWORDS = {
-    "Health & Life Sciences": ["health","biotech","biotechnology","pharma","pharmaceutical","therapeutic","medical","diagnostic","genomic","genomics","public health","clinical"],
-    "Culture, Creativity & Inclusion": ["culture","creative","heritage","museum","archive","inclusion","social inclusion","democracy","education","skills"],
-    "Security & Resilience": ["security","cybersecurity","cyber security","disaster resilience","emergency","critical infrastructure","civil protection","border security"],
-    "Digital, Industry & Space": ["digital","artificial intelligence","machine learning","generative ai","data space","data sharing","cloud","edge","software","semiconductor","microelectronics","quantum","robotics","space","satellite"],
-    "Climate, Energy & Mobility": ["climate","adaptation","mitigation","energy","electricity","power system","grid","hydrogen","battery","batteries","mobility","transport","renewable","solar","photovoltaic","wind","storage","smart grid","building renovation","built environment","city","cities"],
-    "Food, Bioeconomy & Environment": ["agriculture","farming","crop","food system","bioeconomy","biodiversity","forestry","soil","water resources","environment","ecosystem","marine"],
-    "Defence": ["defence","defense","dual-use","dual use","military"],
-    "SME, Entrepreneurship & Market Uptake": ["sme","startup","entrepreneurship","venture","scale-up","market uptake","innovation uptake"],
-    "External Action & International Cooperation": ["international cooperation","development cooperation","global south","partner countries","external action"],
-    "Climate-neutral & Smart Cities": ["smart city","smart cities","climate-neutral city","urban transition","city mission"],
-    "Healthy Oceans, Seas, Coastal & Inland Waters": ["ocean","oceans","sea","seas","coastal","inland waters","marine","blue economy"],
-    "Clean Aviation": ["aviation","aircraft","aeronautics","sustainable aviation"],
-    "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
-}
-
-# ── Helpers di classificazione ────────────────────────────────────────────────
-
-def escape_rx(s: str) -> str:
-    return re.escape(s or "")
-
-def text_has_keyword(text: str, keyword: str) -> bool:
-    return bool(re.search(rf"(?<![A-Za-z]){escape_rx(keyword.lower())}(?![A-Za-z])", (text or "").lower()))
-
-def keyword_hits_for_thematic(text: str, thematic: str):
-    hits = []
-    for kw in TOPIC_KEYWORDS.get(thematic, []):
-        if text_has_keyword(text, kw):
-            hits.append(kw)
-    return list(dict.fromkeys(hits))
-
-def title_is_special_basic_research(title: str) -> bool:
-    tl = (title or "").lower()
-    return any(text_has_keyword(tl, kw) for kw in SPECIAL_TITLE_KEYWORDS)
-
-def classify_multitopic(name: str, full_text: str, thematic: str):
-    text = re.sub(r"\s+", " ", (full_text or "")).strip().lower()
-    keyword_hits = {}
-    multi_thematic = []
-    for area in TOPIC_KEYWORDS:
-        hits = keyword_hits_for_thematic(text, area)
-        if hits:
-            keyword_hits[area] = hits
-            multi_thematic.append(area)
-
-    special = title_is_special_basic_research(name)
-    if special:
-        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = [kw for kw in SPECIAL_TITLE_KEYWORDS if text_has_keyword((name or "").lower(), kw)]
-        if SPECIAL_BASIC_RESEARCH_CATEGORY not in multi_thematic:
-            multi_thematic.append(SPECIAL_BASIC_RESEARCH_CATEGORY)
-
-    return {
-        "full_text": text,
-        "keyword_hits": keyword_hits,
-        "multi_thematic": multi_thematic,
-        "is_special_basic_research": special,
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Funding Call Matcher — ICONS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --surface: #ffffff;
+      --surface2: #eef1f8;
+      --border: rgba(30,60,140,0.10);
+      --border-strong: rgba(30,60,140,0.18);
+      --text: #111827;
+      --muted: rgba(17,24,39,0.50);
+      --muted2: rgba(17,24,39,0.30);
+      --accent: #2563eb;
+      --accent-dim: rgba(37,99,235,0.10);
+      --accent-hover: #1d4ed8;
+      --tag-bg: rgba(37,99,235,0.06);
+      --tag-border: rgba(37,99,235,0.16);
+      --b1: #16a34a; --b1-bg: rgba(22,163,74,0.08);
+      --b2: #2563eb; --b2-bg: rgba(37,99,235,0.08);
+      --b3: #d97706; --b3-bg: rgba(217,119,6,0.08);
+      --b4: #0891b2; --b4-bg: rgba(8,145,178,0.08);
+      --b5: #7c3aed; --b5-bg: rgba(124,58,237,0.08);
+      --b6: rgba(17,24,39,0.35); --b6-bg: rgba(17,24,39,0.04);
+      --success: #16a34a; --success-bg: rgba(22,163,74,0.08);
+      --warning: #d97706; --warning-bg: rgba(217,119,6,0.08);
+      --error: #dc2626; --error-bg: rgba(220,38,38,0.08);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
     }
 
-# ── Classificazione ───────────────────────────────────────────────────────────
-
-def _topic_id(url: str) -> str:
-    s = (url or "").upper().split("?")[0]
-    for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/"]:
-        i = s.find(m)
-        if i >= 0:
-            return s[i + len(m):]
-    return s
-
-def url_classify(url: str):
-    tid = _topic_id(url)
-    for prefix, subcode, c_num, c_label, thematic in URL_RULES:
-        if prefix not in tid:
-            continue
-        if subcode is not None:
-            if subcode not in tid:
-                continue
-        benef = URL_BENEFICIARY_OVERRIDE.get(prefix, None)
-        return c_num, c_label, thematic, benef
-    return "", "", "", None
-
-def name_classify(name: str):
-    name_up = (name or "").upper()
-    for keyword, thematic in NUMERIC_ID_NAME_RULES:
-        if keyword.upper() in name_up:
-            return thematic
-    return ""
-
-def prog_thematic(prog: str) -> str:
-    pl = (prog or "").lower()
-    for key, label in PROGRAMME_THEMATIC_MAP:
-        if key.lower() in pl:
-            return label
-    return ""
-
-def resolve_thematic(cluster_num: str, prog: str) -> str:
-    if cluster_num and THEMATIC_MAP.get(cluster_num):
-        return THEMATIC_MAP[cluster_num]
-    return prog_thematic(prog)
-
-def normalize_action(v: str) -> str:
-    s = (v or "").lower()
-    if "research and innovation action" in s: return "RIA"
-    if "innovation action" in s:              return "IA"
-    if "coordination and support" in s:       return "CSA"
-    if "cofund" in s:                         return "COFUND"
-    return v or ""
-
-def beneficiary_hint(action: str, prog: str, url_benef):
-    if url_benef is not None:
-        return url_benef
-    a = (action or "").upper()
-    p = (prog or "").lower()
-    hints = []
-    if a == "IA":   hints.extend(["SME","Large enterprise","Research organisation"])
-    if a == "RIA":  hints.extend(["Research organisation","SME","Large enterprise"])
-    if a == "CSA":  hints.extend(["Research organisation","Public body","NGO","SME"])
-    if "external action" in p: hints.extend(["NGO","Public body","Research organisation"])
-    return list(dict.fromkeys(hints))
-
-# ── Parsing date e budget ─────────────────────────────────────────────────────
-
-def parse_date_iso(s: str) -> str:
-    s = re.sub(r"\s+", " ", str(s or "")).strip()
-    if not s:
-        return ""
-    m = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", s)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-    m = re.search(r"\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b", s)
-    if m:
-        try:
-            return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-    m = re.search(r"\b(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\b", s)
-    if m:
-        mo = MONTHS.get(m.group(2).lower())
-        if mo:
-            try:
-                return datetime(int(m.group(3)), mo, int(m.group(1))).strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-    return ""
-
-def parse_budget(s: str) -> int:
-    """Normalize a raw budget string to an integer euro amount.
-    Returns 0 if unparseable. Handles formats like:
-      1,500,000 / 1.500.000 / 1 500 000 / 1.5M / 2,3M
-    """
-    if not s:
-        return 0
-    s = s.strip()
-    # Millions shorthand: 1.5M or 2,3M
-    m = re.match(r"^([\d]+[.,][\d]+)\s*[Mm]$", s)
-    if m:
-        try:
-            return int(float(m.group(1).replace(",", ".")) * 1_000_000)
-        except ValueError:
-            pass
-    m2 = re.match(r"^([\d]+)\s*[Mm]$", s)
-    if m2:
-        try:
-            return int(m2.group(1)) * 1_000_000
-        except ValueError:
-            pass
-    # Strip anything that isn't a digit, comma, dot, or space
-    cleaned = re.sub(r"[^\d,. ]", "", s).strip()
-    # Detect European format: 1.500.000 or 1.500.000,00
-    if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", cleaned):
-        cleaned = cleaned.replace(".", "").replace(",", ".")
-    # American format: 1,500,000 or 1,500,000.00
-    elif re.match(r"^\d{1,3}(,\d{3})+(\.\d+)?$", cleaned):
-        cleaned = cleaned.replace(",", "")
-    else:
-        # Space-separated: 1 500 000
-        cleaned = cleaned.replace(" ", "").replace(",", ".")
-    try:
-        return int(float(cleaned))
-    except ValueError:
-        return 0
-
-def extract_budget_from_text(text: str) -> int:
-    """Try multiple regex patterns against page body text.
-    Returns the best (largest plausible) match in euros, or 0.
-    """
-    candidates = []
-    for rx in (RE_BUDGET_INDICATIVE, RE_BUDGET_EXPECTED, RE_BUDGET_LABEL, RE_BUDGET_SUFFIX):
-        for m in rx.finditer(text or ""):
-            val = parse_budget(m.group(1))
-            # Sanity: between €10,000 and €10 billion
-            if 10_000 <= val <= 10_000_000_000:
-                candidates.append(val)
-    if not candidates:
-        return 0
-    # Prefer the largest single figure (total budget > per-project budget)
-    return max(candidates)
-
-# ── Utilità Playwright ────────────────────────────────────────────────────────
-
-def clean(s):
-    if not s:
-        return None
-    s = re.sub(r"\s+", " ", str(s)).strip()
-    return s or None
-
-def pick(rx, text):
-    m = rx.search(text or "")
-    return clean(m.group(1)) if m else None
-
-def accept_cookies(page):
-    for label in ["Accept all","Accept All","Accept","I accept","Agree","OK"]:
-        for scope in [page] + list(page.frames):
-            try:
-                btn = scope.get_by_role("button", name=re.compile(label, re.IGNORECASE))
-                if btn.count():
-                    btn.first.click(timeout=2000)
-                    page.wait_for_timeout(800)
-                    return
-            except Exception:
-                pass
-
-def wait_cookie_gone(page, max_ms=12000):
-    t0 = time.time()
-    while (time.time() - t0) * 1000 < max_ms:
-        try:
-            body = page.locator("body").inner_text()
-        except Exception:
-            body = ""
-        if COOKIE_TEXT.lower() not in (body or "").lower():
-            return
-        page.wait_for_timeout(600)
-
-def count_links(page):
-    return page.locator(LINK_SELECTOR).count()
-
-def read_total(page, timeout_ms=30000):
-    """
-    Attende e legge il numero totale di risultati dalla pagina.
-    Prova più pattern per coprire eventuali variazioni del portale EU.
-    """
-    PATTERNS = [
-        re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",        re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",               re.IGNORECASE),
-        re.compile(r"found\s+(\d[\d,\.]*)\s*results?",             re.IGNORECASE),
-        re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),  # fallback largo
-    ]
-
-    start = time.time()
-    while (time.time() - start) * 1000 < timeout_ms:
-        try:
-            txt = page.locator("body").inner_text()
-        except Exception:
-            txt = ""
-
-        for pat in PATTERNS:
-            m = pat.search(txt or "")
-            if m:
-                raw = m.group(1).replace(",", "").replace(".", "")
-                print(f" Contatore trovato con pattern '{pat.pattern}': {raw}")
-                return int(raw)
-
-        page.wait_for_timeout(1000)
-
-    # Debug: stampa le prime 2000 caratteri del body
-    try:
-        snippet = page.locator("body").inner_text()[:2000]
-        print(f" Testo body (primi 2000 char):\n{snippet}")
-    except Exception as e:
-        print(f"Impossibile leggere il body: {e}")
-
-    return None
-
-def scroll_until(page, expected, max_ms=50000):
-    start = time.time()
-    last = -1
-    stable_since = time.time()
-    while count_links(page) == 0 and (time.time()-start)*1000 < 10000:
-        accept_cookies(page)
-        wait_cookie_gone(page, 3000)
-        page.wait_for_timeout(700)
-    container = page.evaluate_handle(f"""() => {{
-        const sel = `{LINK_SELECTOR}`;
-        const links = document.querySelectorAll(sel);
-        if (!links.length) return null;
-        let el = links[0];
-        for (let i=0; i<20; i++) {{
-            if (!el) break;
-            const st = window.getComputedStyle(el);
-            const oy = st.overflowY;
-            if ((oy==='auto'||oy==='scroll') && el.scrollHeight>el.clientHeight+5) return el;
-            el = el.parentElement;
-        }}
-        return null;
-    }}""")
-    while (time.time()-start)*1000 < max_ms:
-        accept_cookies(page)
-        wait_cookie_gone(page, 3000)
-        c = count_links(page)
-        if c >= expected:
-            return c
-        if c != last:
-            last = c
-            stable_since = time.time()
-        try:
-            if container:
-                page.evaluate("(el)=>{ el.scrollTop = el.scrollTop + el.clientHeight*0.9; }", container)
-            else:
-                page.mouse.wheel(0, 1800)
-        except Exception:
-            pass
-        page.wait_for_timeout(600)
-        if time.time()-stable_since > 5:
-            try:
-                if container:
-                    page.evaluate("(el)=>{ el.scrollTop = el.scrollHeight; }", container)
-                else:
-                    page.mouse.wheel(0, 5000)
-            except Exception:
-                pass
-            page.wait_for_timeout(600)
-    return count_links(page)
-
-def extract_links(page):
-    hrefs = page.evaluate(f"""
-        () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
-                  .map(a => a.getAttribute('href'))
-    """)
-    out, seen = [], set()
-    for h in hrefs or []:
-        if not h:
-            continue
-        full = "https://ec.europa.eu" + h if h.startswith("/") else h
-        if full not in seen:
-            seen.add(full)
-            out.append(full)
-    return out
-
-# ── Parsing card dalla lista ──────────────────────────────────────────────────
-
-def parse_card(page, full_url: str) -> dict:
-    path = full_url.replace("https://ec.europa.eu","").split("?")[0]
-    a = page.locator(f'a[href*="{path}"]').first
-    title = clean(a.inner_text()) if a.count() else path.split("/")[-1]
-
-    card = a.locator(
-        "xpath=ancestor::*[contains(.,'Programme:') or contains(.,'Opening date:') or "
-        "contains(.,'Deadline date:') or contains(.,'Type of action:')][1]"
-    ).first
-    text = (card.inner_text() if card.count()
-            else (a.locator("xpath=ancestor::*[1]").inner_text() if a.count() else ""))
-
-    dead = pick(RE_DEAD, text) or pick(RE_NEXT_DEAD, text)
-    call_id = pick(RE_CALL_ID, full_url) or pick(RE_CALL_ID, text)
-    cluster_raw = pick(RE_CLUSTER, text) or pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, call_id or "")
-
-    return {
-        "name":           title,
-        "call_id":        call_id,
-        "programme_raw":  pick(RE_PROG, text),
-        "action_raw":     pick(RE_ACTION, text),
-        "cluster_raw":    cluster_raw,
-        "opening_raw":    pick(RE_OPEN, text),
-        "deadline_raw":   dead,
-        "url":            full_url,
-        "_needs_enrich":  False,
+    /* ── HEADER ── */
+    .site-header {
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      position: sticky;
+      top: 0;
+      background: rgba(244,246,251,0.95);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+    .site-logo {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.4rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .site-logo span { color: var(--accent); }
+    #lastUpdated {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.02em;
     }
 
-# ── Arricchimento via XHR ─────────────────────────────────────────────────────
+    /* ── PAGE ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 56px 32px 96px; }
 
-def _first(meta, *keys):
-    for k in keys:
-        v = meta.get(k)
-        if isinstance(v, list) and v:
-            return re.sub(r"\s+", " ", str(v[0])).strip()
-        if v and isinstance(v, str):
-            return v.strip()
-    return ""
-
-def extract_budget_per_project_dom(page, topic_id):
-    """Logica Cacciatore: espande la tabella e preleva il budget semantico"""
-    parts = topic_id.split('?')[0].split('-')
-    target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
-    try:
-        # Espande la sezione 'Topic conditions'
-        btn = page.locator("button:has-text('Topic conditions and documents')").first
-        if btn.count() > 0:
-            btn.scroll_into_view_if_needed()
-            if btn.get_attribute("aria-expanded") == "false":
-                btn.click(force=True)
-                page.wait_for_timeout(3500)
-        
-        # Scrolla sulla riga specifica dell'ID
-        row_locator = page.locator(f"tr:has-text('{target_match}')").first
-        if row_locator.count() > 0:
-            row_locator.scroll_into_view_if_needed()
-            page.wait_for_timeout(1000)
-            
-        # Estrae il valore tramite JavaScript
-        return page.evaluate(f"""
-            (shortId) => {{
-                const allRows = Array.from(document.querySelectorAll('tr, .wt-table-row'));
-                const targetRow = allRows.find(el => el.innerText.includes(shortId));
-                if (targetRow) {{
-                    const cells = Array.from(targetRow.querySelectorAll('td, .wt-table-cell')).map(c => c.innerText.trim());
-                    const candidates = cells.filter(txt => {{
-                        const hasMoney = txt.includes('€') || txt.toLowerCase().includes('eur');
-                        const isDate = /202[0-9]/.test(txt) && txt.length < 15;
-                        return hasMoney && !isDate;
-                    }});
-                    if (candidates.length > 0) {{
-                        const specific = candidates.find(b => /around|to|between/i.test(b));
-                        return specific || candidates[candidates.length - 1];
-                    }}
-                }}
-                return null;
-            }}
-        """, target_match)
-    except: return None
-        
-def _enrich_one(page, row: dict) -> bool:
-    """
-    Apre una pagina di dettaglio, cattura i campi mancanti via XHR (handle)
-    e integra la nuova logica DOM per l'estrazione precisa del budget.
-    """
-    url      = row["url"]
-    captured = {}
-    # Estraiamo il topic_id dall'URL per il Cacciatore di Righe
-    topic_id = url.split('/')[-1].split('?')[0]
-
-    def handle(response, _c=captured):
-        if SEARCH_API in response.url and response.status == 200:
-            try:
-                body = response.json()
-                for item in body.get("results", [body]):
-                    meta    = item.get("metadata", {}) or {}
-                    prog_id = _first(meta, "frameworkProgramme", "programme")
-                    action  = _first(meta, "typesOfAction","typeOfAction","fundingScheme")
-                    cid     = _first(meta, "callIdentifier","identifier")
-                    
-                    if prog_id and not _c.get("prog"):
-                        _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
-                    if action and not _c.get("action"):
-                        _c["action"] = action
-                    if cid and not _c.get("call_id"):
-                        _c["call_id"] = cid
-
-                    # Budget da XHR (mantenuto come primo tentativo/backup)
-                    if not _c.get("budget"):
-                        for key in (
-                            "budgetOverviewTotal", "totalBudget", "budget",
-                            "budgetTopicActions", "indicativeBudget",
-                            "availableBudget", "estimatedTotalContribution"
-                        ):
-                            raw = meta.get(key)
-                            if isinstance(raw, list): raw = raw[0] if raw else None
-                            if raw is not None:
-                                val = parse_budget(str(raw))
-                                if val > 0:
-                                    _c["budget"] = val
-                                    break
-            except Exception:
-                pass
-
-    page.on("response", handle)
-    try:
-        # 1. Navigazione
-        page.goto(url, wait_until="domcontentloaded", timeout=40000)
-        page.wait_for_timeout(2500)
-        
-        # 2. Estrazione testo completo (fondamentale per le tue 13 aree tematiche)
-        try:
-            body_text = page.locator("body").inner_text(timeout=5000)
-        except Exception:
-            body_text = ""
-        row["full_text"] = clean(body_text) or ""
-
-        # 3. LOGICA "CACCIATORE DI RIGHE" (Espansione Tabella DOM)
-        # Questa funzione deve essere definita sopra _enrich_one
-        budget_val_dom = extract_budget_per_project_dom(page, topic_id)
-        
-        if budget_val_dom:
-            # Se il cacciatore trova il valore nella tabella, ha la priorità
-            row["budget_raw"] = budget_val_dom
-        elif captured.get("budget"):
-            # Altrimenti usiamo il valore numerico trovato via XHR
-            row["budget_raw"] = captured["budget"]
-        elif body_text:
-            # Fallback finale: scansione Regex del testo
-            val_reg = extract_budget_from_text(body_text)
-            if val_reg > 0:
-                row["budget_raw"] = val_reg
-
-    except Exception as e:
-        print(f"    [ERR goto] {e}", flush=True)
-    finally:
-        page.remove_listener("response", handle)
-
-    # 4. Assegnazione finale metadati (Logica originale intatta)
-    if captured.get("prog") and not row.get("programme_raw"):
-        row["programme_raw"] = captured["prog"]
-    if captured.get("action") and not row.get("action_raw"):
-        row["action_raw"] = captured["action"]
-    if captured.get("call_id") and not row.get("call_id"):
-        row["call_id"] = captured["call_id"]
-
-    return bool(captured) or bool(row.get("full_text"))
-
-
-def enrich(ctx, rows: list):
-    to_fix = [r for r in rows
-              if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id"))
-              and r.get("url")]
-    if not to_fix:
-        print("  Tutti i campi già presenti ✓", flush=True)
-        return
-
-    print(f"  {len(to_fix)} call da arricchire…", flush=True)
-    page = ctx.new_page()
-    skipped = 0
-
-    for idx, row in enumerate(to_fix, 1):
-        print(f"  [{idx:>4}/{len(to_fix)}] {(row['name'] or '')[:60]}", flush=True)
-
-        ok = False
-        for attempt in range(1, 3):
-            try:
-                ok = _enrich_one(page, row)
-                break
-            except Exception as e:
-                print(f"    [tentativo {attempt} fallito] {e}", flush=True)
-                try:
-                    page.close()
-                except Exception:
-                    pass
-                page = ctx.new_page()
-                time.sleep(2)
-
-        if not ok:
-            skipped += 1
-            print(f"    [SKIP] nessun dato recuperato", flush=True)
-
-        if idx % 100 == 0:
-            print(f"  [checkpoint] salvate {idx} call finora…", flush=True)
-
-        time.sleep(0.3)
-
-    try:
-        page.close()
-    except Exception:
-        pass
-    print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
-
-# ── Trasforma riga grezza → oggetto call classificato ─────────────────────────
-
-def to_call(row: dict) -> dict:
-    url        = row.get("url", "")
-    prog_raw   = row.get("programme_raw") or ""
-    call_id    = row.get("call_id") or ""
-    action_raw = row.get("action_raw") or ""
-
-    cluster_num = ""
-    for src in [call_id, row.get("cluster_raw",""), url]:
-        m = RE_CLUSTER.search(src or "")
-        if m:
-            cluster_num = m.group(1)
-            break
-
-    u_cnum, u_clabel, u_thematic, u_benef = url_classify(url)
-    if u_cnum:
-        cluster_num = u_cnum
-
-    cluster_label = u_clabel or THEMATIC_MAP.get(cluster_num, "")
-    thematic      = u_thematic or resolve_thematic(cluster_num, prog_raw) or name_classify(row.get("name",""))
-    action        = normalize_action(action_raw)
-    is_mission    = bool("/HORIZON-MISS" in url.upper())
-
-    opening_raw  = row.get("opening_raw") or ""
-    deadline_raw = row.get("deadline_raw") or ""
-
-    full_text = row.get("full_text") or ""
-    multi = classify_multitopic(row.get("name") or "", full_text, thematic)
-
-    return {
-        "name":             row.get("name") or "",
-        "call_id":          call_id,
-        "programme":        prog_raw,
-        "cluster_num":      cluster_num,
-        "cluster_label":    cluster_label,
-        "thematic_cluster": thematic,
-        "action":           action,
-        "opening":          opening_raw,
-        "opening_iso":      parse_date_iso(opening_raw),
-        "deadline":         deadline_raw,
-        "deadline_iso":     parse_date_iso(deadline_raw),
-        "url":              url,
-        "is_mission":       is_mission,
-        "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
-        "budget":           row.get("budget_raw") or 0,
-        "full_text":        multi["full_text"],
-        "keyword_hits":     multi["keyword_hits"],
-        "multi_thematic":   multi["multi_thematic"],
-        "is_special_basic_research": multi["is_special_basic_research"],
+    /* ── HERO ── */
+    .hero { margin-bottom: 56px; }
+    .hero-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2.4rem, 5vw, 3.6rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      margin-bottom: 20px;
+    }
+    .hero h1 em { font-style: italic; color: var(--muted); }
+    .hero p {
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 1rem;
+      font-weight: 300;
+      line-height: 1.7;
     }
 
-# ── Changelog ─────────────────────────────────────────────────────────────────
-
-def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, generated: str):
-    old_by_url = {c["url"]: c for c in old_calls}
-    new_by_url = {c["url"]: c for c in new_calls}
-
-    old_urls = set(old_by_url)
-    new_urls = set(new_by_url)
-
-    added   = [new_by_url[u] for u in sorted(new_urls - old_urls)]
-    removed = [old_by_url[u] for u in sorted(old_urls - new_urls)]
-
-    def thematic_counts(calls):
-        tc = {}
-        for c in calls:
-            k = c.get("thematic_cluster") or "(non classificato)"
-            tc[k] = tc.get(k, 0) + 1
-        return tc
-
-    date_str = generated[:10]
-
-    lines = []
-    lines.append(f"# Changelog calls.json")
-    lines.append(f"")
-    lines.append(f"**Ultimo aggiornamento:** {generated.replace('T',' ').replace('+00:00',' UTC')[:22]}")
-    lines.append(f"")
-    lines.append(f"## Riepilogo")
-    lines.append(f"")
-    lines.append(f"| | Numero |")
-    lines.append(f"|---|---|")
-    lines.append(f"| Call totali (nuovo) | {len(new_calls)} |")
-    lines.append(f"| Call totali (precedente) | {len(old_calls)} |")
-    lines.append(f"| **Nuove call aggiunte** | **{len(added)}** |")
-    lines.append(f"| Call rimosse (scadute/chiuse) | {len(removed)} |")
-    lines.append(f"")
-
-    if added:
-        lines.append(f"## Call aggiunte ({len(added)})")
-        lines.append(f"")
-        by_thematic = {}
-        for c in added:
-            t = c.get("thematic_cluster") or "(non classificato)"
-            by_thematic.setdefault(t, []).append(c)
-        for thematic, calls in sorted(by_thematic.items()):
-            lines.append(f"### {thematic} ({len(calls)})")
-            lines.append(f"")
-            for c in calls:
-                name    = c.get("name") or "(senza nome)"
-                prog    = c.get("programme") or ""
-                action  = c.get("action") or ""
-                dead    = c.get("deadline") or ""
-                url     = c.get("url") or ""
-                meta = " · ".join(filter(None, [prog, action, f"Scadenza: {dead}" if dead else ""]))
-                lines.append(f"- **{name}**")
-                if meta:
-                    lines.append(f"  {meta}")
-                if url:
-                    lines.append(f"  {url}")
-                lines.append(f"")
-    else:
-        lines.append(f"## Call aggiunte")
-        lines.append(f"")
-        lines.append(f"Nessuna nuova call rispetto alla rilevazione precedente.")
-        lines.append(f"")
-
-    if removed:
-        lines.append(f"## Call rimosse ({len(removed)})")
-        lines.append(f"")
-        for c in removed:
-            name = c.get("name") or "(senza nome)"
-            prog = c.get("programme") or ""
-            dead = c.get("deadline") or ""
-            meta = " · ".join(filter(None, [prog, f"Scadenza: {dead}" if dead else ""]))
-            lines.append(f"- **{name}**{(' — ' + meta) if meta else ''}")
-        lines.append(f"")
-
-    lines.append(f"## Distribuzione per area tematica (nuovo dataset)")
-    lines.append(f"")
-    lines.append(f"| Area tematica | Call |")
-    lines.append(f"|---|---|")
-    for k, v in sorted(thematic_counts(new_calls).items(), key=lambda x: -x[1]):
-        lines.append(f"| {k} | {v} |")
-    lines.append(f"")
-
-    changelog_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\n📋 Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
-
-    history_path = changelog_path.parent / "changelog_history.md"
-    history_line = (
-        f"| {date_str} | {len(new_calls)} | +{len(added)} | -{len(removed)} |"
-    )
-    if history_path.exists():
-        hist = history_path.read_text(encoding="utf-8")
-        if history_line not in hist:
-            hist = hist.rstrip() + "\n" + history_line + "\n"
-            history_path.write_text(hist, encoding="utf-8")
-    else:
-        header = (
-            "# Storico aggiornamenti calls.json\n\n"
-            "| Data | Call totali | Aggiunte | Rimosse |\n"
-            "|---|---|---|---|\n"
-            + history_line + "\n"
-        )
-        history_path.write_text(header, encoding="utf-8")
-    print(f"📋 History aggiornata: {history_path}")
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-def main(out_path: Path):
-    rows      = []
-    seen_urls = set()
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        ctx = browser.new_context(
-            locale="en-US",
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
-        )
-        page = ctx.new_page()
-
-        # ── Passo 1: lista ────────────────────────────────────────────────────
-        page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
-                  wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(3000)
-        accept_cookies(page)
-        wait_cookie_gone(page)
-
-        total = read_total(page)
-        if total is None:
-            print("❌ Non riesco a leggere il contatore delle call.")
-            browser.close()
-            return
-        max_pages = math.ceil(total / PAGE_SIZE)
-        print(f"✅ Totale: {total} call | pagine: {max_pages}")
-
-        for pnum in range(1, max_pages + 1):
-            remaining = total - (pnum - 1) * PAGE_SIZE
-            expected  = min(PAGE_SIZE, remaining)
-            url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
-            print(f"\n[p{pnum}/{max_pages}] attese ~{expected}", end="", flush=True)
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            page.wait_for_timeout(1200)
-            accept_cookies(page)
-            wait_cookie_gone(page)
-
-            scroll_until(page, expected=expected)
-            links     = extract_links(page)
-            new_links = [u for u in links if u not in seen_urls]
-            print(f" → trovati {len(new_links)} nuovi", flush=True)
-
-            for u in new_links:
-                seen_urls.add(u)
-                rows.append(parse_card(page, u))
-            time.sleep(0.1)
-
-        # ── Passo 2: arricchimento ────────────────────────────────────────────
-        print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
-        enrich(ctx, rows)
-        browser.close()
-
-    # ── Classificazione e output ──────────────────────────────────────────────
-    calls = []
-    seen  = set()
-    for row in rows:
-        call = to_call(row)
-        if call["url"] and call["url"] not in seen:
-            seen.add(call["url"])
-            calls.append(call)
-
-    tc = {}
-    for c in calls:
-        k = c["thematic_cluster"] or "(non classificato)"
-        tc[k] = tc.get(k, 0) + 1
-    print(f"\nClassificazione ({len(calls)} call totali):")
-    for k, v in sorted(tc.items(), key=lambda x: -x[1]):
-        print(f"  {v:5d}  {k}")
-    print(f"\nNon classificati: {tc.get('(non classificato)', 0)}")
-
-    generated = datetime.now(timezone.utc).isoformat()
-
-    # ── Changelog ────────────────────────────────────────────────────────────
-    old_calls = []
-    if out_path.exists():
-        try:
-            old_data = json.loads(out_path.read_text(encoding="utf-8"))
-            old_calls = old_data.get("calls", [])
-            print(f"\nDataset precedente: {len(old_calls)} call")
-        except Exception:
-            print("\nNessun dataset precedente trovato.")
-
-    changelog_path = out_path.parent / "changelog.md"
-    write_changelog(old_calls, calls, changelog_path, generated)
-
-    # ── Salva ─────────────────────────────────────────────────────────────────
-    payload = {
-        "generated": generated,
-        "calls": calls,
+    /* ── FORM CARD ── */
+    .form-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(30,60,140,0.07), 0 1px 3px rgba(30,60,140,0.05);
     }
-    out_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    print(f"\n✅ Scritto {out_path} con {len(calls)} call")
 
+    /* ── FIELDSET ── */
+    .field-section {
+      border: none;
+      border-bottom: 1px solid var(--border);
+      padding: 28px 32px;
+    }
+    .field-section:last-of-type { border-bottom: none; }
+    .field-section legend,
+    .field-section .section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 20px;
+      display: block;
+    }
+    .field-section .section-label span.num {
+      color: var(--accent);
+      margin-right: 8px;
+      font-weight: 800;
+    }
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
-    args = parser.parse_args()
-    main(Path(args.out))
+    /* ── GRID ── */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
+    /* ── LABELS ── */
+    label.field-label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .hint {
+      margin-top: 12px;
+      color: var(--muted2);
+      font-size: 0.82rem;
+      font-style: italic;
+    }
 
+    /* ── INPUTS ── */
+    select, input[type="text"] {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.92rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(17,24,39,0.4)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      padding-right: 36px;
+      cursor: pointer;
+    }
+    select option { background: #ffffff; color: #111827; }
+    select:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
 
+    /* ── AUTOFILL SECTION ── */
+    .autofill-section {
+      background: linear-gradient(135deg, rgba(37,99,235,0.04) 0%, rgba(37,99,235,0.02) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 28px 32px;
+    }
+    .autofill-label-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .autofill-label-row .section-label {
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+    .autofill-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(37,99,235,0.22);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-left: 10px;
+    }
+    .autofill-input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .autofill-input-wrap {
+      flex: 1;
+      min-width: 260px;
+      position: relative;
+    }
+    .autofill-input-wrap input[type="text"] {
+      font-family: 'DM Mono', 'Courier New', monospace;
+      letter-spacing: 0.04em;
+      padding-right: 38px;
+    }
+    .autofill-clear-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted2);
+      font-size: 1rem;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 6px;
+      display: none;
+      transition: color 0.15s;
+    }
+    .autofill-clear-btn:hover { color: var(--text); }
+    .autofill-clear-btn.visible { display: flex; align-items: center; justify-content: center; }
+    .btn-autofill {
+      background: var(--accent);
+      color: #fff;
+      padding: 11px 22px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-family: inherit;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: all 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-autofill:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-autofill:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    /* Autofill feedback banner */
+    .autofill-feedback {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .autofill-feedback.success {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--success-bg);
+      border: 1px solid rgba(22,163,74,0.22);
+      color: #14532d;
+    }
+    .autofill-feedback.warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--warning-bg);
+      border: 1px solid rgba(217,119,6,0.22);
+      color: #78350f;
+    }
+    .autofill-feedback.error {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--error-bg);
+      border: 1px solid rgba(220,38,38,0.22);
+      color: #7f1d1d;
+    }
+    .autofill-feedback.loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      color: var(--muted);
+    }
+    .autofill-feedback-icon { flex-shrink: 0; font-size: 1rem; }
+    .autofill-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .autofill-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      background: rgba(22,163,74,0.08);
+      border: 1px solid rgba(22,163,74,0.20);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      color: #14532d;
+      font-weight: 500;
+    }
+    .autofill-chip .chip-label { color: rgba(20,83,45,0.6); margin-right: 5px; font-weight: 400; }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(17,24,39,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* Autofill highlight on injected fields */
+    @keyframes injectPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.35); border-color: var(--success); }
+      60%  { box-shadow: 0 0 0 6px rgba(22,163,74,0); border-color: var(--success); }
+      100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+    }
+    .injected { animation: injectPulse 1.2s ease-out forwards; }
+
+    /* ── RADIO ── */
+    .radio-group { display: flex; flex-wrap: wrap; gap: 10px; }
+    .radio-group label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      color: var(--muted);
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .radio-group label:hover { border-color: var(--border-strong); color: var(--text); }
+    .radio-group input[type="radio"] { display: none; }
+    .radio-group input[type="radio"]:checked + span { color: var(--text); }
+    .radio-group label:has(input:checked) {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--text);
+    }
+
+    /* ── BUDGET SLIDER ── */
+    .budget-range-wrap { display: flex; flex-direction: column; gap: 14px; }
+    .budget-range-top { display: flex; justify-content: space-between; align-items: center; }
+    .budget-range-values {
+      font-size: 0.88rem;
+      font-weight: 500;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .budget-slider-box { position: relative; padding: 8px 0 0; }
+    .budget-track {
+      position: absolute; left: 0; right: 0; top: 20px;
+      height: 3px; background: var(--border-strong); border-radius: 999px;
+    }
+    .budget-range-fill {
+      position: absolute; top: 20px; height: 3px;
+      background: var(--accent); border-radius: 999px;
+    }
+    .budget-sliders { position: relative; height: 32px; }
+    .budget-sliders input[type=range] {
+      position: absolute; left: 0; top: 0; width: 100%; height: 32px;
+      background: none; pointer-events: none;
+      -webkit-appearance: none; appearance: none; margin: 0;
+    }
+    .budget-sliders input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      height: 16px; width: 16px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--bg);
+      box-shadow: 0 0 0 2px var(--accent);
+      pointer-events: auto; cursor: pointer;
+    }
+    .budget-sliders input[type=range]::-moz-range-thumb {
+      height: 16px; width: 16px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--bg);
+      pointer-events: auto; cursor: pointer;
+    }
+    .budget-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    .budget-chip {
+      border: 1px solid var(--border-strong);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 0.78rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.02em;
+    }
+    .budget-chip:hover { color: var(--accent); border-color: var(--accent); }
+    .budget-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    /* ── BUDGET WARNING ── */
+    .budget-warning {
+      display: none;
+      margin-top: 10px;
+      padding: 8px 14px;
+      background: rgba(217,119,6,0.08);
+      border: 1px solid rgba(217,119,6,0.25);
+      border-radius: 10px;
+      font-size: 0.8rem;
+      color: #92400e;
+    }
+    .budget-warning.visible { display: block; }
+
+    /* ── ACTIONS ── */
+    .form-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 24px 32px;
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    button {
+      border: none;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.02em;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      padding: 12px 28px;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37,99,235,0.25); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border-strong);
+      padding: 11px 20px;
+      border-radius: 999px;
+      font-size: 0.88rem;
+    }
+    .btn-secondary:hover { color: var(--accent); border-color: var(--accent); }
+
+    .btn-download {
+      background: var(--accent);
+      color: #fff;
+      border: 1px solid var(--accent);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      box-shadow: 0 4px 14px rgba(37,99,235,0.18);
+    }
+    .btn-download:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(37,99,235,0.28);
+    }
+
+    /* ── RESULTS SECTION ── */
+    .results { margin-top: 48px; }
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .results-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.5rem;
+      letter-spacing: -0.02em;
+    }
+    .stats-count {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .stats-count strong { color: var(--accent); font-size: 1rem; }
+
+    /* ── TOOLBAR ── */
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 28px;
+    }
+    .toolbar > .tb-search { flex: 1; min-width: 220px; }
+    .toolbar input[type="text"] {
+      padding: 10px 14px 10px 38px;
+      font-size: 0.88rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='rgba(17,24,39,0.35)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: 12px center;
+    }
+
+    /* ── SUMMARY PILLS ── */
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+    .pill strong { color: var(--text); margin-left: 5px; }
+
+    /* ── CALL CARD ── */
+    .call {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      margin-bottom: 12px;
+      padding: 24px 28px 20px;
+      position: relative;
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(30,60,140,0.06);
+    }
+    .call.call-clickable { cursor: pointer; }
+    .call::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+    }
+    .call[data-bucket="1"]::before { background: var(--b1); }
+    .call[data-bucket="2"]::before { background: var(--b2); }
+    .call[data-bucket="3"]::before { background: var(--b3); }
+    .call[data-bucket="4"]::before { background: var(--b4); }
+    .call[data-bucket="5"]::before { background: var(--b5); }
+    .call[data-bucket="6"]::before { background: var(--b6); }
+    .call:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(37,99,235,0.10); }
+    .call h3 {
+      font-size: 0.98rem;
+      font-weight: 600;
+      line-height: 1.4;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+    .meta {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+    .meta .sep { margin: 0 6px; opacity: 0.3; }
+
+    /* ── BADGES ── */
+    .matchbadges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .badge-b1 { background: var(--b1-bg); color: var(--b1); border: 1px solid rgba(34,197,94,0.25); }
+    .badge-b2 { background: var(--b2-bg); color: var(--b2); border: 1px solid rgba(59,130,246,0.25); }
+    .badge-b3 { background: var(--b3-bg); color: var(--b3); border: 1px solid rgba(245,158,11,0.25); }
+    .badge-b4 { background: var(--b4-bg); color: var(--b4); border: 1px solid rgba(6,182,212,0.2); }
+    .badge-b5 { background: var(--b5-bg); color: var(--b5); border: 1px solid rgba(129,140,248,0.2); }
+    .badge-b6 { background: var(--b6-bg); color: var(--b6); border: 1px solid rgba(255,255,255,0.1); }
+    .badge-special { background: rgba(37,99,235,0.08); color: var(--accent); border: 1px solid rgba(37,99,235,0.22); }
+
+    /* ── KEYWORD TAGS ── */
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      background: var(--tag-bg);
+      border: 1px solid var(--tag-border);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+
+    /* ── LINK ── */
+    .call-link { margin-top: 12px; font-size: 0.78rem; }
+    .call-link a {
+      color: var(--accent);
+      text-decoration: none;
+      word-break: break-all;
+      transition: color 0.1s;
+      position: relative;
+      z-index: 2;
+    }
+    .call-link a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    /* ── FOOTER ── */
+    .results-footer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      margin-top: 32px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+    .results-progress {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── EMPTY / ERROR ── */
+    .empty, .error {
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 760px) {
+      .site-header { padding: 0 20px; }
+      .page { padding: 36px 20px 72px; }
+      .grid { grid-template-columns: 1fr; }
+      .field-section { padding: 20px; }
+      .autofill-section { padding: 20px; }
+      .form-actions { padding: 20px; }
+      .call { padding: 18px 20px 16px; }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .autofill-input-row { flex-direction: column; }
+    }
+
+    /* ── SORT TOGGLE ── */
+    .sort-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+    .sort-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .sort-btn.active {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    .sort-btn:not(.active):hover { color: var(--accent); }
+
+    .download-group {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div id="lastUpdated"></div>
+  </header>
+
+  <div class="page">
+    <header class="hero">
+      <div class="hero-label">Strumento di ricerca</div>
+      <h1>Funding Call<br><em>Matcher</em></h1>
+      <p>Seleziona area primaria e secondaria per ordinare le call in base a cluster/programma e ai match trasversali trovati nel testo completo.</p>
+    </header>
+
+    <section class="form-card">
+      <form id="surveyForm">
+
+        <!-- ── SEZIONE 00: AUTO-FILL ── -->
+        <div class="autofill-section">
+          <div class="autofill-label-row">
+            <span class="section-label" style="margin-bottom:0">
+              <span class="num">00</span>Auto-compilazione da numero call
+            </span>
+            <span class="autofill-badge">Opzionale</span>
+          </div>
+
+          <div class="autofill-input-row">
+            <div class="autofill-input-wrap">
+              <input
+                id="callNumberInput"
+                type="text"
+                placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">✕</button>
+            </div>
+            <button type="button" id="autofillBtn" class="btn-autofill">Cerca e compila</button>
+          </div>
+
+          <div id="autofillFeedback" class="autofill-feedback"></div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">01</span>Timeframe progetto</span>
+          <div class="grid">
+            <div>
+              <label class="field-label" for="closure_year">Anno di chiusura</label>
+              <select id="closure_year" name="closure_year" required>
+                <option value="" selected disabled>Seleziona…</option>
+                <option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="closure_quarter">Quarter</label>
+              <select id="closure_quarter" name="closure_quarter" required>
+                <option value="" selected disabled>Seleziona…</option>
+                <option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">02</span>Natura del progetto</span>
+          <div class="radio-group">
+            <label><input type="radio" name="project_nature" value="" checked><span>Qualsiasi</span></label>
+            <label><input type="radio" name="project_nature" value="basic"><span>Basic research</span></label>
+            <label><input type="radio" name="project_nature" value="applied"><span>Applied research</span></label>
+            <label><input type="radio" name="project_nature" value="industrial"><span>Industrial research</span></label>
+          </div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">03</span>Aree tematiche</span>
+          <div class="grid">
+            <div>
+              <label class="field-label" for="thematic_cluster">Area principale</label>
+              <select id="thematic_cluster" name="thematic_cluster" required></select>
+            </div>
+            <div>
+              <label class="field-label" for="secondary_thematic_cluster">Area secondaria</label>
+              <select id="secondary_thematic_cluster" name="secondary_thematic_cluster"></select>
+            </div>
+          </div>
+          <p class="hint">La primaria pesa sempre più della secondaria. I match via keyword nel testo completo servono come livello trasversale.</p>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">04</span>Budget</span>
+          <div class="budget-range-wrap">
+            <div class="budget-range-top">
+              <label class="field-label" style="margin:0">Range [EUR]</label>
+              <div class="budget-range-values">
+                <span id="budget_min_label">0 EUR</span> – <span id="budget_max_label">20.000.000 EUR</span>
+              </div>
+            </div>
+            <div class="budget-slider-box">
+              <div class="budget-track"></div>
+              <div id="budget_range_fill" class="budget-range-fill"></div>
+              <div class="budget-sliders">
+                <input id="budget_min" type="range" min="0" max="20000000" step="50000" value="0" />
+                <input id="budget_max" type="range" min="0" max="20000000" step="50000" value="20000000" />
+              </div>
+            </div>
+            <div class="budget-presets">
+              <button type="button" class="budget-chip" data-min="0" data-max="500000">0 – 0,5M</button>
+              <button type="button" class="budget-chip" data-min="500000" data-max="1000000">0,5M – 1M</button>
+              <button type="button" class="budget-chip" data-min="1000000" data-max="3000000">1M – 3M</button>
+              <button type="button" class="budget-chip" data-min="3000000" data-max="10000000">3M – 10M</button>
+              <button type="button" class="budget-chip" data-min="10000000" data-max="20000000">Più di 10M</button>
+            </div>
+            <div id="budgetWarning" class="budget-warning">
+              Nota: le call prive di budget specificato verranno escluse quando il filtro budget è attivo.
+            </div>
+          </div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">05</span>Tipo di azione</span>
+          <label class="field-label" for="action_type">Action type</label>
+          <select id="action_type" name="action_type" style="max-width:320px">
+            <option value="">Qualsiasi</option>
+            <option value="RIA">RIA</option>
+            <option value="IA">IA</option>
+            <option value="CSA">CSA</option>
+            <option value="COFUND">COFUND</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Genera risultati</button>
+          <button type="button" id="resetBtn" class="btn-secondary">Pulisci</button>
+        </div>
+
+      </form>
+    </section>
+
+    <section id="resultsSection" class="results hidden">
+      <div class="results-header">
+        <div class="results-title">Risultati</div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div id="statsCount" class="stats-count"></div>
+          <div class="download-group">
+            <button id="downloadResultsBtn" type="button" class="btn-download">↓ Scarica CSV</button>
+            <button id="downloadExcelBtn" type="button" class="btn-download">↓ Scarica Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="tb-search">
+          <label class="field-label" for="keyword_filter">Filtra per keyword</label>
+          <input id="keyword_filter" type="text" placeholder="Es. hydrogen, robotics, cancer…" />
+        </div>
+        <div>
+          <label class="field-label">Cerca in</label>
+          <div class="sort-toggle">
+            <button type="button" class="sort-btn active" id="scopeFullText">Testo completo</button>
+            <button type="button" class="sort-btn" id="scopeTitle">Solo titolo</button>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">Ordina per</label>
+          <div class="sort-toggle">
+            <button type="button" class="sort-btn active" id="sortRelevance">Rilevanza</button>
+            <button type="button" class="sort-btn" id="sortDeadline">Scadenza ↑</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="results"></div>
+
+      <div id="resultsFooter" class="results-footer hidden">
+        <div id="resultsProgress" class="results-progress"></div>
+        <button id="loadMoreBtn" type="button" class="btn-secondary">Mostra altri</button>
+      </div>
+    </section>
+  </div>
+
+<script>
+(() => {
+  const PAGE_SIZE = 25;
+  const BUDGET_MAX = 20000000;
+  const SPECIAL = 'Internships, fellowships & scholarships';
+  const THEMATIC_OPTIONS = [
+    'Clean Aviation','Climate, Energy & Mobility', 'Climate-neutral & Smart Cities','Culture, Creativity & Inclusion', 'Defence',
+    'Digital, Industry & Space','External Action & International Cooperation','Food, Bioeconomy & Environment', 'Health & Life Sciences',
+    'Healthy Oceans, Seas, Coastal & Inland Waters', SPECIAL, 'Security & Resilience', 'SME, Entrepreneurship & Market Uptake',
+    'Cross-cutting / Other'
+  ];
+  const TITLE_SPECIAL_KEYWORDS = ['internship','internships','fellowship','fellowships','msca','scholarship','scholarships'];
+  const KEYWORDS = {
+    'Health & Life Sciences': ['health','biotech','biotechnology','pharma','pharmaceutical','therapeutic','medical','diagnostic','genomic','genomics','dna','rna','public health','clinical'],
+    'Culture, Creativity & Inclusion': ['culture','creative','heritage','museum','archive','inclusion','social inclusion','democracy','education','skills'],
+    'Security & Resilience': ['security','cybersecurity','cyber security','disaster resilience','emergency','critical infrastructure','civil protection','border security'],
+    'Digital, Industry & Space': ['digital twin','digital twins','artificial intelligence','machine learning','deep learning','generative ai','large language model','cloud computing','cloud infrastructure','edge computing','edge ai','software defined network','semiconductor','microelectronics','quantum computing','quantum communication','quantum sensing','robotics','autonomous system','satellite communication','satellite navigation','earth observation satellite','space mission','space technology','launch vehicle','spacecraft','virtual world','web 4.0','internet of things','photonics','cybersecurity','cyber security','data space initiative','common european data space','next generation internet','5g network','6g network','high performance computing','supercomputing','blockchain'],
+    'Climate, Energy & Mobility': ['climate change','climate adaptation','climate mitigation','decarbonisation','decarbonization','net zero','energy transition','energy efficiency','renewable energy','electricity grid','power system','hydrogen','fuel cell','battery storage','electric vehicle','sustainable transport','low carbon','solar energy','photovoltaic','wind energy','wind power','building renovation','energy storage','smart grid'],
+    'Food, Bioeconomy & Environment': ['agriculture','farming','crop','food system','food security','bioeconomy','biodiversity','forestry','soil health','water resources','natural environment','ecosystem services','agroecology','sustainable food','land use'],
+    'Defence': ['defence','defense','dual-use','dual use','military'],
+    'SME, Entrepreneurship & Market Uptake': ['sme','startup','entrepreneurship','venture','scale-up','market uptake','innovation uptake'],
+    'External Action & International Cooperation': ['international cooperation','development cooperation','global south','partner countries','external action'],
+    'Climate-neutral & Smart Cities': ['smart city','smart cities','climate-neutral city','urban transition','city mission'],
+    'Healthy Oceans, Seas, Coastal & Inland Waters': ['ocean','oceans','sea','seas','coastal','inland waters','marine','blue economy'],
+    'Clean Aviation': ['aviation','aircraft','aeronautics','sustainable aviation'],
+    'Cross-cutting / Other': ['interdisciplinary','cross-cutting','widening','research infrastructure','eosc'],
+    [SPECIAL]: TITLE_SPECIAL_KEYWORDS
+  };
+
+  /* ── Horizon cluster → thematic area mapping ── */
+  const CLUSTER_TO_THEMATIC = {
+    'CL1': 'Health & Life Sciences',
+    'CL2': 'Culture, Creativity & Inclusion',
+    'CL3': 'Security & Resilience',
+    'CL4': 'Digital, Industry & Space',
+    'CL5': 'Climate, Energy & Mobility',
+    'CL6': 'Food, Bioeconomy & Environment',
+    'CL7': 'Healthy Oceans, Seas, Coastal & Inland Waters',
+    'MSCA': SPECIAL,
+    'ERC': SPECIAL,
+    'EIE': 'SME, Entrepreneurship & Market Uptake',
+    'EIC': 'SME, Entrepreneurship & Market Uptake',
+    'IIA': 'External Action & International Cooperation',
+    'WIDERA': 'Cross-cutting / Other',
+    'INFRA': 'Cross-cutting / Other',
+    'DEF': 'Defence',
+    'SESAR': 'Clean Aviation',
+    'JU-CLEAN-AVIATION': 'Clean Aviation',
+    'CITIES': 'Climate-neutral & Smart Cities'
+  };
+
+  /* ── Action type patterns in call IDs ── */
+  const ACTION_TYPE_PATTERNS = [
+    { pattern: /\bRIA\b/i,    value: 'RIA' },
+    { pattern: /\bIA\b/i,     value: 'IA' },
+    { pattern: /\bCSA\b/i,    value: 'CSA' },
+    { pattern: /\bCOFUND\b/i, value: 'COFUND' }
+  ];
+
+  /* ── DOM refs ── */
+  const form              = document.getElementById('surveyForm');
+  const resetBtn          = document.getElementById('resetBtn');
+  const resultsSection    = document.getElementById('resultsSection');
+  const resultsEl         = document.getElementById('results');
+  const resultsFooterEl   = document.getElementById('resultsFooter');
+  const resultsProgressEl = document.getElementById('resultsProgress');
+  const loadMoreBtn       = document.getElementById('loadMoreBtn');
+  const downloadResultsBtn= document.getElementById('downloadResultsBtn');
+  const downloadExcelBtn  = document.getElementById('downloadExcelBtn');
+  const keywordFilterEl   = document.getElementById('keyword_filter');
+  const budgetMinEl       = document.getElementById('budget_min');
+  const budgetMaxEl       = document.getElementById('budget_max');
+  const budgetMinLabelEl  = document.getElementById('budget_min_label');
+  const budgetMaxLabelEl  = document.getElementById('budget_max_label');
+  const budgetRangeFillEl = document.getElementById('budget_range_fill');
+  const budgetWarningEl   = document.getElementById('budgetWarning');
+  const budgetPresetEls   = Array.from(document.querySelectorAll('.budget-chip'));
+  const lastUpdatedEl     = document.getElementById('lastUpdated');
+  const primaryEl         = document.getElementById('thematic_cluster');
+  const secondaryEl       = document.getElementById('secondary_thematic_cluster');
+
+  /* ── Autofill DOM refs ── */
+  const callNumberInput   = document.getElementById('callNumberInput');
+  const autofillBtn       = document.getElementById('autofillBtn');
+  const autofillClearBtn  = document.getElementById('autofillClearBtn');
+  const autofillFeedback  = document.getElementById('autofillFeedback');
+
+  let CALLS = [];
+  let visibleCount = PAGE_SIZE;
+  let lastAnswers = null;
+  let lastScoredResults = [];
+  let sortMode = 'relevance';
+  let searchScope = 'fulltext'; // 'fulltext' | 'title'
+
+  /* ═══════════════════════════════════════════════════════
+     AUTO-FILL LOGIC
+  ═══════════════════════════════════════════════════════ */
+
+  function parseCallId(raw) {
+    const id = raw.trim().toUpperCase();
+    const result = { thematic: null, actionType: null };
+
+    const CL_MAP = {
+      '1':'Health & Life Sciences', '2':'Culture, Creativity & Inclusion',
+      '3':'Security & Resilience',  '4':'Digital, Industry & Space',
+      '5':'Climate, Energy & Mobility', '6':'Food, Bioeconomy & Environment',
+    };
+    const clMatch = id.match(/HORIZON-CL([1-6])-/);
+    if (clMatch) result.thematic = CL_MAP[clMatch[1]] || null;
+
+    if (!result.thematic) {
+      const RULES = [
+        { prefix:'MISS', sub:'CIT',    thematic:'Climate-neutral & Smart Cities' },
+        { prefix:'MISS', sub:'OCEAN',  thematic:'Healthy Oceans, Seas, Coastal & Inland Waters' },
+        { prefix:'MISS', sub:'CLIMA',  thematic:'Climate, Energy & Mobility' },
+        { prefix:'MISS', sub:'CANCER', thematic:'Health & Life Sciences' },
+        { prefix:'MISS', sub:'SOIL',   thematic:'Food, Bioeconomy & Environment' },
+        { prefix:'MISS', sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'HLTH', sub:null,     thematic:'Health & Life Sciences' },
+        { prefix:'EIC',  sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+        { prefix:'EIE',  sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+        { prefix:'EIT',  sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+        { prefix:'CID',  sub:null,     thematic:'Climate, Energy & Mobility' },
+        { prefix:'EURATOM', sub:null,  thematic:'Climate, Energy & Mobility' },
+        { prefix:'EUROHPC', sub:null,  thematic:'Digital, Industry & Space' },
+        { prefix:'JU-CLEAN-AVIATION', sub:null, thematic:'Clean Aviation' },
+        { prefix:'JU-',  sub:null,     thematic:'Climate, Energy & Mobility' },
+        { prefix:'MSCA', sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'NEB',  sub:null,     thematic:'Climate-neutral & Smart Cities' },
+        { prefix:'RAISE',sub:null,     thematic:'Digital, Industry & Space' },
+        { prefix:'WIDERA',sub:null,    thematic:'Cross-cutting / Other' },
+        { prefix:'CL3',  sub:'INFRA',  thematic:'Security & Resilience' },
+        { prefix:'INFRA',sub:'TECH',   thematic:'Digital, Industry & Space' },
+        { prefix:'INFRA',sub:'SERV',   thematic:'Digital, Industry & Space' },
+        { prefix:'INFRA',sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'AGRIP',sub:null,     thematic:'Food, Bioeconomy & Environment' },
+        { prefix:'EUAF', sub:null,     thematic:'Digital, Industry & Space' },
+        { prefix:'DIGITAL',sub:null,   thematic:'Digital, Industry & Space' },
+        { prefix:'RFCS', sub:null,     thematic:'Climate, Energy & Mobility' },
+        { prefix:'EUBA', sub:null,     thematic:'External Action & International Cooperation' },
+        { prefix:'PPPA', sub:'CHIPS',  thematic:'Digital, Industry & Space' },
+        { prefix:'PPPA', sub:'MEDIA',  thematic:'Culture, Creativity & Inclusion' },
+        { prefix:'PPPA', sub:null,     thematic:'Digital, Industry & Space' },
+        { prefix:'RENEWFM',sub:null,   thematic:'Climate, Energy & Mobility' },
+        { prefix:'SOCPL',sub:null,     thematic:'Culture, Creativity & Inclusion' },
+        { prefix:'ERC',  sub:null,     thematic:'Cross-cutting / Other' },
+        { prefix:'EMFAF',sub:null,     thematic:'Food, Bioeconomy & Environment' },
+        { prefix:'JUST', sub:null,     thematic:'Culture, Creativity & Inclusion' },
+        { prefix:'I3',   sub:null,     thematic:'SME, Entrepreneurship & Market Uptake' },
+      ];
+      for (const rule of RULES) {
+        if (!id.includes(rule.prefix)) continue;
+        if (rule.sub && !id.includes(rule.sub)) continue;
+        result.thematic = rule.thematic;
+        break;
+      }
+    }
+
+    for (const { pattern, value } of ACTION_TYPE_PATTERNS) {
+      if (pattern.test(id)) { result.actionType = value; break; }
+    }
+
+    return result;
+  }
+
+  function normalizeActionStr(v) {
+    if (!v) return '';
+    const s = v.toLowerCase();
+    if (s.includes('research and innovation action')) return 'RIA';
+    if (s.includes('innovation action'))              return 'IA';
+    if (s.includes('coordination and support'))       return 'CSA';
+    if (s.includes('cofund'))                         return 'COFUND';
+    const u = v.toUpperCase();
+    if (/\bHORIZON-RIA\b/.test(u) || /\bRIA\b/.test(u))               return 'RIA';
+    if (/\bHORIZON-IA\b/.test(u)  || /(?<![A-Z])IA(?![A-Z])/.test(u)) return 'IA';
+    if (/\bHORIZON-CSA\b/.test(u) || /\bCSA\b/.test(u))               return 'CSA';
+    if (/COFUND/.test(u))                                               return 'COFUND';
+    return '';
+  }
+
+  function classifyMultitopic(text, excludeThematic) {
+    if (!text) return [];
+    const t = text.toLowerCase();
+    const scores = [];
+    for (const [thematic, kws] of Object.entries(KEYWORDS)) {
+      if (thematic === excludeThematic) continue;
+      if (thematic === SPECIAL) continue;
+      const hits = kws.filter(k => {
+        const re = new RegExp('(?<![a-z])' + k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '(?![a-z])', 'i');
+        return re.test(t);
+      });
+      if (hits.length) scores.push({ thematic, hits, count: hits.length });
+    }
+    scores.sort((a, b) => b.count - a.count);
+    return scores;
+  }
+
+  function findInLocalCalls(id) {
+    const idUp = id.trim().toUpperCase();
+
+    function topicIdFromUrl(url) {
+      const m = String(url || '').match(/topic-details\/([^?#/]+)/i);
+      return m ? m[1].toUpperCase() : '';
+    }
+
+    let found = CALLS.find(c => topicIdFromUrl(c.url) === idUp);
+    if (found) return found;
+
+    found = CALLS.find(c => {
+      const tid = topicIdFromUrl(c.url);
+      return tid && (tid.startsWith(idUp) || idUp.startsWith(tid));
+    });
+    if (found) return found;
+
+    found = CALLS.find(c => String(c.call_id || '').toUpperCase() === idUp);
+    if (found) return found;
+
+    found = CALLS.find(c => {
+      const cid = String(c.call_id || '').toUpperCase();
+      return cid && (cid.startsWith(idUp) || idUp.startsWith(cid));
+    });
+    if (found) return found;
+
+    found = CALLS.find(c => String(c.url || '').toUpperCase().includes(idUp));
+    if (found) return found;
+
+    return null;
+  }
+
+  /* ── GitHub Actions config ── */
+  const GITHUB_OWNER    = 'INSERISCI_ORG_O_USERNAME';
+  const GITHUB_REPO     = 'INSERISCI_NOME_REPO';
+  const GITHUB_TOKEN    = 'INSERISCI_GITHUB_PAT';
+  const WORKFLOW_FILE   = 'autofill_lookup.yml';
+  const CACHE_FILE_URL  = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/autofill_cache.json`;
+
+  async function lookupViaGitHubActions(topicId) {
+    const requestId = Date.now().toString();
+
+    const dispatchResp = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept':        'application/vnd.github+json',
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: { topic_id: topicId, request_id: requestId }
+        })
+      }
+    );
+
+    if (!dispatchResp.ok) {
+      const txt = await dispatchResp.text();
+      throw new Error(`GitHub dispatch failed ${dispatchResp.status}: ${txt.slice(0, 200)}`);
+    }
+
+    const POLL_INTERVAL_MS = 5000;
+    const POLL_MAX_MS      = 90000;
+    const t0 = Date.now();
+
+    while (Date.now() - t0 < POLL_MAX_MS) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+      try {
+        const cacheResp = await fetch(`${CACHE_FILE_URL}?t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (!cacheResp.ok) continue;
+
+        const cache = await cacheResp.json();
+        if (cache[requestId]) {
+          const res = cache[requestId].result;
+          console.log('[autofill] risultato da Actions:', JSON.stringify(res));
+          return res;
+        }
+      } catch { /* ignora errori di rete transitori */ }
+
+      const elapsed = Math.round((Date.now() - t0) / 1000);
+      showFeedback('loading', null,
+        `Ricerca in corso sul portale EU… <span style="opacity:0.6">(${elapsed}s)</span>`
+      );
+    }
+
+    throw new Error('Timeout: il workflow non ha risposto entro 90 secondi.');
+  }
+
+  async function doAutofill() {
+    const rawInput = callNumberInput.value.trim();
+    if (!rawInput) {
+      showFeedback('error', '✕', 'Inserisci un numero di call o topic ID prima di procedere.');
+      return;
+    }
+
+    autofillBtn.disabled = true;
+
+    const parsed     = parseCallId(rawInput);
+    const localMatch = findInLocalCalls(rawInput);
+
+    if (localMatch) {
+      autofillBtn.disabled = false;
+      applyAutofillResult(rawInput, null, localMatch, parsed);
+      return;
+    }
+
+    if (!GITHUB_TOKEN || GITHUB_TOKEN === 'INSERISCI_GITHUB_PAT') {
+      autofillBtn.disabled = false;
+      applyAutofillResult(rawInput, null, null, parsed);
+      return;
+    }
+
+    showFeedback('loading', null, 'Ricerca in corso sul portale EU… <span style="opacity:0.6">(0s)</span>');
+
+    let claudeResult = null;
+    try {
+      claudeResult = await lookupViaGitHubActions(rawInput);
+    } catch (err) {
+      console.warn('GitHub Actions lookup failed:', err.message);
+      showFeedback('warning', '⚠',
+        `Ricerca automatica fallita: ${err.message}<br>` +
+        `Compilazione con dati strutturali dall'ID.`
+      );
+    }
+
+    autofillBtn.disabled = false;
+    applyAutofillResult(rawInput, claudeResult, null, parsed);
+  }
+
+  function applyAutofillResult(rawInput, claudeResult, localMatch, parsed) {
+    console.log('[autofill] applyAutofillResult:', {
+      claudeResult, localMatch: !!localMatch, parsed
+    });
+
+    const finalThematic = claudeResult?.primary_thematic
+      || (localMatch && localMatch.thematic_cluster)
+      || parsed.thematic;
+
+    const localSecondary = localMatch
+      ? (localMatch.multi_thematic || []).find(t => t !== finalThematic && THEMATIC_OPTIONS.includes(t)) || null
+      : null;
+    const finalSecondary = claudeResult?.secondary_thematic || localSecondary || null;
+
+    const finalAction = claudeResult?.action_type
+      || (localMatch ? normalizeAction(localMatch.action) : '')
+      || parsed.actionType
+      || '';
+
+    const finalTitle = claudeResult?.title
+      || (localMatch && localMatch.name)
+      || null;
+
+    if (!finalThematic && !finalAction) {
+      showFeedback('warning', '⚠',
+        `Nessun dato riconosciuto per <strong>${esc(rawInput)}</strong>. ` +
+        `Verifica il formato (es. <em>HORIZON-CL6-2022-GOVERNANCE-01-01</em>) e compila manualmente.`
+      );
+      return;
+    }
+
+    const injected = [];
+
+    if (finalThematic) {
+      const matched = THEMATIC_OPTIONS.find(o => o === finalThematic);
+      if (matched) {
+        primaryEl.value = matched;
+        flashInjected(primaryEl);
+        injected.push({ label: 'Area primaria', value: matched });
+      }
+    }
+
+    if (finalSecondary && finalSecondary !== finalThematic) {
+      const matched2 = THEMATIC_OPTIONS.find(o => o === finalSecondary);
+      if (matched2) {
+        secondaryEl.value = matched2;
+        flashInjected(secondaryEl);
+        const localKwHint = (localMatch?.keyword_hits?.[matched2] || []).slice(0,3).join(', ');
+        const kwHint = claudeResult?.secondary_keywords?.slice(0,3).join(', ') || localKwHint || '';
+        injected.push({ label: 'Area secondaria', value: matched2, hint: kwHint || null });
+      }
+    }
+
+    if (finalAction && ['RIA','IA','CSA','COFUND'].includes(finalAction)) {
+      const atEl = document.getElementById('action_type');
+      atEl.value = finalAction;
+      flashInjected(atEl);
+      injected.push({ label: 'Action type', value: finalAction });
+    }
+
+    let msg = `Compilazione per <strong>${esc(rawInput)}</strong>.`;
+    if (finalTitle) {
+      msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(finalTitle.substring(0,120))}${finalTitle.length > 120 ? '…' : ''}</em>`;
+    }
+
+    const chipsHtml = injected.map(i => {
+      const hintSpan = i.hint
+        ? ` <span style="opacity:0.6;font-weight:400;font-size:0.88em">(${esc(i.hint)})</span>`
+        : '';
+      return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
+    }).join('');
+
+    const sourceNote = claudeResult
+      ? `<small style="opacity:0.58">Dati estratti dal portale EU via web search.</small>`
+      : localMatch
+        ? `<small style="opacity:0.58">Dati da dataset locale.</small>`
+        : `<small style="opacity:0.58">Dati da parsing strutturale ID.</small>`;
+
+    if (injected.length === 0) {
+      showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
+    } else {
+      showFeedback('success', '✓', `
+        ${msg}
+        <div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>
+        <div style="margin-top:8px">${sourceNote} <small style="opacity:0.58">Puoi modificare i campi in qualsiasi momento.</small></div>
+      `);
+    }
+  }
+
+  function showFeedback(type, icon, html) {
+    autofillFeedback.className = `autofill-feedback ${type}`;
+    if (type === 'loading') {
+      autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
+    } else {
+      autofillFeedback.innerHTML = `<span class="autofill-feedback-icon">${icon||''}</span><div>${html}</div>`;
+    }
+  }
+
+  function flashInjected(el) {
+    el.classList.remove('injected');
+    void el.offsetWidth;
+    el.classList.add('injected');
+    setTimeout(() => el.classList.remove('injected'), 1400);
+  }
+
+  /* ── Autofill event listeners ── */
+  callNumberInput.addEventListener('input', () => {
+    const hasValue = callNumberInput.value.trim().length > 0;
+    autofillClearBtn.classList.toggle('visible', hasValue);
+    if (!hasValue) autofillFeedback.className = 'autofill-feedback';
+  });
+
+  autofillClearBtn.addEventListener('click', () => {
+    callNumberInput.value = '';
+    autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className = 'autofill-feedback';
+    callNumberInput.focus();
+  });
+
+  callNumberInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); doAutofill(); }
+  });
+
+  autofillBtn.addEventListener('click', doAutofill);
+
+  /* ═══════════════════════════════════════════════════════
+     UTILITIES
+  ═══════════════════════════════════════════════════════ */
+
+  function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function norm(s){ return String(s||'').trim(); }
+  function lower(s){ return String(s||'').toLowerCase(); }
+  function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+  function projectEndIso(y,q){
+    return {Q1:`${y}-03-31`,Q2:`${y}-06-30`,Q3:`${y}-09-30`,Q4:`${y}-12-31`}[q]||'';
+  }
+
+  function normalizeAction(v){
+    const s=lower(v);
+    if(s.includes('research and innovation action')) return 'RIA';
+    if(s.includes('innovation action')) return 'IA';
+    if(s.includes('coordination and support')) return 'CSA';
+    if(s.includes('cofund')) return 'COFUND';
+    return String(v||'').toUpperCase();
+  }
+
+  function parseBudgetValue(value){
+    if(value === null || value === undefined || value === '') return null;
+    let s = String(value).trim();
+    const shorthand = s.match(/^[€$\s]*([\d.,]+)\s*([KkMmBb])\b/);
+    if(shorthand){
+      const num = parseFloat(shorthand[1].replace(',','.'));
+      const mult = {k:1e3,m:1e6,b:1e9}[shorthand[2].toLowerCase()]||1;
+      const result = num * mult;
+      return Number.isFinite(result) ? result : null;
+    }
+    s = s.replace(/[€$£\s]/g,'');
+    const dotCount   = (s.match(/\./g)||[]).length;
+    const commaCount = (s.match(/,/g)||[]).length;
+    let normalized;
+    if(dotCount > 1){ normalized = s.replace(/\./g,'').replace(',','.'); }
+    else if(commaCount > 1){ normalized = s.replace(/,/g,''); }
+    else if(dotCount === 1 && commaCount === 1){
+      if(s.lastIndexOf(',') > s.lastIndexOf('.')){ normalized = s.replace('.','').replace(',','.'); }
+      else { normalized = s.replace(',',''); }
+    } else if(commaCount === 1){
+      const afterComma = s.split(',')[1]||'';
+      if(afterComma.length === 3 && /^\d+$/.test(afterComma)){ normalized = s.replace(',',''); }
+      else { normalized = s.replace(',','.'); }
+    } else {
+      if(dotCount === 1){
+        const afterDot = s.split('.')[1]||'';
+        if(afterDot.length === 3 && /^\d+$/.test(afterDot)){ normalized = s.replace('.',''); }
+        else { normalized = s; }
+      } else { normalized = s; }
+    }
+    const match = normalized.match(/^-?[\d.]+/);
+    if(!match) return null;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  function formatBudget(value){
+    return Number.isFinite(value)
+      ? value.toLocaleString('it-IT',{maximumFractionDigits:0})+' EUR'
+      : '';
+  }
+
+  function getBudgetRange(){
+    let min = Number(budgetMinEl.value);
+    let max = Number(budgetMaxEl.value);
+    if(!Number.isFinite(min)) min = 0;
+    if(!Number.isFinite(max)) max = BUDGET_MAX;
+    if(min > max) [min, max] = [max, min];
+    return { minBudget: min, maxBudget: max };
+  }
+
+  function budgetFilterActive(){
+    const { minBudget, maxBudget } = getBudgetRange();
+    return minBudget > 0 || maxBudget < BUDGET_MAX;
+  }
+
+  function updateBudgetUi(){
+    const { minBudget, maxBudget } = getBudgetRange();
+    budgetMinLabelEl.textContent = formatBudget(minBudget);
+    budgetMaxLabelEl.textContent = formatBudget(maxBudget);
+    const sliderMin = Number(budgetMinEl.min||0);
+    const sliderMax = Number(budgetMinEl.max||BUDGET_MAX);
+    const left  = ((minBudget - sliderMin) / (sliderMax - sliderMin)) * 100;
+    const right = ((maxBudget - sliderMin) / (sliderMax - sliderMin)) * 100;
+    budgetRangeFillEl.style.left  = left + '%';
+    budgetRangeFillEl.style.width = Math.max(right - left, 0) + '%';
+    budgetPresetEls.forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.min) === minBudget && Number(btn.dataset.max) === maxBudget);
+    });
+    budgetWarningEl.classList.toggle('visible', budgetFilterActive());
+  }
+
+  /* ── Boilerplate stripping ── */
+  const BOILERPLATE_PATTERNS = [
+    /food,\s*bioeconomy,\s*natural resources,\s*agriculture\s*and\s*environment/gi,
+    /eu policies on climate,\s*environment,\s*transport,\s*agriculture\s*and\s*secure society/gi,
+    /main work programme[^.]{0,120}food[^.]{0,120}/gi,
+    /main work programme[^.]{0,120}european innovation[^.]{0,120}/gi,
+    /this site uses cookies[^.]{0,200}/gi,
+    /accept (all )?cookies[^.]{0,80}/gi,
+    /eu funding & tenders portal[^.]{0,80}/gi,
+    /home funding calls for proposals[^.]{0,80}/gi,
+  ];
+  function stripBoilerplate(text){
+    let t = String(text||'');
+    BOILERPLATE_PATTERNS.forEach(p => { t = t.replace(p,' '); });
+    return t;
+  }
+
+  /* ── Call enrichment ── */
+  function textForSearch(call){
+    return lower(stripBoilerplate([
+      call.full_text, call.name, call.programme, call.cluster_label,
+      call.thematic_cluster, call.action, call.budget
+    ].filter(Boolean).join(' ')));
+  }
+  function titleHasSpecial(title){
+    const t = lower(title);
+    return TITLE_SPECIAL_KEYWORDS.some(k => new RegExp(`(^|[^a-z])${escapeRegExp(k)}([^a-z]|$)`,'i').test(t));
+  }
+  function keywordHits(text, thematic){
+    const keywords = KEYWORDS[thematic]||[];
+    const hits = [];
+    keywords.forEach(k => {
+      if(new RegExp(`(^|[^a-z])${escapeRegExp(lower(k))}([^a-z]|$)`,'i').test(text)) hits.push(k);
+    });
+    return [...new Set(hits)];
+  }
+  function enrichCall(raw){
+    const call = {...raw};
+    call._assigned      = norm(call.thematic_cluster);
+    call._action_norm   = normalizeAction(call.action);
+    call._deadline_norm = call.deadline_iso||'';
+    call._budget_value  = parseBudgetValue(call.budget);
+    call._search        = textForSearch(call);
+    call._special       = Boolean(call.is_special_basic_research || titleHasSpecial(call.name));
+    call._keyword_hits  = {};
+    THEMATIC_OPTIONS.forEach(t => {
+      if(t === SPECIAL) return;
+      const hits = keywordHits(call._search, t);
+      if(hits.length) call._keyword_hits[t] = hits;
+    });
+    if(call._special) call._keyword_hits[SPECIAL] = TITLE_SPECIAL_KEYWORDS.filter(k => lower(call.name).includes(k));
+    return call;
+  }
+
+  /* ── Matching / scoring ── */
+  function isAssignedTo(call, thematic){
+    if(!thematic) return false;
+    if(thematic === SPECIAL) return !!call._special;
+    return norm(call._assigned) === thematic;
+  }
+  function hitsFor(call, thematic){
+    if(!thematic) return [];
+    if(thematic === SPECIAL) return call._special ? ['title match'] : [];
+    return Array.isArray(call._keyword_hits[thematic])
+      ? call._keyword_hits[thematic]
+      : keywordHits(call._search, thematic);
+  }
+  function scoreNature(call, nature){
+    if(!nature) return 0;
+    const a = call._action_norm;
+    if(nature === 'basic')    return (a==='RIA'?14:0)+(a==='CSA'?6:0)+(call._special?8:0);
+    if(nature === 'applied')  return (a==='RIA'?9:0)+(a==='IA'?9:0);
+    if(nature === 'industrial') return (a==='IA'?14:0);
+    return 0;
+  }
+  function bucketAndScore(call, answers){
+    const primary   = answers.thematic_cluster||'';
+    const secondary = answers.secondary_thematic_cluster||'';
+    const primaryAssigned   = isAssignedTo(call, primary);
+    const secondaryAssigned = secondary ? isAssignedTo(call, secondary) : false;
+    const primaryHits   = hitsFor(call, primary);
+    const secondaryHits = secondary ? hitsFor(call, secondary) : [];
+    const otherAssigned = !primaryAssigned && !secondaryAssigned;
+
+    let bucket = 99;
+    if(!secondary){
+      if(primaryAssigned)         bucket = 1;
+      else if(primaryHits.length) bucket = 2;
+    } else {
+      if(primaryAssigned && secondaryHits.length)                          bucket = 1;
+      else if(secondaryAssigned && primaryHits.length)                     bucket = 2;
+      else if(primaryAssigned)                                             bucket = 3;
+      else if(secondaryAssigned)                                           bucket = 4;
+      else if(otherAssigned && primaryHits.length && secondaryHits.length) bucket = 5;
+      else if(otherAssigned && (primaryHits.length || secondaryHits.length)) bucket = 6;
+    }
+    if(bucket === 99) return null;
+
+    let score = 1000 - bucket * 100;
+    score += primaryAssigned   ? 40 : 0;
+    score += secondaryAssigned ? 18 : 0;
+    score += Math.min(primaryHits.length, 4) * 6;
+    score += Math.min(secondaryHits.length, 4) * 6;
+    score += scoreNature(call, answers.project_nature||'');
+    const at = answers.action_type||'';
+    if(at && at !== 'OTHER') score += (call._action_norm === at ? 10 : -50);
+    if(at === 'OTHER')       score += (!['RIA','IA','CSA','COFUND'].includes(call._action_norm) ? 8 : -50);
+    if(call._special && (primary === SPECIAL || secondary === SPECIAL)) score += 16;
+
+    return {bucket, score, primaryAssigned, secondaryAssigned, primaryHits, secondaryHits};
+  }
+
+  /* ── Budget filter helper ── */
+  function passedBudgetFilter(call){
+    if(!budgetFilterActive()) return true;
+    const v = call._budget_value;
+    if(!Number.isFinite(v)) return false;
+    const { minBudget, maxBudget } = getBudgetRange();
+    return v >= minBudget && v <= maxBudget;
+  }
+
+  /* ── Main filter pipeline ── */
+  function applyFilters(calls, answers){
+    const projectEnd = projectEndIso(answers.closure_year, answers.closure_quarter);
+    return calls
+      .map(enrichCall)
+      .map(call => {
+        if(projectEnd && call._deadline_norm && call._deadline_norm <= projectEnd) return null;
+        const bs = bucketAndScore(call, answers);
+        if(!bs) return null;
+        return {
+          ...call,
+          _bucket:           bs.bucket,
+          _score:            bs.score,
+          _primaryAssigned:  bs.primaryAssigned,
+          _secondaryAssigned:bs.secondaryAssigned,
+          _primaryHits:      bs.primaryHits,
+          _secondaryHits:    bs.secondaryHits
+        };
+      })
+      .filter(Boolean)
+      .sort((a,b) => {
+        if(a._bucket !== b._bucket) return a._bucket - b._bucket;
+        if(b._score  !== a._score)  return b._score  - a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
+  }
+
+  /* ── Keyword filter: searches full text or title-only depending on searchScope ── */
+  function applyDisplayFilters(results){
+    const raw   = lower(keywordFilterEl.value||'').trim();
+    const terms = raw.split(/\s+/).filter(Boolean);
+    return results.filter(c => {
+      if(terms.length){
+        const haystack = searchScope === 'title'
+          ? lower(c.name||'')
+          : (c._search || lower([
+              c.name, c.full_text, c.programme, c.cluster_label,
+              c.thematic_cluster, c.action, c.budget
+            ].filter(Boolean).join(' ')));
+        if(!terms.every(t => haystack.includes(t))) return false;
+      }
+      if(!passedBudgetFilter(c)) return false;
+      return true;
+    });
+  }
+
+  /* ── Rendering ── */
+  function bucketLabel(call){
+    if(call._bucket===1) return 'Primario · con keyword secondaria';
+    if(call._bucket===2) return 'Secondario · con keyword primaria';
+    if(call._bucket===3) return 'Primario · senza keyword secondaria';
+    if(call._bucket===4) return 'Secondario · senza keyword primaria';
+    if(call._bucket===5) return 'Altra area · keyword primaria + secondaria';
+    if(call._bucket===6) return 'Altra area · keyword parziale';
+    return 'Match';
+  }
+
+  function renderSummary(a){
+    const { minBudget, maxBudget } = getBudgetRange();
+    const budgetLabel = budgetFilterActive()
+      ? `${formatBudget(minBudget)} – ${formatBudget(maxBudget)}`
+      : 'Qualsiasi';
+    const items = [
+      {l:'Chiusura',  v:`${esc(a.closure_year)} ${esc(a.closure_quarter)}`},
+      {l:'Natura',    v: esc(a.project_nature||'Qualsiasi')},
+      {l:'Primaria',  v: esc(a.thematic_cluster||'—')},
+      {l:'Secondaria',v: esc(a.secondary_thematic_cluster||'—')},
+      {l:'Action',    v: esc(a.action_type||'Qualsiasi')},
+      {l:'Budget',    v: esc(budgetLabel)}
+    ];
+    return '<div class="summary">'
+      + items.map(i=>`<span class="pill">${i.l}<strong>${i.v}</strong></span>`).join('')
+      + '</div>';
+  }
+
+  function renderCalls(){
+    let filtered = applyDisplayFilters(lastScoredResults);
+
+    if(sortMode === 'deadline'){
+      filtered = [...filtered].sort((a,b) => {
+        const da = a._deadline_norm||'9999';
+        const db = b._deadline_norm||'9999';
+        return da.localeCompare(db);
+      });
+    } else {
+      // Always re-sort explicitly by relevance (bucket → score → deadline)
+      // so the thematic ranking is preserved even after keyword filtering.
+      filtered = [...filtered].sort((a,b) => {
+        if(a._bucket !== b._bucket) return a._bucket - b._bucket;
+        if(b._score  !== a._score)  return b._score  - a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
+    }
+
+    const visible = filtered.slice(0, visibleCount);
+    document.getElementById('statsCount').innerHTML = `<strong>${filtered.length}</strong> call trovate`;
+
+    let html = renderSummary(lastAnswers);
+
+    if(!filtered.length){
+      resultsEl.innerHTML = html + '<div class="empty">Nessuna call corrisponde ai filtri attivi.</div>';
+      resultsFooterEl.classList.add('hidden');
+      return;
+    }
+
+    visible.forEach(call => {
+      const meta = [
+        call.programme       ? `Programme: ${esc(call.programme)}`            : '',
+        call.thematic_cluster? `Thematic area: ${esc(call.thematic_cluster)}` : '',
+        call.cluster_label   ? `Horizon area: ${esc(call.cluster_label)}`     : '',
+        call.action          ? `Action: ${esc(call.action)}`                  : '',
+        call.budget          ? `Budget: ${esc(call.budget)}`                  : '',
+        call.opening         ? `Opening: ${esc(call.opening)}`                : '',
+        call.deadline        ? `Deadline: ${esc(call.deadline)}`              : ''
+      ].filter(Boolean).join(' · ');
+
+      const bucketClass = `badge-b${call._bucket||6}`;
+      const badges = [`<span class="badge ${bucketClass}">${bucketLabel(call)}</span>`];
+      if(call._special) badges.push('<span class="badge badge-special">internships / fellowships</span>');
+
+      const tags = [
+        ...(call._primaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`),
+        ...(call._secondaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`)
+      ];
+
+      const urlAttr        = call.url ? ` data-url="${esc(call.url)}"` : '';
+      const clickableClass = call.url ? ' call-clickable' : '';
+
+      html += `<article class="call${clickableClass}" data-bucket="${call._bucket||6}"${urlAttr}>
+        <h3>${esc(call.name||'(senza nome)')}</h3>
+        <div class="meta">${meta}</div>
+        <div class="matchbadges">${badges.join('')}</div>
+        ${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}
+        ${call.url ? `<div class="call-link"><a href="${encodeURI(call.url)}" target="_blank" rel="noopener noreferrer">${esc(call.url)}</a></div>` : ''}
+      </article>`;
+    });
+
+    resultsEl.innerHTML = html;
+
+    const shown = Math.min(visibleCount, filtered.length);
+    resultsProgressEl.textContent = `Stai vedendo ${shown} risultati su ${filtered.length}.`;
+    resultsFooterEl.classList.remove('hidden');
+    loadMoreBtn.classList.toggle('hidden', shown >= filtered.length);
+  }
+
+  /* ── Select population ── */
+  function populateSelects(){
+    primaryEl.innerHTML   = '<option value="" selected disabled>Seleziona…</option>'
+      + THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    secondaryEl.innerHTML = '<option value="">Nessuna</option>'
+      + THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  }
+
+  /* ── Export ── */
+  function getExportRows(){
+    return applyDisplayFilters(lastScoredResults).map(c=>({
+      name:             c.name||'',
+      programme:        c.programme||'',
+      thematic_cluster: c.thematic_cluster||'',
+      cluster_label:    c.cluster_label||'',
+      action:           c.action||'',
+      budget:           c.budget||'',
+      opening:          c.opening||'',
+      deadline:         c.deadline||'',
+      url:              c.url||'',
+      bucket:           c._bucket||'',
+      score:            c._score||''
+    }));
+  }
+
+  function downloadCsv(){
+    const rows = getExportRows();
+    const headers = Object.keys(rows[0]||{});
+    const csv = [headers.join(',')]
+      .concat(rows.map(r=>headers.map(h=>'"'+String(r[h]??'').replace(/"/g,'""')+'"').join(',')))
+      .join('\n');
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'results.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function downloadExcel(){
+    const rows = getExportRows();
+    const headers = Object.keys(rows[0]||{});
+    const table = `<table>
+      <thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${esc(r[h]??'')}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+    const blob = new Blob(['\ufeff'+table],{type:'application/vnd.ms-excel;charset=utf-8;'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'results.xls';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  /* ── Form event listeners ── */
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const answers = {
+      closure_year:               fd.get('closure_year')||'',
+      closure_quarter:            fd.get('closure_quarter')||'',
+      project_nature:             fd.get('project_nature')||'',
+      thematic_cluster:           fd.get('thematic_cluster')||'',
+      secondary_thematic_cluster: fd.get('secondary_thematic_cluster')||'',
+      action_type:                fd.get('action_type')||''
+    };
+    if(answers.secondary_thematic_cluster && answers.secondary_thematic_cluster === answers.thematic_cluster){
+      alert('Area primaria e secondaria devono essere diverse.');
+      return;
+    }
+    lastAnswers = answers;
+    visibleCount = PAGE_SIZE;
+    lastScoredResults = applyFilters(CALLS, answers);
+    resultsSection.classList.remove('hidden');
+    renderCalls();
+    resultsSection.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+
+  let _kwTimer = null;
+  keywordFilterEl.addEventListener('input', () => {
+    clearTimeout(_kwTimer);
+    _kwTimer = setTimeout(() => {
+      if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+    }, 180);
+  });
+
+  budgetMinEl.addEventListener('input', () => {
+    if(Number(budgetMinEl.value) > Number(budgetMaxEl.value)) budgetMinEl.value = budgetMaxEl.value;
+    updateBudgetUi();
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  budgetMaxEl.addEventListener('input', () => {
+    if(Number(budgetMaxEl.value) < Number(budgetMinEl.value)) budgetMaxEl.value = budgetMinEl.value;
+    updateBudgetUi();
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  budgetPresetEls.forEach(btn => btn.addEventListener('click', () => {
+    budgetMinEl.value = btn.dataset.min||'0';
+    budgetMaxEl.value = btn.dataset.max||String(BUDGET_MAX);
+    updateBudgetUi();
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  }));
+
+  document.getElementById('scopeFullText').addEventListener('click', () => {
+    searchScope = 'fulltext';
+    document.getElementById('scopeFullText').classList.add('active');
+    document.getElementById('scopeTitle').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  document.getElementById('scopeTitle').addEventListener('click', () => {
+    searchScope = 'title';
+    document.getElementById('scopeTitle').classList.add('active');
+    document.getElementById('scopeFullText').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  document.getElementById('sortRelevance').addEventListener('click', () => {
+    sortMode = 'relevance';
+    document.getElementById('sortRelevance').classList.add('active');
+    document.getElementById('sortDeadline').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  document.getElementById('sortDeadline').addEventListener('click', () => {
+    sortMode = 'deadline';
+    document.getElementById('sortDeadline').classList.add('active');
+    document.getElementById('sortRelevance').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  loadMoreBtn.addEventListener('click', () => { visibleCount += PAGE_SIZE; renderCalls(); });
+  downloadResultsBtn.addEventListener('click', () => { if(lastAnswers) downloadCsv(); });
+  downloadExcelBtn.addEventListener('click',   () => { if(lastAnswers) downloadExcel(); });
+
+  resultsEl.addEventListener('click', e => {
+    if(e.target.closest('a')) return;
+    const card = e.target.closest('.call.call-clickable');
+    if(card && card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
+  });
+
+  resetBtn.addEventListener('click', () => {
+    form.reset();
+    secondaryEl.value = '';
+    resultsSection.classList.add('hidden');
+    resultsEl.innerHTML = '';
+    resultsFooterEl.classList.add('hidden');
+    keywordFilterEl.value = '';
+    budgetMinEl.value = '0';
+    budgetMaxEl.value = String(BUDGET_MAX);
+    updateBudgetUi();
+    lastAnswers = null;
+    lastScoredResults = [];
+    callNumberInput.value = '';
+    autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className = 'autofill-feedback';
+    searchScope = 'fulltext';
+    document.getElementById('scopeFullText').classList.add('active');
+    document.getElementById('scopeTitle').classList.remove('active');
+  });
+
+  /* ── Init ── */
+  updateBudgetUi();
+  populateSelects();
+
+  async function loadCalls(){
+    try {
+      const res  = await fetch('./calls.json',{cache:'no-store'});
+      const data = await res.json();
+      if(data.generated){
+        const d = new Date(data.generated);
+        lastUpdatedEl.textContent = `Dati aggiornati al: ${d.toLocaleDateString('it-IT')} ${d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} UTC`;
+      }
+      CALLS = Array.isArray(data.calls) ? data.calls : [];
+    } catch(err){
+      console.error(err);
+      lastUpdatedEl.textContent = 'Errore nel caricamento di calls.json';
+      CALLS = [];
+    }
+  }
+
+  loadCalls();
+})();
+</script>
+</body>
+</html>
 
 
 
