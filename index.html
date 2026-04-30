@@ -873,8 +873,15 @@
 
       <div class="toolbar">
         <div class="tb-search">
-          <label class="field-label" for="keyword_filter">Filtra per keyword (testo completo)</label>
+          <label class="field-label" for="keyword_filter">Filtra per keyword</label>
           <input id="keyword_filter" type="text" placeholder="Es. hydrogen, robotics, cancer…" />
+        </div>
+        <div>
+          <label class="field-label">Cerca in</label>
+          <div class="sort-toggle">
+            <button type="button" class="sort-btn active" id="scopeFullText">Testo completo</button>
+            <button type="button" class="sort-btn" id="scopeTitle">Solo titolo</button>
+          </div>
         </div>
         <div>
           <label class="field-label">Ordina per</label>
@@ -986,6 +993,7 @@
   let lastAnswers = null;
   let lastScoredResults = [];
   let sortMode = 'relevance';
+  let searchScope = 'fulltext'; // 'fulltext' | 'title'
 
   /* ═══════════════════════════════════════════════════════
      AUTO-FILL LOGIC
@@ -1591,19 +1599,19 @@
       });
   }
 
-  /* ── ✅ FIXED: keyword filter now searches full text, not just title ── */
+  /* ── Keyword filter: searches full text or title-only depending on searchScope ── */
   function applyDisplayFilters(results){
     const raw   = lower(keywordFilterEl.value||'').trim();
     const terms = raw.split(/\s+/).filter(Boolean);
     return results.filter(c => {
       if(terms.length){
-        // Search across the full indexed text (full_text, name, programme,
-        // cluster_label, thematic_cluster, action, budget) — not just the title.
-        const fullText = c._search || lower([
-          c.name, c.full_text, c.programme, c.cluster_label,
-          c.thematic_cluster, c.action, c.budget
-        ].filter(Boolean).join(' '));
-        if(!terms.every(t => fullText.includes(t))) return false;
+        const haystack = searchScope === 'title'
+          ? lower(c.name||'')
+          : (c._search || lower([
+              c.name, c.full_text, c.programme, c.cluster_label,
+              c.thematic_cluster, c.action, c.budget
+            ].filter(Boolean).join(' ')));
+        if(!terms.every(t => haystack.includes(t))) return false;
       }
       if(!passedBudgetFilter(c)) return false;
       return true;
@@ -1814,6 +1822,20 @@
     if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
   }));
 
+  document.getElementById('scopeFullText').addEventListener('click', () => {
+    searchScope = 'fulltext';
+    document.getElementById('scopeFullText').classList.add('active');
+    document.getElementById('scopeTitle').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
+  document.getElementById('scopeTitle').addEventListener('click', () => {
+    searchScope = 'title';
+    document.getElementById('scopeTitle').classList.add('active');
+    document.getElementById('scopeFullText').classList.remove('active');
+    if(lastAnswers){ visibleCount = PAGE_SIZE; renderCalls(); }
+  });
+
   document.getElementById('sortRelevance').addEventListener('click', () => {
     sortMode = 'relevance';
     document.getElementById('sortRelevance').classList.add('active');
@@ -1853,6 +1875,9 @@
     callNumberInput.value = '';
     autofillClearBtn.classList.remove('visible');
     autofillFeedback.className = 'autofill-feedback';
+    searchScope = 'fulltext';
+    document.getElementById('scopeFullText').classList.add('active');
+    document.getElementById('scopeTitle').classList.remove('active');
   });
 
   /* ── Init ── */
