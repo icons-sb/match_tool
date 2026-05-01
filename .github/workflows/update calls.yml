@@ -44,7 +44,7 @@ jobs:
           github.event.schedule == '0 3 1 * *' ||
           github.event.inputs.run_closed_calls == 'true'
         run: python scrape_closed_calls.py --out closed_calls.json
-        timeout-minutes: 240
+        timeout-minutes: 500
 
       - name: Commit updated files
         run: |
