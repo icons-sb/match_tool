@@ -2,13 +2,13 @@
 scrape_closed_calls.py
 ──────────────────────
 Scrapa il portale EU Funding & Tenders con Playwright e produce
-closed_calls_{YEAR}.json — chiamate con status CLOSED (31094503)
-filtrate per anno di apertura.
+closed_calls_batch_N.json — chiamate con status CLOSED (31094503),
+divise in batch di pagine per rispettare il limite di 6 ore di GitHub Actions.
 
 Uso:
-    python scrape_closed_calls.py --year 2023              # solo call aperte nel 2023
-    python scrape_closed_calls.py --year 2023 --out /path  # percorso custom
-    python scrape_closed_calls.py --year 2023 --max-pages 5  # limita le pagine (per test)
+    python scrape_closed_calls.py --batch 1 --total-batches 5
+    python scrape_closed_calls.py --batch 3 --total-batches 5 --out /path/batch3.json
+    python scrape_closed_calls.py --batch 1 --total-batches 5 --max-pages 5  # test
 """
 
 import re
@@ -25,14 +25,12 @@ from playwright.sync_api import sync_playwright
 
 PAGE_SIZE = 50
 
-# Status 31094503 = CLOSED (anziché 31094501=OPEN, 31094502=FORTHCOMING)
-# startDateFrom e startDateTo filtrano per anno di apertura (formato DD/MM/YYYY)
+# Status 31094503 = CLOSED
 LIST_URL = (
     "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
     "/opportunities/calls-for-proposals"
     "?order=DESC&pageNumber={page}&pageSize={ps}&sortBy=startDate"
     "&isExactMatch=true&status=31094503&programmePeriod=2021%20-%202027"
-    "&startDateFrom=01%2F01%2F{year}&startDateTo=31%2F12%2F{year}"
 )
 
 SEARCH_API  = "search-api/prod/rest/search"
@@ -711,7 +709,19 @@ def to_call(row):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main(year: int, out_path: Path, max_pages: int = None):
+def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
+    """
+    Scrapa solo le pagine assegnate a questo batch.
+
+    Esempio con 5 batch e 100 pagine totali:
+      batch 1 → pagine  1-20
+      batch 2 → pagine 21-40
+      ...
+      batch 5 → pagine 81-100
+
+    Il totale viene letto dalla pagina 1 (sempre disponibile) e poi
+    ogni job salta direttamente alle proprie pagine.
+    """
     rows      = []
     seen_urls = set()
 
@@ -728,29 +738,47 @@ def main(year: int, out_path: Path, max_pages: int = None):
         )
         page = ctx.new_page()
 
-        # ── Step 1: list pages ────────────────────────────────────────────────
-        first_url = LIST_URL.format(page=1, ps=PAGE_SIZE, year=year)
-        print(f"URL prima pagina: {first_url}", flush=True)
-        page.goto(first_url, wait_until="domcontentloaded", timeout=90000)
+        # ── Step 1: leggi il totale dalla pagina 1 ────────────────────────────
+        print(f"[batch {batch}/{total_batches}] Lettura totale call…", flush=True)
+        page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
+                  wait_until="domcontentloaded", timeout=90000)
         page.wait_for_timeout(3000)
         accept_cookies(page)
         wait_cookie_gone(page)
 
         total = read_total(page)
         if total is None:
-            print(f"❌ Non riesco a leggere il contatore delle call per anno {year}.")
+            print("❌ Non riesco a leggere il contatore delle call.")
             browser.close()
             return
 
         real_max_pages = math.ceil(total / PAGE_SIZE)
-        effective_max  = min(real_max_pages, max_pages) if max_pages else real_max_pages
-        print(f"✅ Anno {year} — call chiuse: {total} | pagine: {real_max_pages} (elaborerò: {effective_max})")
+        # Se --max-pages è impostato lo usiamo come tetto globale (utile per test)
+        global_max = min(real_max_pages, max_pages) if max_pages else real_max_pages
 
-        for pnum in range(1, effective_max + 1):
+        # Calcola il range di pagine per questo batch
+        pages_per_batch = math.ceil(global_max / total_batches)
+        page_from = (batch - 1) * pages_per_batch + 1
+        page_to   = min(batch * pages_per_batch, global_max)
+
+        print(
+            f"✅ Totale call: {total} | pagine totali: {real_max_pages} "
+            f"| questo batch: pagine {page_from}–{page_to} "
+            f"(~{page_to - page_from + 1} pagine, ~{(page_to - page_from + 1) * PAGE_SIZE} call)",
+            flush=True,
+        )
+
+        if page_from > global_max:
+            print(f"ℹ️  Nessuna pagina da scrapare per il batch {batch} (totale pagine: {global_max})")
+            browser.close()
+            return
+
+        # ── Step 2: scrapa le pagine del batch ───────────────────────────────
+        for pnum in range(page_from, page_to + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
-            expected  = min(PAGE_SIZE, remaining)
-            url = LIST_URL.format(page=pnum, ps=PAGE_SIZE, year=year)
-            print(f"\n[p{pnum}/{effective_max}] attese ~{expected}", end="", flush=True)
+            expected  = min(PAGE_SIZE, max(0, remaining))
+            url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
+            print(f"\n[p{pnum}/{global_max}] attese ~{expected}", end="", flush=True)
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
             page.wait_for_timeout(1200)
             accept_cookies(page)
@@ -766,8 +794,8 @@ def main(year: int, out_path: Path, max_pages: int = None):
                 rows.append(parse_card(page, u))
             time.sleep(0.1)
 
-        # ── Step 2: enrichment ────────────────────────────────────────────────
-        print(f"\n═══ Passo 2: arricchimento {len(rows)} call ({year}) ═══", flush=True)
+        # ── Step 3: enrichment ────────────────────────────────────────────────
+        print(f"\n═══ Passo 3: arricchimento {len(rows)} call (batch {batch}) ═══", flush=True)
         enrich(ctx, rows)
         browser.close()
 
@@ -784,7 +812,7 @@ def main(year: int, out_path: Path, max_pages: int = None):
     for c in calls:
         k = c["thematic_cluster"] or "(non classificato)"
         tc[k] = tc.get(k, 0) + 1
-    print(f"\nClassificazione anno {year} ({len(calls)} call chiuse totali):")
+    print(f"\nClassificazione batch {batch} ({len(calls)} call):")
     for k, v in sorted(tc.items(), key=lambda x: -x[1]):
         print(f"  {v:5d}  {k}")
 
@@ -817,11 +845,14 @@ def main(year: int, out_path: Path, max_pages: int = None):
                     "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
                 }
 
-    # ── Save per-year output ──────────────────────────────────────────────────
+    # ── Salva output per-batch ────────────────────────────────────────────────
     payload = {
         "generated":      generated,
         "status":         "closed",
-        "year":           year,
+        "batch":          batch,
+        "total_batches":  total_batches,
+        "page_from":      page_from,
+        "page_to":        page_to,
         "total_scraped":  len(calls),
         "calls":          calls,
         "autofill_index": autofill_index,
@@ -830,24 +861,22 @@ def main(year: int, out_path: Path, max_pages: int = None):
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"\n✅ Scritto {out_path} con {len(calls)} call chiuse (anno {year})")
-
-    # ── Save slim autofill index separately ──────────────────────────────────
-    index_path = out_path.parent / f"closed_calls_{year}_autofill_index.json"
-    index_path.write_text(
-        json.dumps({"generated": generated, "index": autofill_index},
-                   ensure_ascii=False, separators=(",",":")),
-        encoding="utf-8",
-    )
-    print(f"✅ Index autofill: {index_path} ({len(autofill_index)} entries)")
+    print(f"\n✅ Scritto {out_path} con {len(calls)} call (batch {batch}/{total_batches})")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Scrapa le call CHIUSE per anno dal portale EU F&T")
-    parser.add_argument("--year",      type=int, required=True,    help="Anno da scrapare (es. 2023)")
-    parser.add_argument("--out",       default=None,               help="Percorso output JSON (default: closed_calls_YEAR.json)")
-    parser.add_argument("--max-pages", type=int, default=None,     help="Numero massimo pagine (per test)")
+    parser = argparse.ArgumentParser(
+        description="Scrapa le call CHIUSE dal portale EU F&T in batch di pagine"
+    )
+    parser.add_argument("--batch",         type=int, required=True,
+                        help="Numero del batch corrente (1-based, es. 1)")
+    parser.add_argument("--total-batches", type=int, default=5,
+                        help="Numero totale di batch (default: 5)")
+    parser.add_argument("--out",           default=None,
+                        help="Percorso output JSON (default: closed_calls_batch_N.json)")
+    parser.add_argument("--max-pages",     type=int, default=None,
+                        help="Numero massimo pagine globale (per test)")
     args = parser.parse_args()
 
-    out = Path(args.out) if args.out else Path(f"closed_calls_{args.year}.json")
-    main(args.year, out, args.max_pages)
+    out = Path(args.out) if args.out else Path(f"closed_calls_batch_{args.batch}.json")
+    main(args.batch, args.total_batches, out, args.max_pages)
