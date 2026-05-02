@@ -701,6 +701,14 @@ def to_call(row):
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
         "budget":           row.get("budget_raw") or 0,
+        # full_text sintetico: solo le keyword trovate nel testo (non il testo grezzo).
+        # Il frontend lo usa per la ricerca testuale — le keyword matchate sono sufficienti
+        # e riducono il file da ~120 MB a ~5-8 MB.
+        "full_text":        " ".join(
+            kw
+            for hits in multi["keyword_hits"].values()
+            for kw in hits
+        ),
         "keyword_hits":     multi["keyword_hits"],
         "multi_thematic":   multi["multi_thematic"],
         "is_special_basic_research": multi["is_special_basic_research"],
