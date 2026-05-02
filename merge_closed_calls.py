@@ -39,6 +39,7 @@ def merge(source_dir: Path, out_path: Path, total_batches: int = 5):
             url = c.get("url", "")
             if url and url not in seen_urls:
                 seen_urls.add(url)
+                c.pop("full_text", None)  # rimuove full_text se presente (file vecchi)
                 all_calls.append(c)
                 added += 1
 
