@@ -2,24 +2,19 @@ name: Update EU Calls
 
 on:
   schedule:
-    - cron: "0 2 * * *"      # ogni notte alle 02:00 UTC → calls.json (open/forthcoming)
-    - cron: "0 3 1 * *"      # il 1° di ogni mese alle 03:00 UTC → closed calls per anno
+    - cron: "0 2 * * *"
+    - cron: "0 3 1 * *"
   workflow_dispatch:
     inputs:
       run_closed_calls:
-        description: "Esegui scraping call chiuse (batch annuali)"
+        description: "Esegui scraping call chiuse (5 batch paralleli)"
         required: false
         default: "false"
         type: choice
         options:
           - "false"
           - "true"
-      years:
-        description: "Anni da scrapare (separati da virgola, es: 2023,2024). Vuoto = tutti gli anni"
-        required: false
-        default: ""
 
-# ── Job 1: open/forthcoming calls (ogni notte) ──────────────────────────────
 jobs:
   scrape-open:
     runs-on: ubuntu-latest
@@ -27,20 +22,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
         run: |
           pip install playwright
           playwright install chromium --with-deps
-
-      - name: Scrape open/forthcoming EU calls → calls.json
+      - name: Scrape open/forthcoming EU calls
         run: python scrape_to_json.py --out calls.json
         timeout-minutes: 90
-
       - name: Commit calls.json
         run: |
           git config user.name  "github-actions[bot]"
@@ -49,27 +40,12 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: update open calls [$(date -u +%Y-%m-%d)]"
           git push
 
-# ── Job 2: closed calls per anno (paralleli) ────────────────────────────────
-#
-#   Ogni anno viene scrapato in un job separato (<= 6 ore ciascuno).
-#   Al termine, un job "merge" unisce tutti i file in closed_calls.json.
-#
-#   Logica di attivazione:
-#     - Schedulata: il 1° del mese viene riscrapato solo l'anno corrente
-#       (le call degli anni precedenti cambiano raramente).
-#     - Manual dispatch con run_closed_calls=true: riscrapato tutti gli anni
-#       (o solo quelli in `years` se specificato).
-#
-  scrape-closed-2021:
+  scrape-closed-batch-1:
     if: >
       github.event.schedule == '0 3 1 * *' ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.run_closed_calls == 'true' &&
-       (github.event.inputs.years == '' ||
-        contains(github.event.inputs.years, '2021')))
+       github.event.inputs.run_closed_calls == 'true')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -79,26 +55,21 @@ jobs:
         run: |
           pip install playwright
           playwright install chromium --with-deps
-      - name: Scrape closed calls 2021
-        run: python scrape_closed_calls.py --year 2021 --out closed_calls_2021.json
+      - name: Scrape batch 1/5
+        run: python scrape_closed_calls.py --batch 1 --total-batches 5 --out closed_calls_batch_1.json
         timeout-minutes: 340
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: closed-calls-2021
-          path: closed_calls_2021.json
+          name: closed-batch-1
+          path: closed_calls_batch_1.json
           retention-days: 1
 
-  scrape-closed-2022:
+  scrape-closed-batch-2:
     if: >
       github.event.schedule == '0 3 1 * *' ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.run_closed_calls == 'true' &&
-       (github.event.inputs.years == '' ||
-        contains(github.event.inputs.years, '2022')))
+       github.event.inputs.run_closed_calls == 'true')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -108,26 +79,21 @@ jobs:
         run: |
           pip install playwright
           playwright install chromium --with-deps
-      - name: Scrape closed calls 2022
-        run: python scrape_closed_calls.py --year 2022 --out closed_calls_2022.json
+      - name: Scrape batch 2/5
+        run: python scrape_closed_calls.py --batch 2 --total-batches 5 --out closed_calls_batch_2.json
         timeout-minutes: 340
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: closed-calls-2022
-          path: closed_calls_2022.json
+          name: closed-batch-2
+          path: closed_calls_batch_2.json
           retention-days: 1
 
-  scrape-closed-2023:
+  scrape-closed-batch-3:
     if: >
       github.event.schedule == '0 3 1 * *' ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.run_closed_calls == 'true' &&
-       (github.event.inputs.years == '' ||
-        contains(github.event.inputs.years, '2023')))
+       github.event.inputs.run_closed_calls == 'true')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -137,26 +103,21 @@ jobs:
         run: |
           pip install playwright
           playwright install chromium --with-deps
-      - name: Scrape closed calls 2023
-        run: python scrape_closed_calls.py --year 2023 --out closed_calls_2023.json
+      - name: Scrape batch 3/5
+        run: python scrape_closed_calls.py --batch 3 --total-batches 5 --out closed_calls_batch_3.json
         timeout-minutes: 340
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: closed-calls-2023
-          path: closed_calls_2023.json
+          name: closed-batch-3
+          path: closed_calls_batch_3.json
           retention-days: 1
 
-  scrape-closed-2024:
+  scrape-closed-batch-4:
     if: >
       github.event.schedule == '0 3 1 * *' ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.run_closed_calls == 'true' &&
-       (github.event.inputs.years == '' ||
-        contains(github.event.inputs.years, '2024')))
+       github.event.inputs.run_closed_calls == 'true')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -166,27 +127,21 @@ jobs:
         run: |
           pip install playwright
           playwright install chromium --with-deps
-      - name: Scrape closed calls 2024
-        run: python scrape_closed_calls.py --year 2024 --out closed_calls_2024.json
+      - name: Scrape batch 4/5
+        run: python scrape_closed_calls.py --batch 4 --total-batches 5 --out closed_calls_batch_4.json
         timeout-minutes: 340
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: closed-calls-2024
-          path: closed_calls_2024.json
+          name: closed-batch-4
+          path: closed_calls_batch_4.json
           retention-days: 1
 
-  scrape-closed-2025:
-    # Anno corrente: eseguito sempre (scheduled + manual)
+  scrape-closed-batch-5:
     if: >
       github.event.schedule == '0 3 1 * *' ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.run_closed_calls == 'true' &&
-       (github.event.inputs.years == '' ||
-        contains(github.event.inputs.years, '2025')))
+       github.event.inputs.run_closed_calls == 'true')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -196,74 +151,53 @@ jobs:
         run: |
           pip install playwright
           playwright install chromium --with-deps
-      - name: Scrape closed calls 2025
-        run: python scrape_closed_calls.py --year 2025 --out closed_calls_2025.json
+      - name: Scrape batch 5/5
+        run: python scrape_closed_calls.py --batch 5 --total-batches 5 --out closed_calls_batch_5.json
         timeout-minutes: 340
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: closed-calls-2025
-          path: closed_calls_2025.json
+          name: closed-batch-5
+          path: closed_calls_batch_5.json
           retention-days: 1
 
-# ── Job 3: merge + commit ────────────────────────────────────────────────────
   merge-and-commit:
     needs:
-      - scrape-closed-2021
-      - scrape-closed-2022
-      - scrape-closed-2023
-      - scrape-closed-2024
-      - scrape-closed-2025
-    # Esegui il merge anche se alcuni job per-anno sono stati saltati (if: false)
-    # ma NON se sono falliti. `always()` + controllo manuale dello stato:
+      - scrape-closed-batch-1
+      - scrape-closed-batch-2
+      - scrape-closed-batch-3
+      - scrape-closed-batch-4
+      - scrape-closed-batch-5
     if: >
       always() &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
       (
-        needs.scrape-closed-2021.result == 'success' ||
-        needs.scrape-closed-2022.result == 'success' ||
-        needs.scrape-closed-2023.result == 'success' ||
-        needs.scrape-closed-2024.result == 'success' ||
-        needs.scrape-closed-2025.result == 'success'
+        needs.scrape-closed-batch-1.result == 'success' ||
+        needs.scrape-closed-batch-2.result == 'success' ||
+        needs.scrape-closed-batch-3.result == 'success' ||
+        needs.scrape-closed-batch-4.result == 'success' ||
+        needs.scrape-closed-batch-5.result == 'success'
       )
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Pull fresh per avere eventuali file già committati da run precedenti
-          fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # Scarica tutti gli artifact prodotti da questa run
-      - name: Download artifacts (anno corrente)
+      - name: Download all batch artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: closed-calls-*
+          pattern: closed-batch-*
           merge-multiple: true
           path: .
-
-      # Per gli anni non scrapati in questa run, usa i file già committati nel repo
-      # (sono stati committati da run precedenti e rimangono stabili)
-      - name: Merge all per-year files → closed_calls.json
+      - name: Merge batch files into closed_calls.json
         run: python merge_closed_calls.py --dir . --out closed_calls.json
-
-      - name: Commit updated files
+      - name: Commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add \
-            closed_calls.json \
-            closed_calls_autofill_index.json \
-            closed_calls_2021.json \
-            closed_calls_2022.json \
-            closed_calls_2023.json \
-            closed_calls_2024.json \
-            closed_calls_2025.json
+          git add closed_calls.json closed_calls_autofill_index.json
           git diff --staged --quiet || git commit -m "chore: update closed calls [$(date -u +%Y-%m-%d)]"
           git push
