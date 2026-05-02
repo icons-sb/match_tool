@@ -701,7 +701,6 @@ def to_call(row):
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
         "budget":           row.get("budget_raw") or 0,
-        "full_text":        multi["full_text"],
         "keyword_hits":     multi["keyword_hits"],
         "multi_thematic":   multi["multi_thematic"],
         "is_special_basic_research": multi["is_special_basic_research"],
