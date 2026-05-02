@@ -199,5 +199,10 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add closed_calls.json closed_calls_autofill_index.json
-          git diff --staged --quiet || git commit -m "chore: update closed calls [$(date -u +%Y-%m-%d)]"
-          git push
+          if git diff --staged --quiet; then
+            echo "Nessuna modifica da committare"
+          else
+            git commit -m "chore: update closed calls [$(date -u +%Y-%m-%d)]"
+            git pull --rebase origin main
+            git push
+          fi
