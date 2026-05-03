@@ -444,10 +444,15 @@
       background: var(--accent); color: #fff; border: 1px solid var(--accent);
       padding: 10px 18px; border-radius: 999px; font-size: 0.82rem;
       box-shadow: 0 4px 14px rgba(37,99,235,0.18);
+      white-space: nowrap;
     }
     .btn-download:hover {
       background: var(--accent-hover); border-color: var(--accent-hover);
       transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37,99,235,0.28);
+    }
+    .btn-download:disabled {
+      opacity: 0.45; cursor: not-allowed; transform: none;
+      box-shadow: none;
     }
 
     /* ── RESULTS ── */
@@ -462,12 +467,59 @@
     .stats-count strong { color: var(--accent); font-size: 1rem; }
 
     /* ── TOOLBAR ── */
-    .toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 28px; }
+    .toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
     .toolbar > .tb-search { flex: 1; min-width: 220px; }
     .toolbar input[type="text"] {
       padding: 10px 14px 10px 38px; font-size: 0.88rem;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='rgba(17,24,39,0.35)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: 12px center;
+    }
+
+    /* ── SELECTION BAR ── */
+    .selection-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .selection-bar.visible { display: flex; }
+    .sel-count-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(37,99,235,0.22);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .sel-count-badge .sel-num { font-size: 0.92rem; }
+    .btn-sel-action {
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      color: var(--muted);
+      padding: 5px 13px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-sel-action:hover { color: var(--accent); border-color: var(--accent); }
+    .sel-hint {
+      margin-left: auto;
+      font-size: 0.74rem;
+      opacity: 0.55;
+      font-style: italic;
     }
 
     /* ── SUMMARY PILLS ── */
@@ -482,20 +534,42 @@
     /* ── CALL CARD ── */
     .call {
       background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
-      margin-bottom: 12px; padding: 24px 28px 20px; position: relative;
-      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+      margin-bottom: 10px; padding: 20px 28px 18px 32px; position: relative;
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s, background 0.15s;
       overflow: hidden; box-shadow: 0 1px 4px rgba(30,60,140,0.06);
+      cursor: pointer;
     }
-    .call.call-clickable { cursor: pointer; }
-    .call::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+    .call::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 20px 0 0 20px; }
     .call[data-bucket="1"]::before { background: var(--b1); }
     .call[data-bucket="2"]::before { background: var(--b2); }
     .call[data-bucket="3"]::before { background: var(--b3); }
     .call[data-bucket="4"]::before { background: var(--b4); }
     .call[data-bucket="5"]::before { background: var(--b5); }
     .call[data-bucket="6"]::before { background: var(--b6); }
-    .call:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(37,99,235,0.10); }
-    .call h3 { font-size: 0.98rem; font-weight: 600; line-height: 1.4; margin-bottom: 10px; color: var(--text); }
+    .call:hover { border-color: rgba(37,99,235,0.30); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(37,99,235,0.10); }
+    .call.selected {
+      border-color: var(--accent);
+      background: rgba(37,99,235,0.03);
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.12), 0 2px 8px rgba(37,99,235,0.08);
+    }
+    .call.selected:hover { transform: translateY(-1px); }
+
+    /* Checkbox overlay */
+    .call-checkbox-wrap {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 3;
+    }
+    .call-checkbox {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .call h3 { font-size: 0.96rem; font-weight: 600; line-height: 1.45; margin-bottom: 10px; color: var(--text); padding-right: 32px; }
     .meta { font-size: 0.78rem; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
 
     /* ── BADGES ── */
@@ -563,9 +637,10 @@
       .field-section { padding: 20px; }
       .autofill-section { padding: 20px; }
       .form-actions { padding: 20px; }
-      .call { padding: 18px 20px 16px; }
+      .call { padding: 16px 20px 14px 24px; }
       .toolbar { flex-direction: column; align-items: stretch; }
       .autofill-input-row { flex-direction: column; }
+      .sel-hint { display: none; }
     }
   </style>
 </head>
@@ -594,7 +669,6 @@
             <span class="autofill-badge">Opzionale</span>
           </div>
 
-          <!-- Index status indicator (populated by JS) -->
           <div id="indexStatus" class="index-status hidden"></div>
 
           <div class="autofill-input-row">
@@ -743,6 +817,17 @@
         </div>
       </div>
 
+      <!-- Selection bar -->
+      <div id="selectionBar" class="selection-bar">
+        <span class="sel-count-badge">
+          <span class="sel-num" id="selCountNum">0</span>
+          <span>selezionate</span>
+        </span>
+        <button type="button" class="btn-sel-action" id="selAllBtn">Seleziona tutte</button>
+        <button type="button" class="btn-sel-action" id="deselAllBtn">Deseleziona tutte</button>
+        <span class="sel-hint">Se nessuna è selezionata, il download include tutti i risultati visibili</span>
+      </div>
+
       <div id="results"></div>
 
       <div id="resultsFooter" class="results-footer hidden">
@@ -786,7 +871,6 @@
     [SPECIAL]: TITLE_SPECIAL_KEYWORDS
   };
 
-  /* ── URL classification rules (mirrors Python) ── */
   const URL_RULES = [
     {p:'MISS',s:'CIT',    t:'Climate-neutral & Smart Cities'},
     {p:'MISS',s:'OCEAN',  t:'Healthy Oceans, Seas, Coastal & Inland Waters'},
@@ -841,15 +925,17 @@
   ];
 
   /* ── State ── */
-  let CALLS            = [];
-  let CLOSED_INDEX     = {};   // key → {thematic_cluster, multi_thematic, action, call_id, name, keyword_hits}
-  let closedIndexReady = false;
-  let closedIndexCount = 0;
-  let visibleCount     = PAGE_SIZE;
-  let lastAnswers      = null;
-  let lastScoredResults= [];
-  let sortMode         = 'relevance';
-  let searchScope      = 'fulltext';
+  let CALLS             = [];
+  let CLOSED_INDEX      = {};
+  let closedIndexReady  = false;
+  let closedIndexCount  = 0;
+  let visibleCount      = PAGE_SIZE;
+  let lastAnswers       = null;
+  let lastScoredResults = [];
+  let lastFiltered      = [];   // filtered + sorted, with _filteredIdx assigned
+  let sortMode          = 'relevance';
+  let searchScope       = 'fulltext';
+  let selectedIds       = new Set(); // Set of _filteredIdx values
 
   /* ── DOM refs ── */
   const form               = document.getElementById('surveyForm');
@@ -877,9 +963,13 @@
   const autofillClearBtn   = document.getElementById('autofillClearBtn');
   const autofillFeedback   = document.getElementById('autofillFeedback');
   const indexStatusEl      = document.getElementById('indexStatus');
+  const selectionBarEl     = document.getElementById('selectionBar');
+  const selCountNumEl      = document.getElementById('selCountNum');
+  const selAllBtn          = document.getElementById('selAllBtn');
+  const deselAllBtn        = document.getElementById('deselAllBtn');
 
   /* ═══════════════════════════════════════════════════
-     CLOSED CALLS INDEX — load + lookup
+     CLOSED CALLS INDEX
   ═══════════════════════════════════════════════════ */
 
   async function loadClosedIndex() {
@@ -913,27 +1003,18 @@
     indexStatusEl.classList.remove('hidden');
   }
 
-  /* ── Lookup in closed index ── */
   function lookupClosedIndex(rawInput) {
     const key = rawInput.trim().toUpperCase();
-
-    // 1. Exact key match
     if (CLOSED_INDEX[key]) return CLOSED_INDEX[key];
-
-    // 2. Match stripping URL path prefix (topic-details/XXX → XXX)
     const slugMatch = key.match(/(?:TOPIC-DETAILS\/|COMPETITIVE-CALLS-CS\/)([^?#/]+)/);
     const slug = slugMatch ? slugMatch[1] : key;
     if (slug !== key && CLOSED_INDEX[slug]) return CLOSED_INDEX[slug];
-
-    // 3. Partial prefix match (user typed partial ID)
     for (const [k, v] of Object.entries(CLOSED_INDEX)) {
       if (k.startsWith(slug) || slug.startsWith(k)) return v;
     }
-
     return null;
   }
 
-  /* ── Lookup in open calls (calls.json) ── */
   function lookupLocalCalls(rawInput) {
     const idUp = rawInput.trim().toUpperCase();
     function topicSlug(url) {
@@ -948,16 +1029,11 @@
       || null;
   }
 
-  /* ── Structural parsing from call ID string ── */
   function parseCallIdStructural(raw) {
     const id = raw.trim().toUpperCase();
     let thematic = null, actionType = null;
-
-    // Horizon cluster (CL1–CL6)
     const clMatch = id.match(/HORIZON-CL([1-6])-/);
     if (clMatch) thematic = CL_MAP[clMatch[1]] || null;
-
-    // URL rule matching
     if (!thematic) {
       for (const rule of URL_RULES) {
         if (!id.includes(rule.p)) continue;
@@ -966,17 +1042,14 @@
         break;
       }
     }
-
-    // Action type
     for (const {re, v} of ACTION_TYPE_PATTERNS) {
       if (re.test(id)) { actionType = v; break; }
     }
-
     return { thematic, actionType };
   }
 
   /* ═══════════════════════════════════════════════════
-     AUTOFILL ORCHESTRATION
+     AUTOFILL
   ═══════════════════════════════════════════════════ */
 
   async function doAutofill() {
@@ -985,19 +1058,14 @@
       showFeedback('error', '✕', 'Inserisci un numero di call o topic ID prima di procedere.');
       return;
     }
-
     autofillBtn.disabled = true;
     showFeedback('loading', null, 'Ricerca in corso…');
-
-    // Priority 1: open calls dataset
     const localMatch = lookupLocalCalls(rawInput);
     if (localMatch) {
       autofillBtn.disabled = false;
       applyAutofillResult(rawInput, localMatch, 'local');
       return;
     }
-
-    // Priority 2: closed calls index
     if (closedIndexReady) {
       const closedMatch = lookupClosedIndex(rawInput);
       if (closedMatch) {
@@ -1006,28 +1074,21 @@
         return;
       }
     }
-
-    // Priority 3: structural parsing
     autofillBtn.disabled = false;
     const structural = parseCallIdStructural(rawInput);
     applyAutofillResult(rawInput, structural, 'structural');
   }
 
-  /* ── Apply autofill result to the form ── */
   function applyAutofillResult(rawInput, data, source) {
     if (!data) {
       showFeedback('warning', '⚠', `Nessun dato trovato per <strong>${esc(rawInput)}</strong>. Compila manualmente.`);
       return;
     }
-
-    // Normalize field names across sources
-    const thematic    = data.thematic_cluster || data.thematic || null;
+    const thematic      = data.thematic_cluster || data.thematic || null;
     const multiThematic = Array.isArray(data.multi_thematic) ? data.multi_thematic : [];
-    const action      = normalizeAction(data.action || data.actionType || '');
-    const title       = data.name || null;
-    const keywordHits = data.keyword_hits || {};
-
-    // Pick best secondary area: from multi_thematic (exclude primary), pick highest keyword count
+    const action        = normalizeAction(data.action || data.actionType || '');
+    const title         = data.name || null;
+    const keywordHits   = data.keyword_hits || {};
     let secondary = null;
     if (multiThematic.length > 0) {
       const candidates = multiThematic
@@ -1036,29 +1097,23 @@
         .sort((a, b) => b.count - a.count);
       if (candidates.length > 0) secondary = candidates[0].t;
     }
-
     const injected = [];
-
     if (thematic && THEMATIC_OPTIONS.includes(thematic)) {
       primaryEl.value = thematic;
       flashInjected(primaryEl);
       injected.push({ label: 'Area primaria', value: thematic });
     }
-
     if (secondary && secondary !== thematic) {
       secondaryEl.value = secondary;
       flashInjected(secondaryEl);
       const kwHint = (keywordHits[secondary] || []).slice(0,3).join(', ');
       injected.push({ label: 'Area secondaria', value: secondary, hint: kwHint || null });
     }
-
     if (action && ['RIA','IA','CSA','COFUND'].includes(action)) {
       document.getElementById('action_type').value = action;
       flashInjected(document.getElementById('action_type'));
       injected.push({ label: 'Action type', value: action });
     }
-
-    // Source label
     const sourceLabels = {
       local:      { cls:'local',      icon:'●', text:'Dataset call aperte' },
       closed:     { cls:'closed',     icon:'◎', text:'Index call chiuse' },
@@ -1066,31 +1121,21 @@
     };
     const sl = sourceLabels[source] || sourceLabels.structural;
     const sourceBadge = `<span class="autofill-source-badge ${sl.cls}">${sl.icon} ${sl.text}</span>`;
-
     let msg = `Compilazione per <strong>${esc(rawInput)}</strong>. ${sourceBadge}`;
     if (title) {
       msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(title.substring(0,120))}${title.length > 120 ? '…' : ''}</em>`;
     }
-
     const chipsHtml = injected.map(i => {
-      const hintSpan = i.hint
-        ? ` <span style="opacity:0.6;font-weight:400;font-size:0.88em">(${esc(i.hint)})</span>`
-        : '';
+      const hintSpan = i.hint ? ` <span style="opacity:0.6;font-weight:400;font-size:0.88em">(${esc(i.hint)})</span>` : '';
       return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
     }).join('');
-
     const noteHtml = source === 'structural'
       ? `<div style="margin-top:8px;font-size:0.78rem;opacity:0.6">Nessuna call corrispondente trovata nei dataset. Campi compilati da parsing dell'ID — verifica e correggi se necessario.</div>`
       : `<div style="margin-top:8px;font-size:0.78rem;opacity:0.6">Puoi modificare i campi in qualsiasi momento.</div>`;
-
     if (injected.length === 0) {
       showFeedback('warning', '⚠', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
     } else {
-      showFeedback('success', '✓', `
-        ${msg}
-        <div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>
-        ${noteHtml}
-      `);
+      showFeedback('success', '✓', `${msg}<div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>${noteHtml}`);
     }
   }
 
@@ -1110,7 +1155,6 @@
     setTimeout(() => el.classList.remove('injected'), 1400);
   }
 
-  /* ── Autofill event listeners ── */
   callNumberInput.addEventListener('input', () => {
     const has = callNumberInput.value.trim().length > 0;
     autofillClearBtn.classList.toggle('visible', has);
@@ -1333,6 +1377,21 @@
     });
   }
 
+  function getSortedFiltered(){
+    let filtered=applyDisplayFilters(lastScoredResults);
+    if(sortMode==='deadline'){
+      filtered=[...filtered].sort((a,b)=>String(a._deadline_norm||'9999').localeCompare(String(b._deadline_norm||'9999')));
+    } else {
+      filtered=[...filtered].sort((a,b)=>{
+        if(a._bucket!==b._bucket) return a._bucket-b._bucket;
+        if(b._score!==a._score)   return b._score-a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
+    }
+    filtered.forEach((c,i)=>{ c._filteredIdx=i; });
+    return filtered;
+  }
+
   function bucketLabel(call){
     if(call._bucket===1) return 'Primario · con keyword secondaria';
     if(call._bucket===2) return 'Secondario · con keyword primaria';
@@ -1357,25 +1416,57 @@
     return '<div class="summary">'+items.map(i=>`<span class="pill">${i.l}<strong>${i.v}</strong></span>`).join('')+'</div>';
   }
 
-  function renderCalls(){
-    let filtered=applyDisplayFilters(lastScoredResults);
-    if(sortMode==='deadline'){
-      filtered=[...filtered].sort((a,b)=>String(a._deadline_norm||'9999').localeCompare(String(b._deadline_norm||'9999')));
+  /* ── Selection helpers ── */
+  function updateSelectionUi(){
+    const n=selectedIds.size;
+    selCountNumEl.textContent=n;
+    selectionBarEl.classList.toggle('visible', lastFiltered.length>0);
+    if(n>0){
+      downloadResultsBtn.textContent=`↓ Selezione (${n}) CSV`;
+      downloadExcelBtn.textContent=`↓ Selezione (${n}) Excel`;
     } else {
-      filtered=[...filtered].sort((a,b)=>{
-        if(a._bucket!==b._bucket) return a._bucket-b._bucket;
-        if(b._score!==a._score)   return b._score-a._score;
-        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
-      });
+      downloadResultsBtn.textContent='↓ Scarica CSV';
+      downloadExcelBtn.textContent='↓ Scarica Excel';
     }
-    const visible=filtered.slice(0,visibleCount);
-    document.getElementById('statsCount').innerHTML=`<strong>${filtered.length}</strong> call trovate`;
+  }
+
+  function toggleSelection(idx){
+    if(selectedIds.has(idx)) selectedIds.delete(idx);
+    else selectedIds.add(idx);
+    updateSelectionUi();
+    // Update card appearance without full re-render
+    const card=resultsEl.querySelector(`.call[data-idx="${idx}"]`);
+    if(card){
+      card.classList.toggle('selected', selectedIds.has(idx));
+      const cb=card.querySelector('.call-checkbox');
+      if(cb) cb.checked=selectedIds.has(idx);
+    }
+  }
+
+  selAllBtn.addEventListener('click',()=>{
+    lastFiltered.forEach(c=>selectedIds.add(c._filteredIdx));
+    renderCalls();
+  });
+  deselAllBtn.addEventListener('click',()=>{
+    selectedIds.clear();
+    renderCalls();
+  });
+
+  /* ── Main render ── */
+  function renderCalls(){
+    lastFiltered = getSortedFiltered();
+    const visible=lastFiltered.slice(0,visibleCount);
+
+    document.getElementById('statsCount').innerHTML=`<strong>${lastFiltered.length}</strong> call trovate`;
+    updateSelectionUi();
+
     let html=renderSummary(lastAnswers);
-    if(!filtered.length){
+    if(!lastFiltered.length){
       resultsEl.innerHTML=html+'<div class="empty">Nessuna call corrisponde ai filtri attivi.</div>';
       resultsFooterEl.classList.add('hidden');
       return;
     }
+
     visible.forEach(call=>{
       const meta=[
         call.programme?`Programme: ${esc(call.programme)}`:'',
@@ -1386,13 +1477,19 @@
         call.opening?`Opening: ${esc(call.opening)}`:'',
         call.deadline?`Deadline: ${esc(call.deadline)}`:'',
       ].filter(Boolean).join(' · ');
+
       const bucketClass=`badge-b${call._bucket||6}`;
       const badges=[`<span class="badge ${bucketClass}">${bucketLabel(call)}</span>`];
       if(call._special) badges.push('<span class="badge badge-special">internships / fellowships</span>');
       const tags=[...(call._primaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`),...(call._secondaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`)];
       const urlAttr=call.url?` data-url="${esc(call.url)}"`:'' ;
-      const clickable=call.url?' call-clickable':'';
-      html+=`<article class="call${clickable}" data-bucket="${call._bucket||6}"${urlAttr}>
+      const isSelected=selectedIds.has(call._filteredIdx);
+      const selectedClass=isSelected?' selected':'';
+
+      html+=`<article class="call${selectedClass}" data-bucket="${call._bucket||6}"${urlAttr} data-idx="${call._filteredIdx}">
+        <div class="call-checkbox-wrap">
+          <input type="checkbox" class="call-checkbox" data-idx="${call._filteredIdx}" ${isSelected?'checked':''} title="Seleziona per export" />
+        </div>
         <h3>${esc(call.name||'(senza nome)')}</h3>
         <div class="meta">${meta}</div>
         <div class="matchbadges">${badges.join('')}</div>
@@ -1400,20 +1497,36 @@
         ${call.url?`<div class="call-link"><a href="${encodeURI(call.url)}" target="_blank" rel="noopener noreferrer">${esc(call.url)}</a></div>`:''}
       </article>`;
     });
+
     resultsEl.innerHTML=html;
-    const shown=Math.min(visibleCount,filtered.length);
-    resultsProgressEl.textContent=`Stai vedendo ${shown} risultati su ${filtered.length}.`;
+    const shown=Math.min(visibleCount,lastFiltered.length);
+    resultsProgressEl.textContent=`Stai vedendo ${shown} risultati su ${lastFiltered.length}.`;
     resultsFooterEl.classList.remove('hidden');
-    loadMoreBtn.classList.toggle('hidden',shown>=filtered.length);
+    loadMoreBtn.classList.toggle('hidden',shown>=lastFiltered.length);
   }
 
-  function populateSelects(){
-    primaryEl.innerHTML='<option value="" selected disabled>Seleziona…</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
-    secondaryEl.innerHTML='<option value="">Nessuna</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
-  }
+  /* ── Click delegation on results ── */
+  resultsEl.addEventListener('click', e=>{
+    // Checkbox click
+    const cb=e.target.closest('.call-checkbox');
+    if(cb){
+      e.stopPropagation();
+      toggleSelection(Number(cb.dataset.idx));
+      return;
+    }
+    // Link click – open but don't toggle
+    if(e.target.closest('a')) return;
+    // Card click – open URL if present
+    const card=e.target.closest('.call');
+    if(card&&card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
+  });
 
+  /* ── Export ── */
   function getExportRows(){
-    return applyDisplayFilters(lastScoredResults).map(c=>({
+    const rows = selectedIds.size>0
+      ? lastFiltered.filter(c=>selectedIds.has(c._filteredIdx))
+      : lastFiltered;
+    return rows.map(c=>({
       name:c.name||'',programme:c.programme||'',thematic_cluster:c.thematic_cluster||'',
       cluster_label:c.cluster_label||'',action:c.action||'',budget:c.budget||'',
       opening:c.opening||'',deadline:c.deadline||'',url:c.url||'',
@@ -1450,6 +1563,7 @@
     }
     lastAnswers=answers;
     visibleCount=PAGE_SIZE;
+    selectedIds.clear();
     lastScoredResults=applyFilters(CALLS,answers);
     resultsSection.classList.remove('hidden');
     renderCalls();
@@ -1459,62 +1573,87 @@
   let _kwTimer=null;
   keywordFilterEl.addEventListener('input',()=>{
     clearTimeout(_kwTimer);
-    _kwTimer=setTimeout(()=>{if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}},180);
+    _kwTimer=setTimeout(()=>{
+      if(lastAnswers){
+        visibleCount=PAGE_SIZE;
+        selectedIds.clear();
+        renderCalls();
+      }
+    },180);
   });
+
   budgetMinEl.addEventListener('input',()=>{
     if(Number(budgetMinEl.value)>Number(budgetMaxEl.value)) budgetMinEl.value=budgetMaxEl.value;
-    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   });
   budgetMaxEl.addEventListener('input',()=>{
     if(Number(budgetMaxEl.value)<Number(budgetMinEl.value)) budgetMaxEl.value=budgetMinEl.value;
-    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   });
   budgetPresetEls.forEach(b=>b.addEventListener('click',()=>{
     budgetMinEl.value=b.dataset.min||'0'; budgetMaxEl.value=b.dataset.max||String(BUDGET_MAX);
-    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   }));
+
   document.getElementById('scopeFullText').addEventListener('click',()=>{
     searchScope='fulltext';
     document.getElementById('scopeFullText').classList.add('active');
     document.getElementById('scopeTitle').classList.remove('active');
-    if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   });
   document.getElementById('scopeTitle').addEventListener('click',()=>{
     searchScope='title';
     document.getElementById('scopeTitle').classList.add('active');
     document.getElementById('scopeFullText').classList.remove('active');
-    if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   });
   document.getElementById('sortRelevance').addEventListener('click',()=>{
     sortMode='relevance';
     document.getElementById('sortRelevance').classList.add('active');
     document.getElementById('sortDeadline').classList.remove('active');
-    if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   });
   document.getElementById('sortDeadline').addEventListener('click',()=>{
     sortMode='deadline';
     document.getElementById('sortDeadline').classList.add('active');
     document.getElementById('sortRelevance').classList.remove('active');
-    if(lastAnswers){visibleCount=PAGE_SIZE;renderCalls();}
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
   });
+
   loadMoreBtn.addEventListener('click',()=>{visibleCount+=PAGE_SIZE;renderCalls();});
   downloadResultsBtn.addEventListener('click',()=>{if(lastAnswers)downloadCsv();});
   downloadExcelBtn.addEventListener('click',()=>{if(lastAnswers)downloadExcel();});
-  resultsEl.addEventListener('click',e=>{
-    if(e.target.closest('a')) return;
-    const card=e.target.closest('.call.call-clickable');
-    if(card&&card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
-  });
+
   resetBtn.addEventListener('click',()=>{
-    form.reset(); secondaryEl.value='';
-    resultsSection.classList.add('hidden'); resultsEl.innerHTML=''; resultsFooterEl.classList.add('hidden');
-    keywordFilterEl.value=''; budgetMinEl.value='0'; budgetMaxEl.value=String(BUDGET_MAX);
-    updateBudgetUi(); lastAnswers=null; lastScoredResults=[];
-    callNumberInput.value=''; autofillClearBtn.classList.remove('visible'); autofillFeedback.className='autofill-feedback';
+    form.reset();
+    secondaryEl.value='';
+    resultsSection.classList.add('hidden');
+    resultsEl.innerHTML='';
+    resultsFooterEl.classList.add('hidden');
+    keywordFilterEl.value='';
+    budgetMinEl.value='0';
+    budgetMaxEl.value=String(BUDGET_MAX);
+    updateBudgetUi();
+    lastAnswers=null;
+    lastScoredResults=[];
+    lastFiltered=[];
+    selectedIds.clear();
+    callNumberInput.value='';
+    autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className='autofill-feedback';
     searchScope='fulltext';
     document.getElementById('scopeFullText').classList.add('active');
     document.getElementById('scopeTitle').classList.remove('active');
+    selectionBarEl.classList.remove('visible');
+    downloadResultsBtn.textContent='↓ Scarica CSV';
+    downloadExcelBtn.textContent='↓ Scarica Excel';
   });
+
+  /* ── Populate selects ── */
+  function populateSelects(){
+    primaryEl.innerHTML='<option value="" selected disabled>Seleziona…</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    secondaryEl.innerHTML='<option value="">Nessuna</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  }
 
   /* ── Init ── */
   updateBudgetUi();
@@ -1534,11 +1673,9 @@
       lastUpdatedEl.textContent='Errore nel caricamento di calls.json';
       CALLS=[];
     }
-    // Update status strip after both loads resolve
     updateIndexStatus();
   }
 
-  // Load both in parallel
   Promise.all([loadCalls(), loadClosedIndex()]);
 })();
 </script>
