@@ -36,12 +36,11 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 PAGE_SIZE = 50
 DEBUG     = False
 
-# Sostituisci la variabile LIST_URL nel tuo script
 LIST_URL = (
-    "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals"
+    "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
+    "/opportunities/calls-for-proposals"
     "?order=DESC&pageNumber={page}&pageSize={ps}&sortBy=startDate"
-    "&isExactMatch=true&status=31094501,31094502" # 31094501=Open, 31094502=Forthcoming
-    "&programmePeriod=2021%20-%202027"
+    "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
 )
 
 # Sarà aggiornato dinamicamente da _sniff_api_path() prima dello scraping.
@@ -1702,15 +1701,21 @@ def main(out_path: Path, debug: bool = False):
                     added += 1
             return added
 
-        def _wait_for_xhr_page(page, captured_dict, expected_count, timeout_ms=15000):
-            start = time.time()
-            while (time.time() - start) * 1000 < timeout_ms:
-                # Verifica se i nuovi link sono arrivati nell'intercettatore
-                new_links = captured_dict["links"][captured_dict["_cursor"]:]
-                if len(new_links) >= expected_count:
-                    return True
-                page.wait_for_timeout(500) # Aumentato da 300 a 500ms
-            return False
+        def _wait_for_xhr_page(xhr_captured: dict, expected: int,
+                               timeout_s: float = 12.0) -> int:
+            """
+            Attende attivamente che l'XHR abbia portato almeno `expected` link
+            NUOVI rispetto al cursore corrente. Restituisce quanti ne sono arrivati.
+            Evita race condition tra navigate_to_list e la risposta API.
+            """
+            cursor = xhr_captured["_cursor"]
+            t0     = time.time()
+            while time.time() - t0 < timeout_s:
+                available = len(xhr_captured["links"]) - cursor
+                if available >= expected:
+                    return available
+                page.wait_for_timeout(300)
+            return len(xhr_captured["links"]) - cursor
 
         # ── Prima pagina ──────────────────────────────────────────────────────
         # Attesa attiva: vogliamo almeno min(PAGE_SIZE, total) link XHR
