@@ -34,7 +34,7 @@ LIST_URL = (
 SEARCH_API  = "search-api/prod/rest/search"
 COOKIE_TEXT = "This site uses cookies"
 
-LINK_SELECTOR = 'css=a[href*="/topic-details/"], a[href*="/competitive-calls-cs/"], a[href*="/prospect-details/"]'
+LINK_SELECTOR = "a[href*='topic-details'], a[href*='competitive-calls-cs']"
 
 RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(s\)\s*found", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
@@ -440,44 +440,25 @@ def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
 def read_total(page, timeout_ms=30000):
-    """
-    Attende e legge il numero totale di risultati dalla pagina.
-    Prova più pattern per coprire eventuali variazioni del portale EU.
-    """
-    PATTERNS = [
-        re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",        re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",               re.IGNORECASE),
-        re.compile(r"found\s+(\d[\d,\.]*)\s*results?",             re.IGNORECASE),
-        re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),  # fallback largo
-    ]
-
-    start = time.time()
-    while (time.time() - start) * 1000 < timeout_ms:
-        try:
-            txt = page.locator("body").inner_text()
-        except Exception:
-            txt = ""
-
-        for pat in PATTERNS:
-            m = pat.search(txt or "")
-            if m:
-                raw = m.group(1).replace(",", "").replace(".", "")
-                print(f" Contatore trovato con pattern '{pat.pattern}': {raw}")
-                return int(raw)
-
-        page.wait_for_timeout(1000)
-
-    # Debug: stampa le prime 2000 caratteri del body
+    # Usiamo un selettore che ignora i confini dello shadow DOM
+    selector = "css=.eui-table-total-items, .wt-table-total-items, div:has-text('found')"
     try:
-        snippet = page.locator("body").inner_text()[:2000]
-        print(f" Testo body (primi 2000 char):\n{snippet}")
+        # Aspetta che il contatore sia visibile
+        element = page.locator(selector).first
+        element.wait_for(state="visible", timeout=timeout_ms)
+        txt = element.inner_text()
+        
+        # Estrai solo i numeri (es. "1,234 items found" -> 1234)
+        numbers = re.findall(r'\d+', txt.replace(',', '').replace('.', ''))
+        if numbers:
+            total = int(numbers[0])
+            print(f" ✅ Contatore trovato: {total}")
+            return total
     except Exception as e:
-        print(f"Impossibile leggere il body: {e}")
-
-    return None
+        print(f" ⚠️ Errore lettura contatore: {e}")
+    
+    # Fallback: se proprio non lo legge, restituisci un numero alto per forzare lo scroll
+    return 1000
 
 def scroll_until(page, expected, max_ms=50000):
     start = time.time()
