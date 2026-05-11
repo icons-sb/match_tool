@@ -41,6 +41,11 @@ LINK_SELECTOR = (
     'a[href*="/prospect-details/"]'
 )
 
+# URL base per i link delle call, costruiti dal campo 'reference' dell'API
+TOPIC_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/"
+COMPETITIVE_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/"
+PROSPECT_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/prospect-details/"
+
 RE_TOTAL = re.compile(r"(\d[\d,\.]*)\s*(?:results?|items?|found)", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
 RE_DEAD      = re.compile(r"Deadline date:\s*([^\|\n\r]+)",         re.IGNORECASE)
@@ -911,71 +916,159 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         history_path.write_text(header, encoding="utf-8")
     print(f"📋 History aggiornata: {history_path}")
 
-def extract_from_json(json_data):
-    extracted_calls = []
-    # Prendiamo la lista 'results' che hai postato
-    items = json_data.get("results", [])
-    
-    for item in items:
-        # Estraiamo i campi basandoci sulla struttura SEDIA
-        call_id = item.get("identifier")
-        title = item.get("title")
-        
-        # Costruiamo l'URL usando l'identifier
-        link = f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{call_id}"
-        
-        extracted_calls.append({
-            "id": call_id,
-            "title": title,
-            "link": link,
-            # Aggiungi altri campi se presenti nel JSON (es. deadline)
-        })
-    return extracted_calls
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(out_path: Path):
-    interception_results = [] # Lista di appoggio
+    rows      = []
+    seen_urls = set()
 
-    # Definizione della funzione di cattura
-    def handle_response(response):
-        if "apiKey=SEDIA" in response.url and response.status == 200:
-            try:
-                data = response.json()
-                items = data.get("results", [])
-                for item in items:
-                    # AGGIUNGIAMO ALLA LISTA DEFINITA SOPRA
-                    interception_results.append({
-                        "id": item.get("identifier"),
-                        "title": item.get("title"),
-                        "link": f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{item.get('identifier')}",
-                        "deadline": item.get("deadlineDate")
-                    })
-                print(f"✅ Intercettate {len(items)} call dal JSON (XHR)")
-            except:
-                pass
-
-    # Inizializzazione Playwright
     with sync_playwright() as p:
-        browser = p.chromium.launch(...)
-        page = browser.new_page()
-        
-        # ORA registra il listener
-        page.on("response", handle_response)
-        
-        # Vai alla pagina e clicca i cookie
-        page.goto(...)
-        page.wait_for_timeout(5000) # Attesa per far arrivare i dati XHR
+        browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        ctx = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+        page = ctx.new_page()
+        try:
+            if hasattr(playwright_stealth, 'stealth_sync'):
+                playwright_stealth.stealth_sync(page)
+            elif hasattr(playwright_stealth, 'stealth'):
+                from playwright_stealth.stealth import stealth as _st
+                _st(page)
+            else:
+                print("⚠️ Impossibile applicare stealth, procedo comunque...")
+        except Exception as e:
+            print(f"⚠️ Errore stealth ignorato: {e}")
 
+        # ── Passo 1: lista ────────────────────────────────────────────────────
+        # Intercettiamo la risposta API PRIMA del goto per catturare totalResults
+        total_captured = {}
 
-    # --- PUNTO CRITICO ---
-    # Lo script probabilmente usa una variabile chiamata 'calls'. 
-    # Dobbiamo passarle i dati intercettati.
-    calls = interception_results 
+        def handle_first_response(response, _tc=total_captured):
+            if SEARCH_API in response.url and response.status == 200 and "total" not in _tc:
+                try:
+                    body = response.json()
+                    t = body.get("totalResults")
+                    if t is not None:
+                        _tc["total"] = int(t)
+                        print(f" ✅ Totale rilevato dall'API: {t}")
+                except Exception:
+                    pass
 
-    print(f"--- Passo 2: arricchimento {len(calls)} call totali ---")
-    enrich(ctx, rows)
-    browser.close()
+        page.on("response", handle_first_response)
+        page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
+                  wait_until="domcontentloaded", timeout=90000)
+
+        # Forza l'accettazione dei cookie
+        try:
+            cookie_button = page.get_by_role("button", name="Accept all cookies")
+            if cookie_button.is_visible():
+                cookie_button.click()
+                print("✅ Cookie accettati")
+                page.wait_for_timeout(4000)
+        except:
+            pass
+
+        # Aspetta che l'API risponda (max 30s)
+        print(" ⏳ In attesa della risposta dall'API SEDIA...")
+        deadline_init = time.time() + 30
+        while "total" not in total_captured and time.time() < deadline_init:
+            page.wait_for_timeout(500)
+
+        page.remove_listener("response", handle_first_response)
+
+        total = total_captured.get("total") or read_total(page)
+
+        if total is None:
+            print("❌ Non riesco a leggere il contatore delle call.")
+            browser.close()
+            return
+        max_pages = math.ceil(total / PAGE_SIZE)
+        print(f"✅ Totale: {total} call | pagine: {max_pages}")
+
+        for pnum in range(1, max_pages + 1):
+            remaining = total - (pnum - 1) * PAGE_SIZE
+            expected  = min(PAGE_SIZE, remaining)
+            url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
+            print(f"\n[p{pnum}/{max_pages}] attese ~{expected}", end="", flush=True)
+
+            page_results = []
+
+            def handle_list_response(response, _pr=page_results):
+                if SEARCH_API in response.url and response.status == 200:
+                    try:
+                        body = response.json()
+                        for item in body.get("results", []):
+                            ref = item.get("reference", "")
+                            if not ref:
+                                continue
+                            # Determina il tipo di link dal reference
+                            ref_upper = ref.upper()
+                            if "TOPICS" in ref_upper:
+                                full_url = TOPIC_BASE_URL + ref
+                            elif "COMPETITIVE" in ref_upper or "CS" in ref_upper:
+                                full_url = COMPETITIVE_BASE_URL + ref
+                            elif "PROSPECT" in ref_upper:
+                                full_url = PROSPECT_BASE_URL + ref
+                            else:
+                                full_url = TOPIC_BASE_URL + ref
+
+                            # Estrai metadati direttamente dalla risposta API
+                            meta = item.get("metadata", {}) or {}
+                            prog_id = _first(meta, "frameworkProgramme", "programme")
+                            action  = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                            cid     = _first(meta, "callIdentifier", "identifier")
+                            title   = (item.get("title") or item.get("name") or
+                                       _first(meta, "title", "name") or ref)
+
+                            # Date
+                            opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                            deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+
+                            cluster_raw = pick(RE_CLUSTER, ref) or pick(RE_CLUSTER, cid or "")
+
+                            _pr.append({
+                                "name":          clean(title) or ref,
+                                "call_id":       cid,
+                                "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                                "action_raw":    action or None,
+                                "cluster_raw":   cluster_raw,
+                                "opening_raw":   opening_raw or None,
+                                "deadline_raw":  deadline_raw or None,
+                                "url":           full_url,
+                                "_needs_enrich": False,
+                            })
+                    except Exception as e:
+                        print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
+
+            page.on("response", handle_list_response)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                # Aspetta la risposta API con timeout generoso
+                deadline_t = time.time() + 20
+                while len(page_results) == 0 and time.time() < deadline_t:
+                    page.wait_for_timeout(500)
+                    accept_cookies(page)
+                # Se ancora vuoto, forza un reload
+                if len(page_results) == 0:
+                    page.reload(wait_until="domcontentloaded", timeout=60000)
+                    deadline_t2 = time.time() + 15
+                    while len(page_results) == 0 and time.time() < deadline_t2:
+                        page.wait_for_timeout(500)
+            finally:
+                page.remove_listener("response", handle_list_response)
+
+            new_items = [r for r in page_results if r["url"] not in seen_urls]
+            print(f" → trovati {len(new_items)} nuovi", flush=True)
+
+            for r in new_items:
+                seen_urls.add(r["url"])
+                rows.append(r)
+            time.sleep(0.3)
+
+        # ── Passo 2: arricchimento ────────────────────────────────────────────
+        print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
+        enrich(ctx, rows)
+        browser.close()
 
     # ── Classificazione e output ──────────────────────────────────────────────
     calls = []
@@ -1027,7 +1120,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
