@@ -1,21 +1,24 @@
 """
-scrape_to_json.py  —  v2.1 (hotfix post-update portale EU maggio 2026)
+scrape_to_json.py  —  v2.2 (fix perdita call)
 ──────────────────────────────────────────────────────────────────────────────
 Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json.
 
-Modifiche v2.1 rispetto a v2.0:
-  • _sniff_api_path(): annusa dinamicamente quale path API usa il portale
-    PRIMA di iniziare lo scraping → SEARCH_API aggiornato a runtime
-  • attach_link_interceptor(): pattern URL più ampio (qualsiasi path sotto
-    /rest/ o /api/ del dominio EC), raccoglie URL da 10+ campi della risposta
-    inclusi canonicalUrl, detailsUrl, _links, landingPage, ecc.
-  • LINK_SELECTORS_CANDIDATES: aggiunti selettori post-update Angular (data-*,
-    eui-card, mat-card, [class*="card"], router-link, ecc.)
-  • _discover_link_selector(): fallback finale che dumpa tutti gli href trovati
-    e tenta pattern generici /screen/opportunities/ e portal/screen/
-  • navigate_to_list(): aggiunge route-intercept Playwright per catturare
-    richieste API anche se il path è cambiato
-  • Tutte le logiche di classificazione originali intatte
+Modifiche v2.2 rispetto a v2.1:
+  • _harvest_xhr_links: usa un cursore (_cursor) sulla lista cumulativa XHR
+    invece di ri-scansionare tutta la lista ad ogni pagina → elimina il bug
+    per cui p3/p4/p8 sembravano avere meno link del dovuto (erano presenti,
+    ma già marcati come "seen" perché la lista veniva riletta dall'inizio)
+  • _normalize_url(): normalizza URL per dedup coerente (lowercase path,
+    no trailing slash, no fragment) → elimina falsi duplicati per variazioni
+    di case nell'identificatore (es. HORIZON-cl5 vs HORIZON-CL5)
+  • seen_urls ora contiene URL normalizzati, usati sia da XHR che da DOM
+    fallback in modo coerente
+  • _wait_for_xhr_page(): attesa attiva (polling 300ms) che i link della
+    pagina corrente siano arrivati via XHR prima di procedere → elimina race
+    condition con wait_for_timeout(2500) fixed
+  • Output: mostra "⚠ MANCANTI:N" se una pagina ha portato meno call del
+    previsto, per facilitare il debug
+  • Tutte le logiche di classificazione e arricchimento invariate
 """
 
 import re
@@ -818,7 +821,16 @@ def attach_link_interceptor(page) -> dict:
 
     Fonte primaria per la raccolta link — completamente indipendente dal DOM.
     """
-    captured: dict = {"links": [], "total": None, "seen": set(), "api_urls": set()}
+    # links       : lista cumulativa di tutti gli URL raccolti
+    # total       : numero totale di call secondo l'API
+    # seen        : set URL normalizzati già aggiunti a links (dedup interno XHR)
+    # api_urls    : path API effettivamente usati (diagnostica)
+    # _cursor     : prossimo indice da leggere in links (usato da _harvest_xhr_links)
+    # _page_sizes : quante call sono arrivate per ogni risposta XHR (diagnostica race)
+    captured: dict = {
+        "links": [], "total": None, "seen": set(),
+        "api_urls": set(), "_cursor": 0, "_page_sizes": [],
+    }
 
     def handle(response, _c=captured):
         url = response.url
@@ -863,6 +875,7 @@ def attach_link_interceptor(page) -> dict:
         if not isinstance(results, list):
             return
 
+        added_this_response = 0
         for item in results:
             if not isinstance(item, dict):
                 continue
@@ -870,14 +883,41 @@ def attach_link_interceptor(page) -> dict:
             meta = item.get("metadata") or item.get("_source") or item.get("fields") or item
 
             call_url = _extract_url_from_meta(meta)
-            if call_url and call_url not in _c["seen"]:
-                _c["seen"].add(call_url)
-                _c["links"].append(call_url)
+            if not call_url:
+                continue
+            # Normalizza URL per dedup: lowercase path, no trailing slash, no fragment
+            norm = _normalize_url(call_url)
+            if norm not in _c["seen"]:
+                _c["seen"].add(norm)
+                _c["links"].append(call_url)   # conserva l'URL originale per navigazione
+                added_this_response += 1
                 if DEBUG:
                     print(f"  [XHR link] {call_url}")
 
+        if added_this_response > 0:
+            _c["_page_sizes"].append(added_this_response)
+
     page.on("response", handle)
     return captured
+
+
+def _normalize_url(url: str) -> str:
+    """
+    Normalizza un URL per il confronto di deduplicazione:
+    - lowercase del path (gli ID delle call sono case-insensitive sul portale EU)
+    - rimuove trailing slash
+    - rimuove fragment (#...)
+    - preserva query string (pageNumber ecc. non presenti nei link di dettaglio)
+    """
+    url = (url or "").strip().rstrip("/").split("#")[0]
+    # Separa schema+host dal path: lowercasa solo il path
+    if "://" in url:
+        proto, rest = url.split("://", 1)
+        if "/" in rest:
+            host, path = rest.split("/", 1)
+            return f"{proto}://{host.lower()}/{path.lower()}"
+        return f"{proto}://{rest.lower()}"
+    return url.lower()
 
 
 def _extract_url_from_meta(meta: dict) -> str | None:
@@ -1575,6 +1615,8 @@ def main(out_path: Path, debug: bool = False):
     DEBUG = debug
 
     rows: list       = []
+    # seen_urls contiene URL *normalizzati* (_normalize_url) per dedup coerente
+    # tra XHR e DOM fallback, indipendente da maiuscole/minuscole e trailing slash
     seen_urls: set   = set()
 
     with sync_playwright() as p:
@@ -1639,31 +1681,62 @@ def main(out_path: Path, debug: bool = False):
         # Scopri selettore DOM sulla prima pagina (usato come fallback)
         _set_link_selector_from_candidates(page)
 
-        def _harvest_xhr_links(xhr_captured: dict, seen: set, row_list: list, pg):
-            new_count = 0
-            for u in list(xhr_captured["links"]):
-                if u not in seen:
-                    seen.add(u)
-                    row_list.append(parse_card(pg, u))
-                    new_count += 1
-            return new_count
+        def _harvest_xhr_links(xhr_captured: dict, row_list: list, pg) -> int:
+            """
+            Legge i link in xhr_captured["links"] a partire dal cursore,
+            li aggiunge a row_list e avanza il cursore.
+            Usa seen_urls (closure) per dedup globale normalizzata.
+            """
+            cursor    = xhr_captured["_cursor"]
+            new_links = xhr_captured["links"][cursor:]
+            xhr_captured["_cursor"] = len(xhr_captured["links"])
 
-        new_from_xhr = _harvest_xhr_links(xhr, seen_urls, rows, page)
-        print(f"  Prima pagina XHR: {new_from_xhr} link | DOM: {count_links(page)} link", flush=True)
+            added = 0
+            for u in new_links:
+                norm = _normalize_url(u)
+                if norm not in seen_urls:
+                    seen_urls.add(norm)
+                    row_list.append(parse_card(pg, u))
+                    added += 1
+            return added
+
+        def _wait_for_xhr_page(xhr_captured: dict, expected: int,
+                               timeout_s: float = 12.0) -> int:
+            """
+            Attende attivamente che l'XHR abbia portato almeno `expected` link
+            NUOVI rispetto al cursore corrente. Restituisce quanti ne sono arrivati.
+            Evita race condition tra navigate_to_list e la risposta API.
+            """
+            cursor = xhr_captured["_cursor"]
+            t0     = time.time()
+            while time.time() - t0 < timeout_s:
+                available = len(xhr_captured["links"]) - cursor
+                if available >= expected:
+                    return available
+                page.wait_for_timeout(300)
+            return len(xhr_captured["links"]) - cursor
+
+        # ── Prima pagina ──────────────────────────────────────────────────────
+        # Attesa attiva: vogliamo almeno min(PAGE_SIZE, total) link XHR
+        expected_p1 = min(PAGE_SIZE, total)
+        arrived     = _wait_for_xhr_page(xhr, expected_p1, timeout_s=12.0)
+        new_from_xhr = _harvest_xhr_links(xhr, rows, page)
+        print(f"  Prima pagina XHR: {new_from_xhr} link (attesi {expected_p1}, arrivati {arrived})"
+              f" | DOM: {count_links(page)} link", flush=True)
 
         if new_from_xhr == 0:
-            scroll_until(page, expected=min(PAGE_SIZE, total))
+            scroll_until(page, expected=expected_p1)
             dom_links = extract_links(page)
-            new_links = [u for u in dom_links if u not in seen_urls]
+            new_links = [u for u in dom_links if _normalize_url(u) not in seen_urls]
             for u in new_links:
-                seen_urls.add(u)
+                seen_urls.add(_normalize_url(u))
                 rows.append(parse_card(page, u))
             print(f"  Prima pagina DOM fallback: {len(new_links)} link", flush=True)
 
         # ══ FASE 2: scraping pagine 2..N ════════════════════════════════════
         for pnum in range(2, max_pages + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
-            expected  = min(PAGE_SIZE, remaining)
+            expected  = min(PAGE_SIZE, max(remaining, 0))
             url       = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
 
             print(f"\n[p{pnum}/{max_pages}] attese ~{expected} call", end="", flush=True)
@@ -1672,23 +1745,28 @@ def main(out_path: Path, debug: bool = False):
             if not ok:
                 print(f" ⚠ navigazione incerta, continuo…", flush=True)
 
-            page.wait_for_timeout(2500)
+            # Attesa attiva XHR: aspetta che arrivino i link di questa pagina
+            arrived = _wait_for_xhr_page(xhr, expected, timeout_s=15.0)
 
-            new_from_xhr = _harvest_xhr_links(xhr, seen_urls, rows, page)
+            new_from_xhr = _harvest_xhr_links(xhr, rows, page)
 
+            # Fallback DOM solo se XHR non ha portato NULLA per questa pagina
             new_from_dom = 0
             if new_from_xhr == 0:
                 scroll_until(page, expected=expected)
                 dom_links = extract_links(page)
-                new_dom   = [u for u in dom_links if u not in seen_urls]
+                new_dom   = [u for u in dom_links if _normalize_url(u) not in seen_urls]
                 for u in new_dom:
-                    seen_urls.add(u)
+                    seen_urls.add(_normalize_url(u))
                     rows.append(parse_card(page, u))
                 new_from_dom = len(new_dom)
 
             total_new = new_from_xhr + new_from_dom
             src_label = f"XHR:{new_from_xhr}" + (f" DOM:{new_from_dom}" if new_from_dom else "")
-            print(f" → {total_new} nuovi ({src_label}) | tot seen: {len(seen_urls)}", flush=True)
+            # Avvisa se siamo short rispetto all'atteso (utile per debug)
+            gap = expected - total_new
+            gap_str = f" ⚠ MANCANTI:{gap}" if gap > 2 else ""
+            print(f" → {total_new} nuovi ({src_label}) | tot seen: {len(seen_urls)}{gap_str}", flush=True)
 
             time.sleep(0.15)
 
