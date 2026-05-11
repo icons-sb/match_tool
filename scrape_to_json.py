@@ -426,45 +426,78 @@ def _first(meta, *keys):
 # ── Search API REST — raccolta lista call ─────────────────────────────────────
 
 def _build_search_url(page_num: int) -> str:
-    """
-    Costruisce l'URL della Search API con i filtri corretti.
-    Il portale invia status e programmePeriod come query separata.
-    """
     params = {
-        "apiKey":      SEARCH_API_KEY,
-        "text":        "*",
-        "pageSize":    str(PAGE_SIZE),
-        "pageNumber":  str(page_num),
-        # type=1 = Calls for proposals
-        "query":       "type=1&status=31094501,31094502&programmePeriod=2021 - 2027",
-        "sortBy":      "startDate",
-        "orderBy":     "DESC",
+        "apiKey": SEARCH_API_KEY,
+        "text": "*",
+        "pageSize": str(PAGE_SIZE),
+        "pageNumber": str(page_num),
+        "sortBy": "startDate",
+        "orderBy": "DESC",
     }
     return SEARCH_API_BASE + "?" + urllib.parse.urlencode(params)
 
 
 def _fetch_json(url: str, retries: int = 3) -> dict:
-    """Scarica e parsa JSON con retry."""
-    headers = {
-        "Accept":          "application/json",
+    """Scarica e parsa JSON con POST multipart/form-data."""
+    import uuid
+
+    headers_base = {
+        "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent":      (
+        "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
+            "Chrome/124.0.0.0 Safari/537.36"
         ),
-        "Origin":  "https://ec.europa.eu",
-        "Referer": "https://ec.europa.eu/",
+        "Origin": "https://ec.europa.eu",
+        "Referer": "https://ec.europa.eu/info/funding-tenders/opportunities/portal/",
     }
+
+    query_obj = {
+        "bool": {
+            "must": [
+                {"terms": {"type": ["1"]}},
+                {"terms": {"status": ["31094501", "31094502"]}},
+                {"terms": {"programmePeriod": ["2021 - 2027"]}},
+            ]
+        }
+    }
+
     for attempt in range(1, retries + 1):
         try:
-            req = urllib.request.Request(url, headers=headers)
+            boundary = "----WebKitFormBoundary" + uuid.uuid4().hex
+            parts = []
+
+            def add_part(name, value, content_type=None):
+                parts.append(f"--{boundary}\r\n".encode())
+                disposition = f'Content-Disposition: form-data; name="{name}"\r\n'
+                parts.append(disposition.encode())
+                if content_type:
+                    parts.append(f"Content-Type: {content_type}\r\n".encode())
+                parts.append(b"\r\n")
+                parts.append(value.encode("utf-8"))
+                parts.append(b"\r\n")
+
+            add_part("query", json.dumps(query_obj), "application/json")
+            add_part("languages", json.dumps(["en"]), "application/json")
+            add_part("displayLanguage", "en", "text/plain")
+            parts.append(f"--{boundary}--\r\n".encode())
+
+            body = b"".join(parts)
+            headers = dict(headers_base)
+            headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+            headers["Content-Length"] = str(len(body))
+
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8"))
+
         except Exception as e:
             print(f"  [HTTP attempt {attempt}] {e}", flush=True)
             if attempt < retries:
                 time.sleep(2 * attempt)
+
     return {}
 
 
