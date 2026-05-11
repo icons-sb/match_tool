@@ -937,8 +937,8 @@ def main(out_path: Path):
                 cookie_button.click()
                 print("✅ Cookie accettati")
                 page.wait_for_timeout(4000)
-                except:
-                    pass
+        except:
+            pass
         
         
 
