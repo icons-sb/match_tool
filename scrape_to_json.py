@@ -935,32 +935,26 @@ def extract_from_json(json_data):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(out_path: Path):
-    # 1. Definisci la lista FUORI, così è visibile a tutti
-    interception_results = []
+    interception_results = [] # Lista di appoggio
 
+    # Definizione della funzione di cattura
     def handle_response(response):
         if "apiKey=SEDIA" in response.url and response.status == 200:
-            try:
-                data = response.json()
-                items = data.get("results", [])
-                for item in items:
-                    # AGGIUNGIAMO ALLA LISTA DEFINITA SOPRA
-                    interception_results.append({
-                        "id": item.get("identifier"),
-                        "title": item.get("title"),
-                        "link": f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{item.get('identifier')}",
-                        "deadline": item.get("deadlineDate")
-                    })
-                print(f"✅ Intercettate {len(items)} call dal JSON (XHR)")
-            except:
-                pass
+            # ... logica di estrazione JSON che abbiamo visto prima ...
+            # Esempio: interception_results.append(nuovi_dati)
 
-    # ... inizializzazione browser e page ...
-    page.on("response", handle_response)
-    page.goto(LIST_URL.format(page=1, ps=50), wait_until="networkidle")
+    # Inizializzazione Playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(...)
+        page = browser.new_page()
+        
+        # ORA registra il listener
+        page.on("response", handle_response)
+        
+        # Vai alla pagina e clicca i cookie
+        page.goto(...)
+        page.wait_for_timeout(5000) # Attesa per far arrivare i dati XHR
 
-    # ATTESA: Diamo tempo al listener di finire il lavoro
-    page.wait_for_timeout(5000) 
 
     # --- PUNTO CRITICO ---
     # Lo script probabilmente usa una variabile chiamata 'calls'. 
