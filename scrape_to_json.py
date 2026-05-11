@@ -489,20 +489,12 @@ def _build_search_url(page_num: int) -> str:
 
 
 def _build_query_obj(status_code: str) -> dict:
-    """
-    Query della Search API.
-
-    Nota importante:
-    il portale mostra 456 Open + 331 Forthcoming = 787.
-    La chiamata con status=[31094501,31094502] non replica quel totale: lato API
-    può restituire meno risultati. Per questo interroghiamo i due stati separatamente
-    e poi uniamo i risultati senza perdere righe.
-    """
     return {
         "bool": {
             "must": [
-                {"terms": {"type": ["1"]}},
+                {"terms": {"type": ["1"]}},  # Calls
                 {"terms": {"status": [status_code]}},
+                {"terms": {"programmePeriod": ["2021 - 2027"]}},  # 🔥 FONDAMENTALE
             ]
         }
     }
