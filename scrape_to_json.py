@@ -940,8 +940,20 @@ def main(out_path: Path):
     # Definizione della funzione di cattura
     def handle_response(response):
         if "apiKey=SEDIA" in response.url and response.status == 200:
-            # ... logica di estrazione JSON che abbiamo visto prima ...
-            # Esempio: interception_results.append(nuovi_dati)
+            try:
+                data = response.json()
+                items = data.get("results", [])
+                for item in items:
+                    # AGGIUNGIAMO ALLA LISTA DEFINITA SOPRA
+                    interception_results.append({
+                        "id": item.get("identifier"),
+                        "title": item.get("title"),
+                        "link": f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{item.get('identifier')}",
+                        "deadline": item.get("deadlineDate")
+                    })
+                print(f"✅ Intercettate {len(items)} call dal JSON (XHR)")
+            except:
+                pass
 
     # Inizializzazione Playwright
     with sync_playwright() as p:
