@@ -30,7 +30,7 @@ jobs:
           pip install requests playwright
           playwright install chromium --with-deps
       - name: Scrape open/forthcoming EU calls
-        run: python scrape_to_json.py --out calls.json
+        run: xvfb-run python scrape_to_json.py --out calls.json
         timeout-minutes: 90
       - name: Commit calls.json
         run: |
