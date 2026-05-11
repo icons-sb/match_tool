@@ -37,15 +37,14 @@ from playwright.sync_api import sync_playwright
 SEARCH_API_URL  = "https://api.tech.ec.europa.eu/search-api/prod/rest/search"
 API_KEY         = "SEDIA"
 PAGE_SIZE       = 50          # max allowed by the API
-LANGUAGE        = None        # no language filter – fetch ALL records, deduplicate by id later
+LANGUAGE        = "en"        # filter to English records (avoids multilingual duplicates)
 REQUEST_DELAY   = 0.4         # seconds between API pages (be polite)
 ENRICH_DELAY    = 0.3         # seconds between detail-page visits
 
 # Status codes: 31094501 = Open, 31094502 = Forthcoming  (add 31094503 for Closed)
 STATUS_CODES    = ["31094501", "31094502"]
-# Types: "1"=Grants, "2"=Grants (indirect), "8"=Grants (budget)
-# Add "4","5","6","9" to catch all grant sub-types; keep "0" excluded (Tenders)
-CALL_TYPES      = ["1", "2", "4", "5", "6", "8", "9"]
+# Types: "1"=Grants, "2"=Grants (indirect), "8"=Grants (budget)  (add "0" for Tenders)
+CALL_TYPES      = ["1", "2", "8"]
 PROGRAMME_PERIOD = "2021 - 2027"
 
 SEARCH_API_PATH = "search-api/prod/rest/search"   # substring used to detect XHR calls
@@ -927,7 +926,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default=".", help="Output directory (default: current dir)")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
