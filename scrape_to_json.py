@@ -446,31 +446,31 @@ def wait_cookie_gone(page, max_ms=12000):
 def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
-def read_total(page, timeout_ms=30000):
-    print(" ⏳ In attesa della risposta dall'API SEDIA...")
-    try:
-        # Aspettiamo specificamente che l'API risponda
-        with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
-            data = response_info.value.json()
-            # Il campo esatto nel nuovo sistema è 'totalResults'
-            count = data.get("totalResults")
-            if count is not None:
-                print(f" ✅ Totale rilevato dall'API: {count}")
-                return int(count)
-    except Exception as e:
-        print(f" ⚠️ L'API non ha risposto in tempo o ha bloccato la richiesta.")
-        
-    # FALLBACK: Se l'API fallisce, proviamo a leggere il nuovo selettore CSS
-    try:
-        # Nella v1.0.15 il numero è spesso dentro una classe 'wt-count' o simile
-        page.wait_for_selector(".ecl-u-type-bold", timeout=5000) 
-        txt = page.locator("body").inner_text()
-        m = re.search(r"(\d[\d,\.]*)\s*(?:results?|items?|found)", txt, re.I)
-        if m:
-            return int(m.group(1).replace(",", "").replace(".", ""))
-    except:
-        pass
-    return None
+def extract_calls_from_xhr(page, timeout_ms=30000):
+    captured_data = {"calls": []}
+
+    def handle_response(response):
+        # Intercettiamo l'API SEDIA che abbiamo visto nei log
+        if "apiKey=SEDIA" in response.url and response.status == 200:
+            try:
+                data = response.json()
+                # La struttura tipica di SEDIA contiene una lista 'results' o 'items'
+                items = data.get("results") or data.get("items") or []
+                for item in items:
+                    captured_data["calls"].append({
+                        "id": item.get("identifier"),
+                        "title": item.get("title"),
+                        "deadline": item.get("deadlineDate"),
+                        "link": f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{item.get('identifier')}"
+                    })
+                print(f"✅ XHR: Intercettate {len(captured_data['calls'])} call dal flusso dati.")
+            except Exception as e:
+                print(f"⚠️ Errore parsing JSON XHR: {e}")
+
+    page.on("response", handle_response)
+    page.wait_for_timeout(5000) # Diamo tempo al portale Angular di caricare
+    
+    return captured_data["calls"]
         
         
 def scroll_until(page, expected, max_ms=50000):
