@@ -1417,6 +1417,7 @@ def enrich(ctx, rows: list):
     except Exception:
         pass
     print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
+  print(len(rows))
 
 # ── to_call (invariato) ───────────────────────────────────────────────────────
 
