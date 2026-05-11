@@ -470,6 +470,12 @@ def extract_budget_from_text(text: str) -> int:
 
 # ── Search API REST ───────────────────────────────────────────────────────────
 
+STATUS_FILTERS = [
+    ("31094502", "Forthcoming"),
+    ("31094501", "Open for submission"),
+]
+
+
 def _build_search_url(page_num: int) -> str:
     params = {
         "apiKey": SEARCH_API_KEY,
@@ -482,27 +488,27 @@ def _build_search_url(page_num: int) -> str:
     return SEARCH_API_BASE + "?" + urllib.parse.urlencode(params)
 
 
-def _build_query_obj() -> dict:
+def _build_query_obj(status_code: str) -> dict:
     """
     Query della Search API.
 
-    Nota: se vuoi limitare ai programmi 2021-2027, aggiungi questo blocco in must:
-        {"terms": {"programmePeriod": ["2021 - 2027"]}}
-
-    Nel tuo caso lo lascio fuori perché quel filtro riduce il totale a circa 608.
-    Con solo type + status dovresti ottenere il totale atteso, cioè circa 787.
+    Nota importante:
+    il portale mostra 456 Open + 331 Forthcoming = 787.
+    La chiamata con status=[31094501,31094502] non replica quel totale: lato API
+    può restituire meno risultati. Per questo interroghiamo i due stati separatamente
+    e poi uniamo i risultati senza perdere righe.
     """
     return {
         "bool": {
             "must": [
                 {"terms": {"type": ["1"]}},
-                {"terms": {"status": ["31094501", "31094502"]}},
+                {"terms": {"status": [status_code]}},
             ]
         }
     }
 
 
-def _fetch_json(url: str, retries: int = 3) -> dict:
+def _fetch_json(url: str, status_code: str, retries: int = 3) -> dict:
     """Scarica e parsa JSON dalla Search API usando POST multipart/form-data."""
     headers_base = {
         "Accept": "application/json, text/plain, */*",
@@ -516,7 +522,7 @@ def _fetch_json(url: str, retries: int = 3) -> dict:
         "Referer": "https://ec.europa.eu/info/funding-tenders/opportunities/portal/",
     }
 
-    query_obj = _build_query_obj()
+    query_obj = _build_query_obj(status_code)
 
     for attempt in range(1, retries + 1):
         try:
@@ -524,18 +530,24 @@ def _fetch_json(url: str, retries: int = 3) -> dict:
             parts = []
 
             def add_part(name, value, content_type=None):
-                parts.append(f"--{boundary}\r\n".encode("utf-8"))
-                parts.append(f'Content-Disposition: form-data; name="{name}"\r\n'.encode("utf-8"))
+                parts.append(f"--{boundary}
+".encode("utf-8"))
+                parts.append(f'Content-Disposition: form-data; name="{name}"
+'.encode("utf-8"))
                 if content_type:
-                    parts.append(f"Content-Type: {content_type}\r\n".encode("utf-8"))
-                parts.append(b"\r\n")
+                    parts.append(f"Content-Type: {content_type}
+".encode("utf-8"))
+                parts.append(b"
+")
                 parts.append(value.encode("utf-8"))
-                parts.append(b"\r\n")
+                parts.append(b"
+")
 
             add_part("query", json.dumps(query_obj), "application/json")
             add_part("languages", json.dumps(["en"]), "application/json")
             add_part("displayLanguage", "en", "text/plain")
-            parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+            parts.append(f"--{boundary}--
+".encode("utf-8"))
 
             body = b"".join(parts)
             headers = dict(headers_base)
@@ -580,8 +592,7 @@ def _metadata(result: dict) -> dict:
 def _result_to_url(result: dict) -> str:
     """
     Ricava l'URL della singola topic/call.
-    Importante: topicIdentifier deve venire prima di callIdentifier, altrimenti
-    molte topic diverse vengono deduplicate sotto la stessa call generale.
+    Importante: topicIdentifier deve venire prima di callIdentifier.
     """
     meta = _metadata(result)
 
@@ -611,10 +622,18 @@ def _result_to_url(result: dict) -> str:
 
 
 def _result_uid(row: dict) -> str:
-    return row.get("topic_id") or row.get("url") or row.get("call_id") or row.get("name") or ""
+    # Manteniamo status nel UID: se il portale mostra una riga per status,
+    # non vogliamo collassarla accidentalmente.
+    return "|".join([
+        row.get("submission_status_code") or "",
+        row.get("topic_id") or "",
+        row.get("url") or "",
+        row.get("call_id") or "",
+        row.get("name") or "",
+    ])
 
 
-def _result_to_row(result: dict) -> dict | None:
+def _result_to_row(result: dict, status_code: str = "", status_label: str = "") -> dict | None:
     meta = _metadata(result)
 
     title = (
@@ -677,6 +696,8 @@ def _result_to_row(result: dict) -> dict | None:
         "name": title,
         "topic_id": topic_id,
         "call_id": call_id,
+        "submission_status_code": status_code,
+        "submission_status": status_label,
         "programme_raw": prog,
         "action_raw": action,
         "cluster_raw": cluster_raw,
@@ -688,12 +709,12 @@ def _result_to_row(result: dict) -> dict | None:
     }
 
 
-def fetch_all_calls_via_api() -> list:
-    print("═══ Passo 1: raccolta lista call via Search API REST ═══", flush=True)
+def _fetch_one_status(status_code: str, status_label: str) -> list:
+    print(f"
+  Stato: {status_label} ({status_code})", flush=True)
 
     first_url = _build_search_url(1)
-    print(f"  → {first_url[:120]}…", flush=True)
-    first_data = _fetch_json(first_url)
+    first_data = _fetch_json(first_url, status_code)
 
     total = _extract_total(first_data)
     results_first = _extract_results(first_data)
@@ -703,7 +724,7 @@ def fetch_all_calls_via_api() -> list:
         print(f"  totalResults non trovato, uso len(results)={total}", flush=True)
 
     max_pages = max(1, math.ceil(total / PAGE_SIZE))
-    print(f"  Totale call: {total} | Pagine: {max_pages}", flush=True)
+    print(f"  Totale {status_label}: {total} | Pagine: {max_pages}", flush=True)
 
     rows = []
     seen_ids = set()
@@ -711,7 +732,7 @@ def fetch_all_calls_via_api() -> list:
     def _process_page(data: dict) -> int:
         added = 0
         for result in _extract_results(data):
-            row = _result_to_row(result)
+            row = _result_to_row(result, status_code, status_label)
             if not row:
                 continue
             uid = _result_uid(row)
@@ -722,17 +743,53 @@ def fetch_all_calls_via_api() -> list:
         return added
 
     added = _process_page(first_data)
-    print(f"  [p1/{max_pages}] +{added} call", flush=True)
+    print(f"  [{status_label} p1/{max_pages}] +{added} call", flush=True)
 
     for pnum in range(2, max_pages + 1):
         url = _build_search_url(pnum)
-        data = _fetch_json(url)
+        data = _fetch_json(url, status_code)
         added = _process_page(data)
-        print(f"  [p{pnum}/{max_pages}] +{added} call (totale: {len(rows)})", flush=True)
+        print(f"  [{status_label} p{pnum}/{max_pages}] +{added} call (totale stato: {len(rows)})", flush=True)
         time.sleep(0.3)
 
-    print(f"\n  ✅ Raccolta completata: {len(rows)} call univoche", flush=True)
+    if len(rows) != total:
+        print(
+            f"  ⚠️ Attenzione: API dichiara {total}, righe univoche raccolte {len(rows)} per {status_label}",
+            flush=True,
+        )
+
     return rows
+
+
+def fetch_all_calls_via_api() -> list:
+    print("═══ Passo 1: raccolta lista call via Search API REST ═══", flush=True)
+    print("  Modalità: interrogo separatamente Forthcoming e Open for submission", flush=True)
+
+    all_rows = []
+    global_seen = set()
+    expected_total = 0
+
+    for status_code, status_label in STATUS_FILTERS:
+        rows = _fetch_one_status(status_code, status_label)
+        expected_total += len(rows)
+
+        for row in rows:
+            uid = _result_uid(row)
+            if uid and uid not in global_seen:
+                global_seen.add(uid)
+                all_rows.append(row)
+
+    print(f"
+  Totale atteso da somma stati: {expected_total}", flush=True)
+    print(f"  ✅ Raccolta completata: {len(all_rows)} call/righe univoche", flush=True)
+
+    if len(all_rows) != expected_total:
+        print(
+            f"  ⚠️ Deduplica globale: rimosse {expected_total - len(all_rows)} righe duplicate tra stati",
+            flush=True,
+        )
+
+    return all_rows
 
 # ── Playwright — arricchimento dettagli ───────────────────────────────────────
 
@@ -1156,6 +1213,7 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
+
 
 
 
