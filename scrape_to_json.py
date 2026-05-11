@@ -923,7 +923,16 @@ def main(out_path: Path):
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         page = ctx.new_page()
-        playwright_stealth.stealth_sync(page)
+        try:
+            if hasattr(playwright_stealth, 'stealth_sync'):
+                playwright_stealth.stealth_sync(page)
+            elif hasattr(playwright_stealth, 'stealth'):
+                from playwright_stealth.stealth import stealth as _st
+                _st(page)
+            else:
+                print("⚠️ Impossibile applicare stealth, procedo comunque...")
+        except Exception as e:
+            print(f"⚠️ Errore stealth ignorato: {e}")
 
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
