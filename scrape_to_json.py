@@ -928,10 +928,19 @@ def main(out_path: Path):
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
                   wait_until="networkidle", timeout=90000)
+
+        print(f"DEBUG: Status code della pagina: {page.evaluate('window.performance.getEntries()[0].responseStatus')}")
+        # Forza l'accettazione dei cookie (spesso l'API SEDIA non parte senza questo)
+        try:
+            cookie_button = page.get_by_role("button", name="Accept all cookies")
+            if cookie_button.is_visible():
+                cookie_button.click()
+                print("✅ Cookie accettati")
+                page.wait_for_timeout(4000)
+                except:
+                    pass
         
-        page.wait_for_timeout(4000) # Attesa extra per il rendering dei nuovi script
-        accept_cookies(page)
-        wait_cookie_gone(page)
+        
 
         total = read_total(page)
 
