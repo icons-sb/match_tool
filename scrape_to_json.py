@@ -446,44 +446,29 @@ def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
 def read_total(page, timeout_ms=30000):
-    """
-    Recupera il totale intercettando la risposta dell'API SEDIA.
-    """
-    total_found = {"value": None}
-
-    def capture_total(response):
-        if SEARCH_API in response.url and response.status == 200:
-            try:
-                data = response.json()
-                # SEDIA usa solitamente 'totalResults' o 'total'
-                count = data.get("totalResults") or data.get("total")
-                if count is not None:
-                    total_found["value"] = int(count)
-            except: pass
-
-    page.on("response", capture_total)
-
-    start = time.time()
-    while (time.time() - start) * 1000 < timeout_ms:
-        # Se l'API ha risposto, restituiamo il dato certo
-        if total_found["value"] is not None:
-            print(f" ✅ Totale letto dall'API SEDIA: {total_found['value']}")
-            page.remove_listener("response", capture_total)
-            return total_found["value"]
+    print(" ⏳ In attesa della risposta dall'API SEDIA...")
+    try:
+        # Aspettiamo specificamente che l'API risponda
+        with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
+            data = response_info.value.json()
+            # Il campo esatto nel nuovo sistema è 'totalResults'
+            count = data.get("totalResults")
+            if count is not None:
+                print(f" ✅ Totale rilevato dall'API: {count}")
+                return int(count)
+    except Exception as e:
+        print(f" ⚠️ L'API non ha risposto in tempo o ha bloccato la richiesta.")
         
-        # Fallback testuale per sicurezza
-        try:
-            txt = page.locator("body").inner_text()
-            m = RE_TOTAL.search(txt)
-            if m:
-                raw = m.group(1).replace(",", "").replace(".", "")
-                page.remove_listener("response", capture_total)
-                return int(raw)
-        except: pass
-        
-        page.wait_for_timeout(1000)
-
-    page.remove_listener("response", capture_total)
+    # FALLBACK: Se l'API fallisce, proviamo a leggere il nuovo selettore CSS
+    try:
+        # Nella v1.0.15 il numero è spesso dentro una classe 'wt-count' o simile
+        page.wait_for_selector(".ecl-u-type-bold", timeout=5000) 
+        txt = page.locator("body").inner_text()
+        m = re.search(r"(\d[\d,\.]*)\s*(?:results?|items?|found)", txt, re.I)
+        if m:
+            return int(m.group(1).replace(",", "").replace(".", ""))
+    except:
+        pass
     return None
         
         
@@ -932,7 +917,7 @@ def main(out_path: Path):
     seen_urls = set()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)
         ctx = browser.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
