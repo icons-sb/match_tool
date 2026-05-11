@@ -238,40 +238,45 @@ def build_query() -> dict:
     }
 
 
+# ── Dedicated topic-search endpoint (used by the portal frontend) ─────────────
+
+TOPIC_SEARCH_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/data/topicSearch"
+
 def fetch_all_calls_via_api() -> list[dict]:
+    """
+    Use the portal's own topic-search REST endpoint, which accepts native filters
+    (typeCodes, statusCodes, programmePeriod) and paginates reliably.
+    This is the same API the portal frontend calls — discovered by inspecting XHR.
+    """
     session = requests.Session()
     session.headers.update({
-        "User-Agent":   "Mozilla/5.0 (compatible; EU-FT-Scraper/2.0)",
-        "Accept":       "application/json",
-        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; EU-FT-Scraper/2.0)",
+        "Accept":     "application/json",
     })
 
-    all_rows = []
-    page_num = 1
+    all_rows      = []
+    page_num      = 1
     total_results = None
 
-    print("═══ Step 1: Fetching all calls via REST API ═══")
+    print("═══ Step 1: Fetching all calls via topic-search API ═══")
 
     while True:
         params = {
-            "apiKey":     API_KEY,
-            "text":       "***",
-            "pageSize":   PAGE_SIZE,
-            "pageNumber": page_num,
+            "typeCodes":       ",".join(CALL_TYPES),
+            "statusCodes":     ",".join(STATUS_CODES),
+            "programmePeriod": PROGRAMME_PERIOD,
+            "pageNumber":      page_num,
+            "pageSize":        PAGE_SIZE,
+            "sortQuery":       "startDate",
+            "orderBy":         "desc",
+            "onlyTenders":     "false",
         }
-        if LANGUAGE:
-            params["language"] = LANGUAGE
-
-        payload = {"query": build_query()}
 
         for attempt in range(1, 4):
             try:
-                req = requests.Request("POST", SEARCH_API_URL, params=params, json=payload)
-                prepared = session.prepare_request(req)
-                if page_num == 1:
-                    print(f"\n[DEBUG] URL:  {prepared.url}")
-                    print(f"[DEBUG] Body: {prepared.body}\n")
-                resp = session.send(prepared, timeout=30)
+                resp = session.get(TOPIC_SEARCH_URL, params=params, timeout=30)
+                if page_num == 1 and attempt == 1:
+                    print(f"\n[DEBUG] URL: {resp.url}\n")
                 resp.raise_for_status()
                 body = resp.json()
                 break
@@ -282,77 +287,67 @@ def fetch_all_calls_via_api() -> list[dict]:
                 time.sleep(2 * attempt)
 
         if total_results is None:
-            total_results = body.get("totalResults", 0)
-            total_pages = math.ceil(total_results / PAGE_SIZE)
+            total_results = body.get("totalResults", body.get("total", 0))
+            total_pages   = math.ceil(total_results / PAGE_SIZE) if total_results else 1
             print(f"  Total results: {total_results} | Pages: {total_pages}")
-            # DEBUG: print first raw result to inspect field names
-            if body.get("results"):
-                import pprint
-                print("\n[DEBUG] First raw result:")
-                pprint.pprint(body["results"][0])
-                print()
+            if page_num == 1:
+                # DEBUG: show top-level keys and first item keys
+                print(f"  [DEBUG] Response keys: {list(body.keys())}")
+                items = body.get("results", body.get("topicResults", body.get("topics", [])))
+                if items:
+                    print(f"  [DEBUG] First item keys: {list(items[0].keys())[:15]}\n")
 
-        results = body.get("results", [])
-        if not results:
+        items = body.get("results", body.get("topicResults", body.get("topics", [])))
+
+        if not items:
             print(f"  Page {page_num}: no results returned, stopping.")
             break
 
-        accepted = 0
-        for item in results:
-            meta = item.get("metadata", {}) or {}
-            url_raw = item.get("url", "") or ""
-            # Build canonical portal URL from callIdentifier if url is NA/missing
-            identifier_list = meta.get("identifier") or meta.get("callIdentifier") or []
-            identifier = identifier_list[0] if isinstance(identifier_list, list) and identifier_list else str(identifier_list or "")
-            if url_raw and url_raw != "NA":
-                portal_url = url_raw
-            elif identifier:
-                portal_url = f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{identifier}"
-            else:
-                portal_url = ""
+        for item in items:
+            # The topic-search API returns flat fields, not nested metadata
+            identifier  = item.get("identifier") or item.get("callIdentifier") or item.get("topicCode") or ""
+            title       = item.get("title") or item.get("topicTitle") or identifier or ""
+            prog_id     = str(item.get("frameworkProgramme") or item.get("programmeCcm2Id") or "")
+            prog_name   = PROGRAMME_MAP.get(prog_id, prog_id)
+            action_raw  = item.get("typeOfAction") or item.get("typesOfAction") or ""
+            if isinstance(action_raw, list):
+                action_raw = action_raw[0] if action_raw else ""
+            deadline_raw = item.get("deadlineDate") or item.get("closingDate") or ""
+            if isinstance(deadline_raw, list):
+                deadline_raw = deadline_raw[0] if deadline_raw else ""
+            opening_raw  = item.get("startDate") or item.get("openingDate") or ""
+            if isinstance(opening_raw, list):
+                opening_raw = opening_raw[0] if opening_raw else ""
 
-            # Normalise programme ID → name
-            fp_list = meta.get("frameworkProgramme") or []
-            fp_id = fp_list[0] if isinstance(fp_list, list) and fp_list else str(fp_list or "")
-            prog_name = PROGRAMME_MAP.get(fp_id, fp_id)
-
-            # Deadline / opening from metadata
-            deadline_list = meta.get("deadlineDate") or meta.get("closingDate") or []
-            deadline_raw  = deadline_list[0] if isinstance(deadline_list, list) and deadline_list else str(deadline_list or "")
-
-            opening_list  = meta.get("startDate") or []
-            opening_raw   = opening_list[0] if isinstance(opening_list, list) and opening_list else str(opening_list or "")
-
-            action_list   = meta.get("typesOfAction") or meta.get("typeOfAction") or []
-            action_raw    = action_list[0] if isinstance(action_list, list) and action_list else str(action_list or "")
-
-            title_list    = meta.get("title") or []
-            title         = title_list[0] if isinstance(title_list, list) and title_list else (item.get("content") or identifier or "")
-
-            call_id_list  = meta.get("callIdentifier") or meta.get("identifier") or []
-            call_id       = call_id_list[0] if isinstance(call_id_list, list) and call_id_list else str(call_id_list or "")
+            url_raw = item.get("url") or ""
+            if not url_raw or url_raw == "NA":
+                url_raw = (
+                    f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/"
+                    f"screen/opportunities/topic-details/{identifier}"
+                ) if identifier else ""
 
             all_rows.append({
-                "name":          clean(title),
-                "call_id":       call_id,
+                "name":          clean(str(title)),
+                "call_id":       str(identifier),
                 "programme_raw": prog_name,
-                "action_raw":    action_raw,
+                "action_raw":    str(action_raw),
                 "cluster_raw":   "",
-                "opening_raw":   opening_raw,
-                "deadline_raw":  deadline_raw,
-                "url":           portal_url,
+                "opening_raw":   str(opening_raw),
+                "deadline_raw":  str(deadline_raw),
+                "url":           url_raw,
                 "full_text":     "",
-                "_api_meta":     meta,   # keep for enrichment fallback
+                "_api_meta":     item,
             })
-            accepted += 1
 
-        fetched_so_far = (page_num - 1) * PAGE_SIZE + len(results)
-        print(f"  Page {page_num}/{total_pages}: +{len(results)} rows  accepted={accepted}  (total so far: {fetched_so_far}/{total_results})", flush=True)
+        fetched_so_far = (page_num - 1) * PAGE_SIZE + len(items)
+        print(f"  Page {page_num}/{total_pages}: +{len(items)} rows  (total so far: {fetched_so_far}/{total_results})", flush=True)
 
-        if fetched_so_far >= total_results:
+        if fetched_so_far >= total_results or not items:
             break
         page_num += 1
         time.sleep(REQUEST_DELAY)
+
+
 
     # Deduplicate by call_id first, then by URL.
     # Using URL alone was lossy: records without URL were keyed on call_id,
