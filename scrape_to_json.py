@@ -446,31 +446,31 @@ def wait_cookie_gone(page, max_ms=12000):
 def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
-def extract_calls_from_xhr(page, timeout_ms=30000):
-    captured_data = {"calls": []}
-
-    def handle_response(response):
-        # Intercettiamo l'API SEDIA che abbiamo visto nei log
-        if "apiKey=SEDIA" in response.url and response.status == 200:
-            try:
-                data = response.json()
-                # La struttura tipica di SEDIA contiene una lista 'results' o 'items'
-                items = data.get("results") or data.get("items") or []
-                for item in items:
-                    captured_data["calls"].append({
-                        "id": item.get("identifier"),
-                        "title": item.get("title"),
-                        "deadline": item.get("deadlineDate"),
-                        "link": f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{item.get('identifier')}"
-                    })
-                print(f"✅ XHR: Intercettate {len(captured_data['calls'])} call dal flusso dati.")
-            except Exception as e:
-                print(f"⚠️ Errore parsing JSON XHR: {e}")
-
-    page.on("response", handle_response)
-    page.wait_for_timeout(5000) # Diamo tempo al portale Angular di caricare
-    
-    return captured_data["calls"]
+def read_total(page, timeout_ms=30000):
+    print(" ⏳ In attesa della risposta dall'API SEDIA...")
+    try:
+        # Aspettiamo specificamente che l'API risponda
+        with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
+            data = response_info.value.json()
+            # Il campo esatto nel nuovo sistema è 'totalResults'
+            count = data.get("totalResults")
+            if count is not None:
+                print(f" ✅ Totale rilevato dall'API: {count}")
+                return int(count)
+    except Exception as e:
+        print(f" ⚠️ L'API non ha risposto in tempo o ha bloccato la richiesta.")
+        
+    # FALLBACK: Se l'API fallisce, proviamo a leggere il nuovo selettore CSS
+    try:
+        # Nella v1.0.15 il numero è spesso dentro una classe 'wt-count' o simile
+        page.wait_for_selector(".ecl-u-type-bold", timeout=5000) 
+        txt = page.locator("body").inner_text()
+        m = re.search(r"(\d[\d,\.]*)\s*(?:results?|items?|found)", txt, re.I)
+        if m:
+            return int(m.group(1).replace(",", "").replace(".", ""))
+    except:
+        pass
+    return None
         
         
 def scroll_until(page, expected, max_ms=50000):
@@ -911,6 +911,27 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         history_path.write_text(header, encoding="utf-8")
     print(f"📋 History aggiornata: {history_path}")
 
+def extract_from_json(json_data):
+    extracted_calls = []
+    # Prendiamo la lista 'results' che hai postato
+    items = json_data.get("results", [])
+    
+    for item in items:
+        # Estraiamo i campi basandoci sulla struttura SEDIA
+        call_id = item.get("identifier")
+        title = item.get("title")
+        
+        # Costruiamo l'URL usando l'identifier
+        link = f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{call_id}"
+        
+        extracted_calls.append({
+            "id": call_id,
+            "title": title,
+            "link": link,
+            # Aggiungi altri campi se presenti nel JSON (es. deadline)
+        })
+    return extracted_calls
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(out_path: Path):
@@ -935,50 +956,30 @@ def main(out_path: Path):
             print(f"⚠️ Errore stealth ignorato: {e}")
 
         # ── Passo 1: lista ────────────────────────────────────────────────────
-        page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
-                  wait_until="networkidle", timeout=90000)
+        all_calls = []
+        
+        def handle_response(response):
+            if "apiKey=SEDIA" in response.url and response.status == 200:
+                try:
+                    data = response.json()
+                    new_calls = extract_from_json(data)
+                    all_calls.extend(new_calls)
+                    print(f"✅ Intercettate {len(new_calls)} call dal JSON (XHR)")
+                except Exception as e:
+                    print(f"❌ Errore nel parsing del JSON: {e}")
 
-        print(f"DEBUG: Status code della pagina: {page.evaluate('window.performance.getEntries()[0].responseStatus')}")
-        # Forza l'accettazione dei cookie (spesso l'API SEDIA non parte senza questo)
+# Registra il listener prima di andare sulla pagina
+        page.on("response", handle_response)
+
+# Vai sulla pagina
+        page.goto(LIST_URL, wait_until="networkidle")
+
+# IMPORTANTE: Clicca i cookie per sbloccare l'invio dei dati
         try:
-            cookie_button = page.get_by_role("button", name="Accept all cookies")
-            if cookie_button.is_visible():
-                cookie_button.click()
-                print("✅ Cookie accettati")
-                page.wait_for_timeout(4000)
+            page.get_by_role("button", name=re.compile(r"Accept all cookies", re.I)).click()
+            page.wait_for_timeout(3000) # Aspetta che il JSON arrivi
         except:
             pass
-        
-        
-
-        total = read_total(page)
-
-        if total is None:
-            print("❌ Non riesco a leggere il contatore delle call.")
-            browser.close()
-            return
-        max_pages = math.ceil(total / PAGE_SIZE)
-        print(f"✅ Totale: {total} call | pagine: {max_pages}")
-
-        for pnum in range(1, max_pages + 1):
-            remaining = total - (pnum - 1) * PAGE_SIZE
-            expected  = min(PAGE_SIZE, remaining)
-            url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
-            print(f"\n[p{pnum}/{max_pages}] attese ~{expected}", end="", flush=True)
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            page.wait_for_timeout(1200)
-            accept_cookies(page)
-            wait_cookie_gone(page)
-
-            scroll_until(page, expected=expected)
-            links     = extract_links(page)
-            new_links = [u for u in links if u not in seen_urls]
-            print(f" → trovati {len(new_links)} nuovi", flush=True)
-
-            for u in new_links:
-                seen_urls.add(u)
-                rows.append(parse_card(page, u))
-            time.sleep(0.1)
 
         # ── Passo 2: arricchimento ────────────────────────────────────────────
         print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
@@ -1035,6 +1036,57 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
