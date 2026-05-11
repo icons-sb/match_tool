@@ -53,7 +53,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install requests playwright
           playwright install chromium --with-deps
       - name: Scrape batch 1/5
         run: python scrape_closed_calls.py --batch 1 --total-batches 5 --out closed_calls_batch_1.json
