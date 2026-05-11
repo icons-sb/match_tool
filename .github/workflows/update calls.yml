@@ -27,7 +27,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install requests playwright
           playwright install chromium --with-deps
       - name: Scrape open/forthcoming EU calls
         run: python scrape_to_json.py --out calls.json
@@ -101,7 +101,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install requests playwright
           playwright install chromium --with-deps
       - name: Scrape batch 3/5
         run: python scrape_closed_calls.py --batch 3 --total-batches 5 --out closed_calls_batch_3.json
@@ -125,7 +125,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install requests playwright
           playwright install chromium --with-deps
       - name: Scrape batch 4/5
         run: python scrape_closed_calls.py --batch 4 --total-batches 5 --out closed_calls_batch_4.json
@@ -149,7 +149,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install requests playwright
           playwright install chromium --with-deps
       - name: Scrape batch 5/5
         run: python scrape_closed_calls.py --batch 5 --total-batches 5 --out closed_calls_batch_5.json
