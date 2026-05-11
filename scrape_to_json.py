@@ -37,14 +37,15 @@ from playwright.sync_api import sync_playwright
 SEARCH_API_URL  = "https://api.tech.ec.europa.eu/search-api/prod/rest/search"
 API_KEY         = "SEDIA"
 PAGE_SIZE       = 50          # max allowed by the API
-LANGUAGE        = "en"        # filter to English records (avoids multilingual duplicates)
+LANGUAGE        = None        # no language filter – fetch ALL records, deduplicate by id later
 REQUEST_DELAY   = 0.4         # seconds between API pages (be polite)
 ENRICH_DELAY    = 0.3         # seconds between detail-page visits
 
 # Status codes: 31094501 = Open, 31094502 = Forthcoming  (add 31094503 for Closed)
 STATUS_CODES    = ["31094501", "31094502"]
-# Types: "1"=Grants, "2"=Grants (indirect), "8"=Grants (budget)  (add "0" for Tenders)
-CALL_TYPES      = ["1", "2", "8"]
+# Types: "1"=Grants, "2"=Grants (indirect), "8"=Grants (budget)
+# Add "4","5","6","9" to catch all grant sub-types; keep "0" excluded (Tenders)
+CALL_TYPES      = ["1", "2", "4", "5", "6", "8", "9"]
 PROGRAMME_PERIOD = "2021 - 2027"
 
 SEARCH_API_PATH = "search-api/prod/rest/search"   # substring used to detect XHR calls
@@ -223,12 +224,17 @@ TOPIC_KEYWORDS = {
 # ── NEW: fetch ALL calls via the official REST API ─────────────────────────────
 
 def build_query(page_number: int) -> dict:
+    """
+    Build the POST body query for the Search API.
+    Pagination is done via 'from' (0-based offset) rather than pageNumber,
+    which is the correct way to paginate SEDIA's Elasticsearch-backed API.
+    """
     return {
         "bool": {
             "must": [
-                {"terms": {"type": CALL_TYPES}},        # Solo Grant
-                {"terms": {"status": STATUS_CODES}},   # Solo Open/Forthcoming
-                {"term":  {"programmePeriod": PROGRAMME_PERIOD}} # Solo 2021-2027
+                {"terms": {"type": CALL_TYPES}},
+                {"terms": {"status": STATUS_CODES}},
+                {"term":  {"programmePeriod": PROGRAMME_PERIOD}},
             ]
         }
     }
@@ -269,8 +275,9 @@ def fetch_all_calls_via_api() -> list[dict]:
         }
         form_data = {
             "query": json.dumps(build_query(page_num)),
-            "languages": json.dumps([LANGUAGE]),
         }
+        if LANGUAGE:
+            form_data["languages"] = json.dumps([LANGUAGE])
 
         for attempt in range(1, 4):
             try:
@@ -354,14 +361,28 @@ def fetch_all_calls_via_api() -> list[dict]:
         page_num += 1
         time.sleep(REQUEST_DELAY)
 
-    # Deduplicate by URL (same topic can appear under multiple API pages if multilingual)
+    # Deduplicate by call_id first, then by URL.
+    # Using URL alone was lossy: records without URL were keyed on call_id,
+    # causing legitimate rows with the same call_id but different URLs to be dropped.
+    seen_ids  = set()
     seen_urls = set()
-    deduped = []
+    deduped   = []
     for row in all_rows:
-        key = row["url"] or row["call_id"]
-        if key and key not in seen_urls:
-            seen_urls.add(key)
-            deduped.append(row)
+        cid = row["call_id"]
+        url = row["url"]
+        # Primary key: call_id when available
+        if cid:
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+        elif url:
+            if url in seen_urls:
+                continue
+        else:
+            pass  # no key – keep it anyway (shouldn't happen often)
+        if url:
+            seen_urls.add(url)
+        deduped.append(row)
 
     print(f"\n  ✅ {len(deduped)} unique calls collected (raw: {len(all_rows)})")
     return deduped
@@ -906,7 +927,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default=".", help="Output directory (default: current dir)")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
