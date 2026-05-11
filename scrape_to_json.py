@@ -223,13 +223,12 @@ TOPIC_KEYWORDS = {
 # ── NEW: fetch ALL calls via the official REST API ─────────────────────────────
 
 def build_query(page_number: int) -> dict:
-    # This specific structure is required to get the ~787 grants
     return {
         "bool": {
             "must": [
-                { "terms": { "type": ["1", "2", "8"] } },        # Grants only
-                { "terms": { "status": ["31094501", "31094502"] } }, # Open & Forthcoming
-                { "term":  { "programmePeriod": "2021 - 2027" } }    # Current period
+                {"terms": {"type": CALL_TYPES}},        # Solo Grant
+                {"terms": {"status": STATUS_CODES}},   # Solo Open/Forthcoming
+                {"term":  {"programmePeriod": PROGRAMME_PERIOD}} # Solo 2021-2027
             ]
         }
     }
