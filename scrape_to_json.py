@@ -31,7 +31,7 @@ LIST_URL = (
     "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
 )
 
-SEARCH_API  = "search-api/prod/rest/search"
+SEARCH_API  = "apiKey=SEDIA"
 COOKIE_TEXT = "This site uses cookies"
 
 LINK_SELECTOR = (
