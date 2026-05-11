@@ -530,24 +530,18 @@ def _fetch_json(url: str, status_code: str, retries: int = 3) -> dict:
             parts = []
 
             def add_part(name, value, content_type=None):
-                parts.append(("--" + boundary + "
-").encode("utf-8"))
-                parts.append(f'Content-Disposition: form-data; name=\"" + name + "\"
-'.encode("utf-8"))
+                parts.append(("--" + boundary + " ").encode("utf-8"))
+                parts.append(f'Content-Disposition: form-data; name=\"" + name + "\"'.encode("utf-8"))
                 if content_type:
-                    parts.append(f"Content-Type: {content_type}
-".encode("utf-8"))
-                parts.append(b"
-")
+                    parts.append(f"Content-Type: {content_type}".encode("utf-8"))
+                parts.append(b"")
                 parts.append(value.encode("utf-8"))
-                parts.append(b"
-")
+                parts.append(b"")
 
             add_part("query", json.dumps(query_obj), "application/json")
             add_part("languages", json.dumps(["en"]), "application/json")
             add_part("displayLanguage", "en", "text/plain")
-            parts.append(f"--{boundary}--
-".encode("utf-8"))
+            parts.append(f"--{boundary}--".encode("utf-8"))
 
             body = b"".join(parts)
             headers = dict(headers_base)
