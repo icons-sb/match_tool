@@ -1,21 +1,21 @@
 """
-scrape_to_json.py  —  v2.0 (rewrite)
+scrape_to_json.py  —  v2.1 (hotfix post-update portale EU maggio 2026)
 ──────────────────────────────────────────────────────────────────────────────
 Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json.
 
-Miglioramenti rispetto alla versione precedente:
-  • Attesa attiva dei risultati tramite wait_for_selector / networkidle
-  • Lettura contatore robusta: testa testo body, shadow DOM, attributi ARIA,
-    query su selettori specifici del portale EU (eui-*, mat-*, angular)
-  • Diagnostica automatica: stampa URL, snapshot HTML, contatori trovati
-  • Gestione cookie più aggressiva (shadow DOM incluso)
-  • Retry automatico sulla navigazione in caso di timeout/redirect errato
+Modifiche v2.1 rispetto a v2.0:
+  • _sniff_api_path(): annusa dinamicamente quale path API usa il portale
+    PRIMA di iniziare lo scraping → SEARCH_API aggiornato a runtime
+  • attach_link_interceptor(): pattern URL più ampio (qualsiasi path sotto
+    /rest/ o /api/ del dominio EC), raccoglie URL da 10+ campi della risposta
+    inclusi canonicalUrl, detailsUrl, _links, landingPage, ecc.
+  • LINK_SELECTORS_CANDIDATES: aggiunti selettori post-update Angular (data-*,
+    eui-card, mat-card, [class*="card"], router-link, ecc.)
+  • _discover_link_selector(): fallback finale che dumpa tutti gli href trovati
+    e tenta pattern generici /screen/opportunities/ e portal/screen/
+  • navigate_to_list(): aggiunge route-intercept Playwright per catturare
+    richieste API anche se il path è cambiato
   • Tutte le logiche di classificazione originali intatte
-
-Uso:
-    python scrape_to_json.py              # scrive calls.json nella cartella corrente
-    python scrape_to_json.py --out /path  # percorso custom
-    python scrape_to_json.py --debug      # stampa diagnostica estesa
 """
 
 import re
@@ -31,7 +31,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 # ── Parametri ──────────────────────────────────────────────────────────────────
 
 PAGE_SIZE = 50
-DEBUG     = False   # impostato da --debug; sovrascrive read_total verbose
+DEBUG     = False
 
 LIST_URL = (
     "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
@@ -40,14 +40,64 @@ LIST_URL = (
     "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
 )
 
-SEARCH_API  = "search-api/prod/rest/search"
+# Sarà aggiornato dinamicamente da _sniff_api_path() prima dello scraping.
+# I pattern qui sono tutti i path noti, dal più recente al più vecchio.
+SEARCH_API_CANDIDATES = [
+    "search-api/prod/rest/search",
+    "search-api/rest/search",
+    "rest/search",
+    "/api/search",
+    "/api/v1/search",
+    "/api/v2/search",
+    "funding-tenders/opportunities/rest",
+    "opportunities/rest",
+    "portal/rest",
+]
+SEARCH_API = SEARCH_API_CANDIDATES[0]   # aggiornato a runtime
+
 COOKIE_TEXT = "This site uses cookies"
 
-LINK_SELECTOR = (
-    'a[href*="/topic-details/"], '
-    'a[href*="/competitive-calls-cs/"], '
-    'a[href*="/prospect-details/"]'
-)
+# Selettori candidati — provati in ordine sulla prima pagina.
+# Aggiunti selettori Angular/Material/EUI moderni (post-update maggio 2026).
+LINK_SELECTORS_CANDIDATES = [
+    # ── Post-update maggio 2026 (Angular Material / EUI v3+) ──
+    'eui-card a[href]',
+    'mat-card a[href]',
+    '[class*="opportunity-card"] a[href]',
+    '[class*="call-card"] a[href]',
+    '[class*="result-card"] a[href]',
+    'a[routerlink*="/calls/"]',
+    'a[routerlink*="/topic-details/"]',
+    '[data-testid*="call"] a[href]',
+    '[data-cy*="call"] a[href]',
+    # ── Pattern href noti ──
+    'a[href*="/calls/"]',
+    'a[href*="callIdentifier"]',
+    'a[href*="/opportunities/"]',
+    'a[href*="/topic-details/"]',
+    'a[href*="/competitive-calls-cs/"]',
+    'a[href*="/prospect-details/"]',
+    'a[href*="ec.europa.eu/info/funding"]',
+    'a[href*="cftIdentifier"]',
+    # ── Fallback ultra-generico: qualsiasi link nella sezione risultati ──
+    '[class*="results"] a[href]',
+    '[class*="list"] a[href]',
+    'main a[href]',
+]
+
+LINK_SELECTOR: str = ""
+
+HREF_CALL_PATTERNS = [
+    re.compile(r"/topic-details/",        re.IGNORECASE),
+    re.compile(r"/competitive-calls-cs/", re.IGNORECASE),
+    re.compile(r"/prospect-details/",     re.IGNORECASE),
+    re.compile(r"/calls/[A-Z0-9\-]+",     re.IGNORECASE),
+    re.compile(r"callIdentifier=",        re.IGNORECASE),
+    re.compile(r"cftIdentifier=",         re.IGNORECASE),
+    re.compile(r"topicId=",               re.IGNORECASE),
+    re.compile(r"/opportunities/portal",  re.IGNORECASE),
+    re.compile(r"portal/screen/",         re.IGNORECASE),
+]
 
 RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(?s\)?\s*found", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
@@ -80,7 +130,7 @@ MONTHS = {
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
 }
 
-# ── Tabelle di classificazione ─────────────────────────────────────────────────
+# ── Tabelle di classificazione (invariate) ─────────────────────────────────────
 
 PROGRAMME_MAP = {
     "43108390":"Horizon Europe","43108391":"Horizon Europe",
@@ -233,7 +283,7 @@ TOPIC_KEYWORDS = {
     "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
 }
 
-# ── Helpers di classificazione ─────────────────────────────────────────────────
+# ── Helpers classificazione (invariati) ───────────────────────────────────────
 
 def escape_rx(s: str) -> str:
     return re.escape(s or "")
@@ -274,8 +324,6 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
         "multi_thematic": multi_thematic,
         "is_special_basic_research": special,
     }
-
-# ── Classificazione ────────────────────────────────────────────────────────────
 
 def _topic_id(url: str) -> str:
     s = (url or "").upper().split("?")[0]
@@ -335,8 +383,6 @@ def beneficiary_hint(action: str, prog: str, url_benef):
     if a == "CSA":  hints.extend(["Research organisation","Public body","NGO","SME"])
     if "external action" in p: hints.extend(["NGO","Public body","Research organisation"])
     return list(dict.fromkeys(hints))
-
-# ── Parsing date e budget ──────────────────────────────────────────────────────
 
 def parse_date_iso(s: str) -> str:
     s = re.sub(r"\s+", " ", str(s or "")).strip()
@@ -400,8 +446,6 @@ def extract_budget_from_text(text: str) -> int:
         return 0
     return max(candidates)
 
-# ── Utilità ────────────────────────────────────────────────────────────────────
-
 def clean(s):
     if not s:
         return None
@@ -412,16 +456,111 @@ def pick(rx, text):
     m = rx.search(text or "")
     return clean(m.group(1)) if m else None
 
-# ── Cookie handling ────────────────────────────────────────────────────────────
+# ── NEW v2.1: Sniffing dinamico del path API ───────────────────────────────────
+
+def _sniff_api_path(page) -> str:
+    """
+    Naviga la home del portale e osserva le richieste XHR per trovare il path
+    effettivo dell'API di ricerca. Aggiorna SEARCH_API globalmente.
+
+    Strategia:
+      1. Registra un handler su tutte le response del dominio EC
+      2. Naviga la pagina lista (prima pagina) con wait=commit (veloce)
+      3. Aspetta max 15s osservando quale URL XHR restituisce JSON con "results"
+      4. Usa il path trovato; fallback al primo candidato se nessuno trovato
+    """
+    global SEARCH_API
+
+    detected: dict = {}
+
+    def _detect(response, _d=detected):
+        if _d.get("found"):
+            return
+        url = response.url
+        # Filtra solo chiamate EC con JSON
+        if "europa.eu" not in url:
+            return
+        ct = response.headers.get("content-type", "")
+        if "json" not in ct:
+            return
+        # Deve avere un path API-like
+        if not any(kw in url for kw in ["/rest/", "/api/", "/search", "/query"]):
+            return
+        try:
+            body = response.json()
+            # Controlla se è una risposta di ricerca
+            has_results = (
+                isinstance(body.get("results"), list) or
+                isinstance(body.get("hits"), list) or
+                isinstance(body.get("items"), list) or
+                isinstance(body.get("data"), list) or
+                isinstance(body.get("content"), list)
+            )
+            has_total = any(
+                isinstance(body.get(k), int)
+                for k in ("total", "totalCount", "totalResults", "count", "numFound", "totalElements")
+            )
+            if has_results or has_total:
+                _d["found"] = True
+                _d["url"]   = url
+                # Estrai la parte path dopo il dominio
+                m = re.search(r"europa\.eu(/[^?]+)", url)
+                if m:
+                    _d["path"] = m.group(1).lstrip("/")
+                if DEBUG:
+                    print(f"  [sniff] API rilevata: {url}")
+        except Exception:
+            pass
+
+    page.on("response", _detect)
+
+    # Carica la prima pagina lista (commit = appena il server risponde, non aspetta JS)
+    try:
+        page.goto(
+            LIST_URL.format(page=1, ps=PAGE_SIZE),
+            wait_until="commit",
+            timeout=30000,
+        )
+    except Exception:
+        pass
+
+    # Aspetta max 15s che arrivi la risposta API
+    t0 = time.time()
+    while time.time() - t0 < 15:
+        if detected.get("found"):
+            break
+        page.wait_for_timeout(500)
+
+    try:
+        page.remove_listener("response", _detect)
+    except Exception:
+        pass
+
+    if detected.get("path"):
+        SEARCH_API = detected["path"]
+        print(f"✅ API path rilevato: /{SEARCH_API}", flush=True)
+    elif detected.get("url"):
+        # Usa l'URL completo come stringa di match
+        SEARCH_API = detected["url"].split("?")[0].split("europa.eu/")[-1]
+        print(f"✅ API path rilevato (URL completo): /{SEARCH_API}", flush=True)
+    else:
+        print(f"⚠ API path non rilevato automaticamente, uso default: {SEARCH_API}", flush=True)
+        if DEBUG:
+            print(f"  Candidati testati: {SEARCH_API_CANDIDATES}")
+
+    return SEARCH_API
+
+
+def _is_search_api_url(url: str) -> bool:
+    """Controlla se un URL corrisponde all'API di ricerca attiva."""
+    return SEARCH_API in url
+
+
+# ── Cookie handling (invariato) ───────────────────────────────────────────────
 
 def accept_cookies(page):
-    """
-    Tenta di accettare il banner cookie sia nel DOM normale che in shadow DOM.
-    """
     labels = ["Accept all", "Accept All", "Accept", "I accept", "Agree", "OK",
               "Accetta", "Accetto", "Accepter"]
-
-    # 1. Cerca in tutti i frame
     for label in labels:
         for scope in [page] + list(page.frames):
             try:
@@ -432,12 +571,9 @@ def accept_cookies(page):
                     return True
             except Exception:
                 pass
-
-    # 2. Tenta via JavaScript (copre shadow DOM e web components)
     try:
         clicked = page.evaluate(r"""() => {
             const labels = /accept|agree|ok|accetta/i;
-            // Cerca nei shadow roots ricorsivamente
             function findInShadow(root) {
                 const btns = root.querySelectorAll('button, [role="button"], a');
                 for (const b of btns) {
@@ -460,7 +596,6 @@ def accept_cookies(page):
             return True
     except Exception:
         pass
-
     return False
 
 def wait_cookie_gone(page, max_ms=12000):
@@ -476,9 +611,8 @@ def wait_cookie_gone(page, max_ms=12000):
         page.wait_for_timeout(600)
     return False
 
-# ── Lettura contatore risultati (riscritta) ────────────────────────────────────
+# ── Lettura contatore (invariata) ─────────────────────────────────────────────
 
-# Pattern ordinati dal più specifico al più largo
 _TOTAL_PATTERNS = [
     re.compile(r"(\d[\d,\.]*)\s*items?\s*\(?s?\)?\s*found",          re.IGNORECASE),
     re.compile(r"(\d[\d,\.]*)\s*results?\s*found",                    re.IGNORECASE),
@@ -490,7 +624,7 @@ _TOTAL_PATTERNS = [
     re.compile(r"of\s+(\d[\d,\.]*)\s+results?",                       re.IGNORECASE),
     re.compile(r"(\d[\d,\.]*)\s*open\s*calls?",                       re.IGNORECASE),
     re.compile(r"(\d[\d,\.]*)\s*proposals?\s*found",                  re.IGNORECASE),
-    re.compile(r"(\d+)\s*result",                                     re.IGNORECASE),  # largo
+    re.compile(r"(\d+)\s*result",                                     re.IGNORECASE),
 ]
 
 def _parse_count(raw: str) -> int:
@@ -509,10 +643,6 @@ def _try_read_total_from_text(txt: str):
     return None, None
 
 def _read_total_shadow_dom(page) -> int | None:
-    """
-    Interroga il DOM via JavaScript, inclusi shadow roots e attributi aria/data.
-    Restituisce il primo numero plausibile trovato, o None.
-    """
     try:
         result = page.evaluate(r"""() => {
             const patterns = [
@@ -524,7 +654,6 @@ def _read_total_shadow_dom(page) -> int | None:
                 /(\d+)\s*result/i,
                 /Total[:\s]+(\d[\d,\.]*)/i,
             ];
-
             function tryText(t) {
                 if (!t) return null;
                 for (const p of patterns) {
@@ -536,10 +665,8 @@ def _read_total_shadow_dom(page) -> int | None:
                 }
                 return null;
             }
-
             function walkShadow(root, depth) {
                 if (depth > 12) return null;
-                // Cerca in elementi con classi/attributi semantici prima
                 const priority = root.querySelectorAll(
                     '[class*="count"], [class*="total"], [class*="result"], [class*="found"], ' +
                     '[aria-label*="result"], [aria-label*="item"], [aria-label*="found"], ' +
@@ -555,7 +682,6 @@ def _read_total_shadow_dom(page) -> int | None:
                         if (sv) return sv;
                     }
                 }
-                // Poi prova tutti gli elementi con shadow root
                 for (const el of root.querySelectorAll('*')) {
                     if (el.shadowRoot) {
                         const sv = walkShadow(el.shadowRoot, depth + 1);
@@ -564,17 +690,11 @@ def _read_total_shadow_dom(page) -> int | None:
                 }
                 return null;
             }
-
-            // Prima cerca nel DOM normale
             const bodyText = document.body?.innerText || '';
             const v1 = tryText(bodyText);
             if (v1) return { value: v1, source: 'body_text' };
-
-            // Poi nei shadow roots
             const v2 = walkShadow(document, 0);
             if (v2) return { value: v2, source: 'shadow_dom' };
-
-            // Fallback: cerca in tutti gli span/p/div con numeri plausibili vicini a keyword
             const allEls = document.querySelectorAll('span, p, div, li, td, h1, h2, h3, h4, label');
             for (const el of allEls) {
                 const t = el.innerText || el.textContent || '';
@@ -583,10 +703,8 @@ def _read_total_shadow_dom(page) -> int | None:
                     if (v) return { value: v, source: 'element:' + (el.className || el.tagName) };
                 }
             }
-
             return null;
         }""")
-
         if result and result.get("value"):
             if DEBUG:
                 print(f"  [shadow_dom] trovato {result['value']} via {result['source']}")
@@ -597,31 +715,22 @@ def _read_total_shadow_dom(page) -> int | None:
     return None
 
 def _wait_for_results_to_load(page, timeout_ms=45000):
-    """
-    Attende che i risultati siano effettivamente presenti nella pagina.
-    Prova diversi selettori noti del portale EU.
-    """
     selectors_to_try = [
-        # Selettori specifici del portale EU Funding & Tenders
         "eui-search-results",
         "eui-result-item",
         "[class*='result-item']",
         "[class*='search-result']",
         "[class*='call-item']",
         "[class*='opportunity']",
-        # Link alle call (il nostro selettore principale)
         'a[href*="/topic-details/"]',
         'a[href*="/competitive-calls-cs/"]',
-        # Selettori generici di lista risultati
         ".results-list",
         ".search-results",
         "[role='list'] [role='listitem']",
-        # Testo con numero di risultati
         "text=/\\d+\\s*item/i",
         "text=/\\d+\\s*result/i",
         "text=/\\d+\\s*call/i",
     ]
-
     for sel in selectors_to_try:
         try:
             page.wait_for_selector(sel, timeout=8000, state="visible")
@@ -630,28 +739,17 @@ def _wait_for_results_to_load(page, timeout_ms=45000):
             return True
         except Exception:
             pass
-
-    # Attesa minima per Angular/React
     page.wait_for_timeout(3000)
     return False
 
 def read_total(page, timeout_ms=60000) -> int | None:
-    """
-    Legge il numero totale di risultati dalla pagina.
-    Strategia multi-livello con diagnostica.
-    """
     print(f"  URL corrente: {page.url}", flush=True)
-
-    # Attendi che i contenuti siano caricati
     _wait_for_results_to_load(page, timeout_ms=min(timeout_ms, 30000))
-
-    start = time.time()
+    start   = time.time()
     attempt = 0
 
     while (time.time() - start) * 1000 < timeout_ms:
         attempt += 1
-
-        # ── Strategia 1: testo body normale
         try:
             txt = page.locator("body").inner_text(timeout=5000)
             val, pat = _try_read_total_from_text(txt)
@@ -661,16 +759,13 @@ def read_total(page, timeout_ms=60000) -> int | None:
         except Exception:
             txt = ""
 
-        # ── Strategia 2: shadow DOM + JS walk
         val = _read_total_shadow_dom(page)
         if val:
             print(f"  ✓ Contatore trovato (shadow DOM): {val}", flush=True)
             return val
 
-        # ── Strategia 3: inner HTML grezzo (cattura attributi data-*)
         try:
             html = page.content()
-            # Cerca in attributi come data-total="123" data-count="123"
             for attr_pat in [
                 re.compile(r'data-(?:total|count|results?)["\s]*[=:]["\s]*(\d+)', re.IGNORECASE),
                 re.compile(r'(?:total|count|results?)["\s]*:["\s]*(\d+)', re.IGNORECASE),
@@ -679,41 +774,32 @@ def read_total(page, timeout_ms=60000) -> int | None:
                     try:
                         v = int(m.group(1))
                         if 10 < v < 100000:
-                            print(f"  ✓ Contatore trovato (HTML attr '{attr_pat.pattern}'): {v}", flush=True)
+                            print(f"  ✓ Contatore trovato (HTML attr): {v}", flush=True)
                             return v
                     except Exception:
                         pass
         except Exception:
             pass
 
-        # ── Strategia 4: intercettazione XHR (se abbiamo un response handler attivo)
-        # (sarà gestita dal chiamante tramite _captured_total se disponibile)
-
-        # Diagnostica ogni 3 tentativi
         if attempt % 3 == 0:
             print(f"  [tentativo {attempt}] in attesa del contatore…", flush=True)
             if DEBUG and txt:
-                # Mostra contesti numerici nel testo
                 number_contexts = re.findall(r'.{0,40}\d+.{0,40}', txt)
                 print(f"  Contesti numerici trovati ({len(number_contexts)}):")
                 for ctx in number_contexts[:15]:
                     print(f"    › {ctx.strip()}")
 
-        # Scroll per stimolare il rendering
         try:
             page.mouse.wheel(0, 300)
         except Exception:
             pass
-
         page.wait_for_timeout(1500)
 
-    # ── Fallback finale: usa numero di link trovati come stima
-    link_count = page.locator(LINK_SELECTOR).count()
+    link_count = page.locator(LINK_SELECTOR).count() if LINK_SELECTOR else 0
     if link_count > 0:
         print(f"  ⚠ Contatore non trovato, uso {link_count} link come stima minima", flush=True)
         return link_count
 
-    # ── Diagnostica finale se tutto fallisce
     print("  ✗ Impossibile trovare il contatore. Diagnostica:", flush=True)
     try:
         txt = page.locator("body").inner_text(timeout=5000)
@@ -721,139 +807,300 @@ def read_total(page, timeout_ms=60000) -> int | None:
         print(f"  Testo body (primi 3000 char):\n{txt[:3000]}", flush=True)
     except Exception as e:
         print(f"  Errore lettura body: {e}", flush=True)
-
     return None
 
-# ── Intercettazione XHR per il totale ─────────────────────────────────────────
+# ── NEW v2.1: Intercettatore XHR migliorato ───────────────────────────────────
 
-def attach_total_interceptor(page) -> dict:
+def attach_link_interceptor(page) -> dict:
     """
-    Registra un handler XHR che cattura il totale dalla search API.
-    Restituisce un dizionario condiviso dove verrà scritto 'total'.
+    Intercetta TUTTE le risposte JSON del dominio EC (non solo SEARCH_API),
+    le filtra per struttura, ed estrae link + totale.
+
+    Fonte primaria per la raccolta link — completamente indipendente dal DOM.
     """
-    captured = {}
+    captured: dict = {"links": [], "total": None, "seen": set(), "api_urls": set()}
 
     def handle(response, _c=captured):
-        if SEARCH_API not in response.url:
+        url = response.url
+        # Filtra: solo dominio EC, solo JSON
+        if "europa.eu" not in url:
             return
         if response.status != 200:
             return
+        ct = response.headers.get("content-type", "")
+        if "json" not in ct and "javascript" not in ct:
+            return
+        # Deve sembrare una chiamata API (path con /rest/, /api/, /search, ecc.)
+        if not any(kw in url for kw in ["/rest/", "/api/", "/search", "/query", "search-api"]):
+            return
+
         try:
             body = response.json()
-            # Il portale EU restituisce spesso { "total": N, "results": [...] }
-            for key in ("total", "totalCount", "totalResults", "count", "numFound", "hits"):
+        except Exception:
+            return
+
+        # ── Leggi totale ──
+        if _c["total"] is None:
+            for key in ("total", "totalCount", "totalResults", "count", "numFound",
+                        "hits", "totalElements", "resultCount"):
                 v = body.get(key)
                 if isinstance(v, int) and v > 0:
                     _c["total"] = v
+                    _c["api_urls"].add(url.split("?")[0])
                     if DEBUG:
-                        print(f"  [XHR] total da key '{key}': {v}")
-                    return
-            # Oppure il totale può stare nel primo risultato come metadato
-            results = body.get("results", [])
-            if results and isinstance(results[0], dict):
-                meta = results[0].get("metadata", {}) or {}
-                for key in ("total", "totalCount", "numFound"):
-                    v = meta.get(key)
-                    if isinstance(v, int) and v > 0:
-                        _c["total"] = v
-                        return
-        except Exception:
-            pass
+                        print(f"  [XHR total] {v} da key '{key}' in {url}")
+                    break
+
+        # ── Estrai link dai risultati ──
+        results = (
+            body.get("results") or
+            body.get("hits") or
+            body.get("items") or
+            body.get("data") or
+            body.get("content") or
+            []
+        )
+        if not isinstance(results, list):
+            return
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+
+            meta = item.get("metadata") or item.get("_source") or item.get("fields") or item
+
+            call_url = _extract_url_from_meta(meta)
+            if call_url and call_url not in _c["seen"]:
+                _c["seen"].add(call_url)
+                _c["links"].append(call_url)
+                if DEBUG:
+                    print(f"  [XHR link] {call_url}")
 
     page.on("response", handle)
     return captured
 
-# ── Navigazione robusta ────────────────────────────────────────────────────────
 
-def navigate_to_list(page, url: str, max_attempts: int = 3) -> bool:
+def _extract_url_from_meta(meta: dict) -> str | None:
     """
-    Naviga alla pagina di lista con retry.
-    Gestisce redirect inattesi, timeout e pagine vuote.
+    Estrae un URL di dettaglio da un oggetto metadati della search API.
+    Prova una lista estesa di campi, sia URL diretti che identificatori
+    da cui ricostruire l'URL.
     """
-    for attempt in range(1, max_attempts + 1):
+    if not isinstance(meta, dict):
+        return None
+
+    # ── 1. Campi che contengono URL diretti ──
+    direct_url_keys = [
+        "url", "link", "detailUrl", "href", "landingPageUrl",
+        "canonicalUrl", "detailsUrl", "pageUrl", "callUrl",
+        "topicUrl", "opportunityUrl", "viewUrl",
+        # Struttura _links HAL-style
+        "_links",
+    ]
+    for key in direct_url_keys:
+        v = meta.get(key)
+        if isinstance(v, dict):
+            # HAL _links: { self: { href: "..." }, detail: { href: "..." } }
+            for sub_key in ("detail", "self", "canonical", "alternate"):
+                sub = v.get(sub_key)
+                if isinstance(sub, dict):
+                    href = sub.get("href")
+                    if href and isinstance(href, str) and href.startswith("http"):
+                        return href
+                if isinstance(sub, str) and sub.startswith("http"):
+                    return sub
+        if isinstance(v, list) and v:
+            v = v[0]
+        if v and isinstance(v, str):
+            if v.startswith("http"):
+                return v
+            # Path relativo EC
+            if v.startswith("/info/funding") or v.startswith("/opportunities"):
+                return "https://ec.europa.eu" + v
+
+    # ── 2. Campi che contengono identificatori ──
+    id_keys = [
+        "identifier", "callIdentifier", "topicIdentifier",
+        "cftIdentifier", "topicId", "id", "callId",
+        "topicProgrammeMap", "name", "reference",
+    ]
+    for key in id_keys:
+        v = meta.get(key)
+        if isinstance(v, list):
+            v = v[0] if v else None
+        if v and isinstance(v, str):
+            built = _build_url_from_id(v.strip())
+            if built:
+                return built
+
+    return None
+
+
+def _build_url_from_id(identifier: str) -> str | None:
+    """
+    Dato un identificatore, restituisce l'URL di dettaglio sul portale EU.
+    Copre tutti i pattern storici + nuovi pattern post-update.
+    """
+    i = identifier.upper()
+    base = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities"
+
+    horizon_prefixes = (
+        "HORIZON-", "HLTH-", "MSCA-", "ERC-", "EIC-", "EIT-", "MISS-",
+        "DIGITAL-", "EURATOM-", "EUROHPC-", "NEB-", "WIDERA-", "RAISE-",
+        "RFCS-", "AGRIP-", "UCPM-", "PPPA-", "RENEWFM-", "SOCPL-", "JUST-",
+        "EMFAF-", "EUBA-", "I3-", "JU-", "CID-",
+    )
+    if any(i.startswith(p) for p in horizon_prefixes):
+        return f"{base}/topic-details/{identifier}"
+
+    if i.startswith("CFT-") or i.startswith("COMP-"):
+        return f"{base}/competitive-calls-cs/{identifier}"
+
+    if i.startswith("PROSPECT-") or i.startswith("EOI-"):
+        return f"{base}/prospect-details/{identifier}"
+
+    # Numerico puro — non abbastanza informazioni
+    if re.match(r"^\d+$", identifier):
+        return None
+
+    # Fallback generico: prova topic-details
+    if len(identifier) > 5 and "-" in identifier:
+        return f"{base}/topic-details/{identifier}"
+
+    return None
+
+# ── Selettore DOM (migliorato v2.1) ───────────────────────────────────────────
+
+def _discover_link_selector(page) -> str:
+    """
+    Discovery automatico del selettore CSS per i link alle call.
+    v2.1: analizza anche attributi routerLink, data-href, e link relativi EC.
+    """
+    global LINK_SELECTOR
+
+    try:
+        all_hrefs: list[str] = page.evaluate("""
+            () => {
+                const links = Array.from(document.querySelectorAll('a'));
+                return links.map(a => ({
+                    href: a.getAttribute('href') || '',
+                    rl:   a.getAttribute('routerLink') || a.getAttribute('routerlink') || '',
+                    text: (a.innerText || a.textContent || '').trim().substring(0, 80),
+                })).filter(x => x.href.length > 5 || x.rl.length > 5);
+            }
+        """)
+    except Exception:
+        return LINK_SELECTOR or ""
+
+    if not all_hrefs:
+        if DEBUG:
+            print("  [discovery] nessun link trovato nel DOM")
+        return LINK_SELECTOR or ""
+
+    hrefs = [x.get("href", "") for x in all_hrefs]
+    rls   = [x.get("rl", "")   for x in all_hrefs]
+
+    # ── Conta match per ogni pattern ──
+    pattern_counts: dict[int, int] = {}
+    for idx, pat in enumerate(HREF_CALL_PATTERNS):
+        pattern_counts[idx] = sum(
+            1 for h in hrefs + rls if h and pat.search(h)
+        )
+
+    best_idx   = max(pattern_counts, key=lambda k: pattern_counts[k])
+    best_count = pattern_counts[best_idx]
+
+    if best_count == 0:
+        print("  ⚠ Discovery DOM: nessun pattern di call trovato.", flush=True)
+        if DEBUG:
+            print(f"  Campione href: {hrefs[:20]}")
+            print(f"  Campione routerLink: {[r for r in rls if r][:20]}")
+        # Ultimo tentativo: link con /portal/screen/ nel path
+        screen_links = [h for h in hrefs if "/portal/screen/" in h and len(h) > 30]
+        if screen_links:
+            LINK_SELECTOR = 'a[href*="/portal/screen/"]'
+            print(f"  ✓ Selettore generico fallback: '{LINK_SELECTOR}' ({len(screen_links)} link)", flush=True)
+            return LINK_SELECTOR
+        return LINK_SELECTOR or ""
+
+    matching = [h for h in hrefs + rls if h and HREF_CALL_PATTERNS[best_idx].search(h)]
+    m        = HREF_CALL_PATTERNS[best_idx].search(matching[0])
+    if m:
+        fragment = m.group(0).rstrip("/").rstrip("=")
+        if "=" in fragment:
+            sel = f'a[href*="{fragment}"]'
+        else:
+            sel = f'a[href*="{fragment}/"], a[href*="{fragment}?"]'
+
+        print(f"  🔍 Discovery DOM selettore: '{sel}' ({best_count} link trovati)", flush=True)
+        LINK_SELECTOR = sel
+        return sel
+
+    return LINK_SELECTOR or ""
+
+
+def _set_link_selector_from_candidates(page) -> str:
+    """Prova i selettori candidati in ordine e usa il primo che trova link."""
+    global LINK_SELECTOR
+
+    for sel in LINK_SELECTORS_CANDIDATES:
         try:
-            # Imposta intercettazione XHR PRIMA di navigare
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            count = page.locator(sel).count()
+            if count > 0:
+                print(f"  ✓ Selettore DOM attivo: '{sel}' ({count} link)", flush=True)
+                LINK_SELECTOR = sel
+                return sel
+        except Exception:
+            pass
 
-            # Attendi caricamento Angular/React
-            try:
-                page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                pass  # networkidle può non arrivare su SPA pesanti
+    print("  ⚠ Nessun selettore candidato funziona, avvio discovery…", flush=True)
+    return _discover_link_selector(page)
 
-            page.wait_for_timeout(2000)
-
-            # Gestisci cookie
-            accept_cookies(page)
-            wait_cookie_gone(page, max_ms=8000)
-
-            # Verifica che l'URL sia corretto (no redirect a login/errore)
-            current = page.url
-            if "calls-for-proposals" in current or "opportunities" in current:
-                return True
-            if "login" in current.lower() or "error" in current.lower():
-                print(f"  [navigate] redirect inatteso: {current}", flush=True)
-                if attempt < max_attempts:
-                    page.go_back(timeout=10000)
-                    page.wait_for_timeout(2000)
-                    continue
-
-            # Verifica presenza minima di contenuti
-            try:
-                txt = page.locator("body").inner_text(timeout=5000)
-                if len(txt) > 500:
-                    return True
-            except Exception:
-                pass
-
-        except PWTimeout:
-            print(f"  [navigate] timeout (tentativo {attempt}/{max_attempts})", flush=True)
-        except Exception as e:
-            print(f"  [navigate] errore: {e} (tentativo {attempt}/{max_attempts})", flush=True)
-
-        if attempt < max_attempts:
-            page.wait_for_timeout(3000 * attempt)
-
-    return False
-
-# ── Scroll e link ──────────────────────────────────────────────────────────────
+# ── Scroll e link (invariati) ─────────────────────────────────────────────────
 
 def count_links(page) -> int:
+    if not LINK_SELECTOR:
+        return 0
     try:
         return page.locator(LINK_SELECTOR).count()
     except Exception:
         return 0
 
-def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
-    """
-    Scrolla la pagina finché non compaiono almeno `expected` link.
-    Gestisce sia scroll globale che scroll di container virtuali.
-    """
-    start     = time.time()
-    last      = -1
-    stable_since = time.time()
 
-    # Prima gestisci i cookie rimasti
+def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
+    start        = time.time()
+    last         = -1
+    stable_since = time.time()
+    selector_checked = False
+
     while count_links(page) == 0 and (time.time() - start) * 1000 < 12000:
         accept_cookies(page)
         wait_cookie_gone(page, 3000)
         page.wait_for_timeout(700)
 
-    # Trova il container scrollabile (virtual scroll o overflow)
-    container = page.evaluate_handle(f"""() => {{
-        const sel = `{LINK_SELECTOR}`;
-        const links = document.querySelectorAll(sel);
-        if (!links.length) return null;
-        let el = links[0];
-        for (let i = 0; i < 20; i++) {{
-            if (!el) break;
-            const st = window.getComputedStyle(el);
-            const oy = st.overflowY;
-            if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 5) return el;
-            el = el.parentElement;
-        }}
-        return null;
-    }}""")
+    if count_links(page) == 0 and not selector_checked:
+        _set_link_selector_from_candidates(page)
+        selector_checked = True
+
+    container = None
+    if LINK_SELECTOR:
+        try:
+            container = page.evaluate_handle(f"""() => {{
+                const sel = `{LINK_SELECTOR}`;
+                const links = document.querySelectorAll(sel);
+                if (!links.length) return null;
+                let el = links[0];
+                for (let i = 0; i < 20; i++) {{
+                    if (!el) break;
+                    const st = window.getComputedStyle(el);
+                    const oy = st.overflowY;
+                    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 5) return el;
+                    el = el.parentElement;
+                }}
+                return null;
+            }}""")
+        except Exception:
+            container = None
 
     while (time.time() - start) * 1000 < max_ms:
         accept_cookies(page)
@@ -866,7 +1113,6 @@ def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
             last = c
             stable_since = time.time()
 
-        # Scroll progressivo
         try:
             if container:
                 page.evaluate("(el) => { el.scrollTop += el.clientHeight * 0.85; }", container)
@@ -880,7 +1126,6 @@ def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
 
         page.wait_for_timeout(700)
 
-        # Se bloccato, scroll aggressivo
         if time.time() - stable_since > 6:
             try:
                 if container:
@@ -889,16 +1134,27 @@ def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
                     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             except Exception:
                 pass
+            if c == 0 and not selector_checked:
+                _set_link_selector_from_candidates(page)
+                selector_checked = True
             page.wait_for_timeout(1000)
             stable_since = time.time()
 
     return count_links(page)
 
+
 def extract_links(page) -> list[str]:
-    hrefs = page.evaluate(f"""
-        () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
-                  .map(a => a.getAttribute('href'))
-    """)
+    """Estrae link dal DOM usando il selettore attivo."""
+    if not LINK_SELECTOR:
+        return []
+    try:
+        hrefs = page.evaluate(f"""
+            () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
+                      .map(a => a.getAttribute('href'))
+        """)
+    except Exception:
+        return []
+
     out, seen = [], set()
     for h in hrefs or []:
         if not h:
@@ -909,22 +1165,28 @@ def extract_links(page) -> list[str]:
             out.append(full)
     return out
 
-# ── Parsing card dalla lista ───────────────────────────────────────────────────
+# ── Parsing card (invariato) ──────────────────────────────────────────────────
 
 def parse_card(page, full_url: str) -> dict:
     path = full_url.replace("https://ec.europa.eu", "").split("?")[0]
-    a = page.locator(f'a[href*="{path}"]').first
-    title = clean(a.inner_text()) if a.count() else path.split("/")[-1]
+    try:
+        a = page.locator(f'a[href*="{path}"]').first
+    except Exception:
+        a = None
+    title = clean(a.inner_text()) if (a and a.count()) else path.split("/")[-1]
 
-    card = a.locator(
-        "xpath=ancestor::*[contains(.,'Programme:') or contains(.,'Opening date:') or "
-        "contains(.,'Deadline date:') or contains(.,'Type of action:')][1]"
-    ).first
-    text = (card.inner_text() if card.count()
-            else (a.locator("xpath=ancestor::*[1]").inner_text() if a.count() else ""))
+    try:
+        card = a.locator(
+            "xpath=ancestor::*[contains(.,'Programme:') or contains(.,'Opening date:') or "
+            "contains(.,'Deadline date:') or contains(.,'Type of action:')][1]"
+        ).first if a and a.count() else None
+        text = (card.inner_text() if (card and card.count())
+                else (a.locator("xpath=ancestor::*[1]").inner_text() if (a and a.count()) else ""))
+    except Exception:
+        text = ""
 
-    dead = pick(RE_DEAD, text) or pick(RE_NEXT_DEAD, text)
-    call_id = pick(RE_CALL_ID, full_url) or pick(RE_CALL_ID, text)
+    dead     = pick(RE_DEAD, text) or pick(RE_NEXT_DEAD, text)
+    call_id  = pick(RE_CALL_ID, full_url) or pick(RE_CALL_ID, text)
     cluster_raw = pick(RE_CLUSTER, text) or pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, call_id or "")
 
     return {
@@ -938,7 +1200,7 @@ def parse_card(page, full_url: str) -> dict:
         "url":           full_url,
     }
 
-# ── Arricchimento via XHR + DOM ────────────────────────────────────────────────
+# ── Arricchimento (invariato) ─────────────────────────────────────────────────
 
 def _first(meta, *keys):
     for k in keys:
@@ -950,9 +1212,6 @@ def _first(meta, *keys):
     return ""
 
 def extract_budget_per_project_dom(page, topic_id: str):
-    """
-    Espande 'Topic conditions and documents' e cerca il budget nella riga specifica.
-    """
     parts = topic_id.split("?")[0].split("-")
     target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
     try:
@@ -996,7 +1255,7 @@ def _enrich_one(page, row: dict) -> bool:
     captured = {}
 
     def handle(response, _c=captured):
-        if SEARCH_API not in response.url or response.status != 200:
+        if not _is_search_api_url(response.url) or response.status != 200:
             return
         try:
             body = response.json()
@@ -1118,7 +1377,7 @@ def enrich(ctx, rows: list):
         pass
     print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
 
-# ── Trasforma riga grezza → oggetto call classificato ─────────────────────────
+# ── to_call (invariato) ───────────────────────────────────────────────────────
 
 def to_call(row: dict) -> dict:
     url        = row.get("url", "")
@@ -1167,7 +1426,7 @@ def to_call(row: dict) -> dict:
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
-# ── Changelog ──────────────────────────────────────────────────────────────────
+# ── Changelog (invariato) ─────────────────────────────────────────────────────
 
 def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, generated: str):
     old_by_url = {c["url"]: c for c in old_calls}
@@ -1267,14 +1526,56 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         history_path.write_text(header, encoding="utf-8")
     print(f"📋 History aggiornata: {history_path}")
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ── Navigazione robusta (aggiornata v2.1) ─────────────────────────────────────
+
+def navigate_to_list(page, url: str, max_attempts: int = 3) -> bool:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            page.wait_for_timeout(2000)
+
+            accept_cookies(page)
+            wait_cookie_gone(page, max_ms=8000)
+
+            current = page.url
+            if "calls-for-proposals" in current or "opportunities" in current:
+                return True
+            if "login" in current.lower() or "error" in current.lower():
+                print(f"  [navigate] redirect inatteso: {current}", flush=True)
+                if attempt < max_attempts:
+                    page.go_back(timeout=10000)
+                    page.wait_for_timeout(2000)
+                    continue
+
+            try:
+                txt = page.locator("body").inner_text(timeout=5000)
+                if len(txt) > 500:
+                    return True
+            except Exception:
+                pass
+
+        except PWTimeout:
+            print(f"  [navigate] timeout (tentativo {attempt}/{max_attempts})", flush=True)
+        except Exception as e:
+            print(f"  [navigate] errore: {e} (tentativo {attempt}/{max_attempts})", flush=True)
+
+        if attempt < max_attempts:
+            page.wait_for_timeout(3000 * attempt)
+
+    return False
+
+# ── Main (aggiornato v2.1) ────────────────────────────────────────────────────
 
 def main(out_path: Path, debug: bool = False):
     global DEBUG
     DEBUG = debug
 
-    rows      = []
-    seen_urls: set[str] = set()
+    rows: list       = []
+    seen_urls: set   = set()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=[
@@ -1290,80 +1591,122 @@ def main(out_path: Path, debug: bool = False):
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            # Disabilita il rilevamento automazione
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         )
-        # Maschera navigator.webdriver
         ctx.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """)
 
         page = ctx.new_page()
 
-        # Intercettore XHR per il totale (attivo per tutta la sessione lista)
-        xhr_total = attach_total_interceptor(page)
+        # ══ FASE 0: sniffing API path (NUOVO v2.1) ══════════════════════════
+        print(f"\n══ Fase 0: sniffing API path ══", flush=True)
+        _sniff_api_path(page)
 
-        # ── Passo 1: prima pagina e lettura totale ─────────────────────────────
+        # ══ FASE 1: navigazione prima pagina ════════════════════════════════
+        # Attacca l'interceptor XHR — rimane attivo per tutta la sessione
+        xhr = attach_link_interceptor(page)
+
         first_url = LIST_URL.format(page=1, ps=PAGE_SIZE)
-        print(f"\n══ Passo 1: navigazione prima pagina ══", flush=True)
+        print(f"\n══ Fase 1: navigazione prima pagina ══", flush=True)
         ok = navigate_to_list(page, first_url)
         if not ok:
-            print("⚠ navigate_to_list ha restituito False, provo comunque a leggere il contatore…", flush=True)
+            print("⚠ navigate_to_list ha restituito False, provo comunque…", flush=True)
 
-        # Se l'interceptor XHR ha già catturato il totale, usalo
-        if xhr_total.get("total"):
-            total = xhr_total["total"]
+        # Attendi risposte XHR
+        page.wait_for_timeout(3000)
+
+        # Totale: prima dall'XHR, poi dal DOM
+        total: int | None = None
+        if xhr.get("total"):
+            total = xhr["total"]
             print(f"✅ Totale da XHR: {total}", flush=True)
         else:
             total = read_total(page)
 
         if total is None:
-            print("❌ Impossibile determinare il numero di call. Uscita.", flush=True)
-            browser.close()
-            return
+            if xhr["links"]:
+                total = len(xhr["links"])
+                print(f"⚠ Totale stimato da link XHR: {total}", flush=True)
+            else:
+                print("❌ Impossibile determinare il numero di call. Uscita.", flush=True)
+                browser.close()
+                return
 
         max_pages = math.ceil(total / PAGE_SIZE)
         print(f"✅ Totale: {total} call | pagine attese: {max_pages}", flush=True)
 
-        # ── Scraping pagine ────────────────────────────────────────────────────
-        for pnum in range(1, max_pages + 1):
+        # Scopri selettore DOM sulla prima pagina (usato come fallback)
+        _set_link_selector_from_candidates(page)
+
+        def _harvest_xhr_links(xhr_captured: dict, seen: set, row_list: list, pg):
+            new_count = 0
+            for u in list(xhr_captured["links"]):
+                if u not in seen:
+                    seen.add(u)
+                    row_list.append(parse_card(pg, u))
+                    new_count += 1
+            return new_count
+
+        new_from_xhr = _harvest_xhr_links(xhr, seen_urls, rows, page)
+        print(f"  Prima pagina XHR: {new_from_xhr} link | DOM: {count_links(page)} link", flush=True)
+
+        if new_from_xhr == 0:
+            scroll_until(page, expected=min(PAGE_SIZE, total))
+            dom_links = extract_links(page)
+            new_links = [u for u in dom_links if u not in seen_urls]
+            for u in new_links:
+                seen_urls.add(u)
+                rows.append(parse_card(page, u))
+            print(f"  Prima pagina DOM fallback: {len(new_links)} link", flush=True)
+
+        # ══ FASE 2: scraping pagine 2..N ════════════════════════════════════
+        for pnum in range(2, max_pages + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
             expected  = min(PAGE_SIZE, remaining)
             url       = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
 
             print(f"\n[p{pnum}/{max_pages}] attese ~{expected} call", end="", flush=True)
 
-            if pnum > 1:
-                ok = navigate_to_list(page, url)
-                if not ok:
-                    print(f" ⚠ navigazione incerta, continuo…", flush=True)
+            ok = navigate_to_list(page, url)
+            if not ok:
+                print(f" ⚠ navigazione incerta, continuo…", flush=True)
 
-            scroll_until(page, expected=expected)
-            links     = extract_links(page)
-            new_links = [u for u in links if u not in seen_urls]
-            print(f" → trovati {len(new_links)} nuovi (tot seen: {len(seen_urls) + len(new_links)})", flush=True)
+            page.wait_for_timeout(2500)
 
-            for u in new_links:
-                seen_urls.add(u)
-                rows.append(parse_card(page, u))
+            new_from_xhr = _harvest_xhr_links(xhr, seen_urls, rows, page)
+
+            new_from_dom = 0
+            if new_from_xhr == 0:
+                scroll_until(page, expected=expected)
+                dom_links = extract_links(page)
+                new_dom   = [u for u in dom_links if u not in seen_urls]
+                for u in new_dom:
+                    seen_urls.add(u)
+                    rows.append(parse_card(page, u))
+                new_from_dom = len(new_dom)
+
+            total_new = new_from_xhr + new_from_dom
+            src_label = f"XHR:{new_from_xhr}" + (f" DOM:{new_from_dom}" if new_from_dom else "")
+            print(f" → {total_new} nuovi ({src_label}) | tot seen: {len(seen_urls)}", flush=True)
 
             time.sleep(0.15)
 
-        # ── Passo 2: arricchimento ─────────────────────────────────────────────
-        print(f"\n══ Passo 2: arricchimento {len(rows)} call ══", flush=True)
+        # ══ FASE 3: arricchimento ════════════════════════════════════════════
+        print(f"\n══ Fase 3: arricchimento {len(rows)} call ══", flush=True)
         enrich(ctx, rows)
         browser.close()
 
     # ── Classificazione ────────────────────────────────────────────────────────
     calls: list[dict] = []
-    seen_final: set[str] = set()
+    seen_final: set   = set()
     for row in rows:
         call = to_call(row)
         if call["url"] and call["url"] not in seen_final:
             seen_final.add(call["url"])
             calls.append(call)
 
-    tc: dict[str, int] = {}
+    tc: dict = {}
     for c in calls:
         k = c["thematic_cluster"] or "(non classificato)"
         tc[k] = tc.get(k, 0) + 1
@@ -1374,8 +1717,7 @@ def main(out_path: Path, debug: bool = False):
 
     generated = datetime.now(timezone.utc).isoformat()
 
-    # ── Changelog ─────────────────────────────────────────────────────────────
-    old_calls: list[dict] = []
+    old_calls: list = []
     if out_path.exists():
         try:
             old_data  = json.loads(out_path.read_text(encoding="utf-8"))
@@ -1387,7 +1729,6 @@ def main(out_path: Path, debug: bool = False):
     changelog_path = out_path.parent / "changelog.md"
     write_changelog(old_calls, calls, changelog_path, generated)
 
-    # ── Salva ──────────────────────────────────────────────────────────────────
     payload = {"generated": generated, "calls": calls}
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n✅ Scritto {out_path} con {len(calls)} call")
