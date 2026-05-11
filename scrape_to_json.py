@@ -222,21 +222,23 @@ TOPIC_KEYWORDS = {
 
 # ── NEW: fetch ALL calls via the official REST API ─────────────────────────────
 
-def build_query(page_number: int) -> dict:
-    """
-    Build the POST body query for the Search API.
-    Pagination is done via 'from' (0-based offset) rather than pageNumber,
-    which is the correct way to paginate SEDIA's Elasticsearch-backed API.
-    """
+def build_query():
+    # This specific structure is required to get the ~787 grants
     return {
         "bool": {
             "must": [
-                {"terms": {"type": CALL_TYPES}},
-                {"terms": {"status": STATUS_CODES}},
-                {"term":  {"programmePeriod": PROGRAMME_PERIOD}},
+                { "terms": { "type": ["1", "2", "8"] } },        # Grants only
+                { "terms": { "status": ["31094501", "31094502"] } }, # Open & Forthcoming
+                { "term":  { "programmePeriod": "2021 - 2027" } }    # Current period
             ]
         }
     }
+
+# In your fetch loop, ensure the POST request looks exactly like this:
+form_data = {
+    "query": json.dumps(build_query()),
+    "languages": json.dumps(["en"])
+}
 
 
 def fetch_all_calls_via_api() -> list[dict]:
