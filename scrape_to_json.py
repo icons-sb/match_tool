@@ -285,6 +285,12 @@ def fetch_all_calls_via_api() -> list[dict]:
             total_results = body.get("totalResults", 0)
             total_pages = math.ceil(total_results / PAGE_SIZE)
             print(f"  Total results: {total_results} | Pages: {total_pages}")
+            # DEBUG: print first raw result to inspect field names
+            if body.get("results"):
+                import pprint
+                print("\n[DEBUG] First raw result:")
+                pprint.pprint(body["results"][0])
+                print()
 
         results = body.get("results", [])
         if not results:
