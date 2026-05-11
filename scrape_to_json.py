@@ -40,7 +40,7 @@ LINK_SELECTOR = (
     'a[href*="/prospect-details/"]'
 )
 
-RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(s\)\s*found", re.IGNORECASE)
+RE_TOTAL = re.compile(r"(\d[\d,\.]*)\s*(?:results?|items?|found)", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
 RE_DEAD      = re.compile(r"Deadline date:\s*([^\|\n\r]+)",         re.IGNORECASE)
 RE_NEXT_DEAD = re.compile(r"Next deadline:\s*([^\|\n\r]+)",         re.IGNORECASE)
@@ -447,18 +447,16 @@ def count_links(page):
 
 def read_total(page, timeout_ms=30000):
     """
-    Tenta di recuperare il totale intercettando la risposta dell'API SEDIA
-    o leggendo i nuovi selettori testuali.
+    Recupera il totale intercettando la risposta dell'API SEDIA.
     """
     total_found = {"value": None}
 
-    # Intercettiamo la risposta dell'API che abbiamo visto nello screenshot
     def capture_total(response):
-        if "apiKey=SEDIA" in response.url and response.status == 200:
+        if SEARCH_API in response.url and response.status == 200:
             try:
                 data = response.json()
-                # Solitamente il campo è 'totalResults' o 'count'
-                count = data.get("totalResults") or data.get("count")
+                # SEDIA usa solitamente 'totalResults' o 'total'
+                count = data.get("totalResults") or data.get("total")
                 if count is not None:
                     total_found["value"] = int(count)
             except: pass
@@ -467,17 +465,16 @@ def read_total(page, timeout_ms=30000):
 
     start = time.time()
     while (time.time() - start) * 1000 < timeout_ms:
-        # Se l'API ha risposto, abbiamo il dato certo
+        # Se l'API ha risposto, restituiamo il dato certo
         if total_found["value"] is not None:
             print(f" ✅ Totale letto dall'API SEDIA: {total_found['value']}")
             page.remove_listener("response", capture_total)
             return total_found["value"]
         
-        # Fallback: nuovi pattern testuali per la versione 1.0.15
+        # Fallback testuale per sicurezza
         try:
             txt = page.locator("body").inner_text()
-            # Il portale ora potrebbe usare "results" invece di "item(s)"
-            m = re.search(r"(\d[\d,\.]*)\s*(?:results?|items?|opportunit)", txt, re.I)
+            m = RE_TOTAL.search(txt)
             if m:
                 raw = m.group(1).replace(",", "").replace(".", "")
                 page.remove_listener("response", capture_total)
@@ -488,6 +485,8 @@ def read_total(page, timeout_ms=30000):
 
     page.remove_listener("response", capture_total)
     return None
+        
+        
 def scroll_until(page, expected, max_ms=50000):
     start = time.time()
     last = -1
@@ -947,12 +946,14 @@ def main(out_path: Path):
 
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
-                  wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(5000)
+                  wait_until="networkidle", timeout=90000)
+        
+        page.wait_for_timeout(4000) # Attesa extra per il rendering dei nuovi script
         accept_cookies(page)
         wait_cookie_gone(page)
 
         total = read_total(page)
+
         if total is None:
             print("❌ Non riesco a leggere il contatore delle call.")
             browser.close()
