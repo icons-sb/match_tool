@@ -1,24 +1,21 @@
 """
-scrape_to_json.py  —  v2.2 (fix perdita call)
+scrape_to_json.py  —  v2.3 (fix pagine incomplete)
 ──────────────────────────────────────────────────────────────────────────────
 Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json.
 
-Modifiche v2.2 rispetto a v2.1:
-  • _harvest_xhr_links: usa un cursore (_cursor) sulla lista cumulativa XHR
-    invece di ri-scansionare tutta la lista ad ogni pagina → elimina il bug
-    per cui p3/p4/p8 sembravano avere meno link del dovuto (erano presenti,
-    ma già marcati come "seen" perché la lista veniva riletta dall'inizio)
-  • _normalize_url(): normalizza URL per dedup coerente (lowercase path,
-    no trailing slash, no fragment) → elimina falsi duplicati per variazioni
-    di case nell'identificatore (es. HORIZON-cl5 vs HORIZON-CL5)
-  • seen_urls ora contiene URL normalizzati, usati sia da XHR che da DOM
-    fallback in modo coerente
-  • _wait_for_xhr_page(): attesa attiva (polling 300ms) che i link della
-    pagina corrente siano arrivati via XHR prima di procedere → elimina race
-    condition con wait_for_timeout(2500) fixed
-  • Output: mostra "⚠ MANCANTI:N" se una pagina ha portato meno call del
-    previsto, per facilitare il debug
-  • Tutte le logiche di classificazione e arricchimento invariate
+Modifiche v2.3 rispetto a v2.2:
+  • _wait_for_xhr_page(): timeout esteso a 25s (era 15s) + polling adattivo
+    (300ms → 600ms dopo 10s) per attendere risposte JSON parziali del server
+    EU che arrivano in batch multipli per la stessa pagina.
+  • Loop principale (pagine 2..N): se dopo _wait_for_xhr_page i link mancanti
+    sono > 2, attende ulteriori 8 secondi (polling 500ms) prima di raccogliere
+    → cattura risposte che arrivano leggermente in ritardo.
+  • Retry per pagina: se ancora ⚠ MANCANTI > 2 dopo la prima raccolta, ri-
+    naviga la stessa URL una volta e ripete la raccolta (al massimo 1 retry).
+    Evita di procedere con dati incompleti quando è un problema transitorio.
+  • DOM fallback ora usato anche per gap ≤ 5 (non solo quando XHR == 0),
+    così intercetta link che l'API non ha restituito.
+  • Tutte le logiche di classificazione e arricchimento invariate rispetto v2.2.
 """
 
 import re
@@ -1702,19 +1699,28 @@ def main(out_path: Path, debug: bool = False):
             return added
 
         def _wait_for_xhr_page(xhr_captured: dict, expected: int,
-                               timeout_s: float = 12.0) -> int:
+                               timeout_s: float = 25.0) -> int:
             """
             Attende attivamente che l'XHR abbia portato almeno `expected` link
             NUOVI rispetto al cursore corrente. Restituisce quanti ne sono arrivati.
-            Evita race condition tra navigate_to_list e la risposta API.
+
+            v2.3: timeout esteso a 25s + polling adattivo:
+              - Primi 10s: polling 300ms (veloce, coglie risposte immediate)
+              - Dopo 10s: polling 600ms (meno aggressivo, aspetta batch lenti)
+            Il server EU a volte invia la stessa "pagina" in 2-3 risposte JSON
+            parziali; aspettare di più le cattura tutte.
             """
             cursor = xhr_captured["_cursor"]
             t0     = time.time()
-            while time.time() - t0 < timeout_s:
+            while True:
+                elapsed   = time.time() - t0
                 available = len(xhr_captured["links"]) - cursor
                 if available >= expected:
                     return available
-                page.wait_for_timeout(300)
+                if elapsed >= timeout_s:
+                    break
+                poll_ms = 300 if elapsed < 10.0 else 600
+                page.wait_for_timeout(poll_ms)
             return len(xhr_captured["links"]) - cursor
 
         # ── Prima pagina ──────────────────────────────────────────────────────
@@ -1742,33 +1748,57 @@ def main(out_path: Path, debug: bool = False):
 
             print(f"\n[p{pnum}/{max_pages}] attese ~{expected} call", end="", flush=True)
 
-            ok = navigate_to_list(page, url)
-            if not ok:
-                print(f" ⚠ navigazione incerta, continuo…", flush=True)
+            for _attempt in range(2):   # max 1 retry per pagina
+                if _attempt == 1:
+                    # Retry: ri-naviga la stessa pagina
+                    print(f" ↺ retry p{pnum}", end="", flush=True)
+                    navigate_to_list(page, url)
 
-            # Attesa attiva XHR: aspetta che arrivino i link di questa pagina
-            arrived = _wait_for_xhr_page(xhr, expected, timeout_s=15.0)
+                ok = navigate_to_list(page, url) if _attempt == 0 else True
+                if not ok and _attempt == 0:
+                    print(f" ⚠ navigazione incerta, continuo…", end="", flush=True)
 
-            new_from_xhr = _harvest_xhr_links(xhr, rows, page)
+                # Attesa attiva XHR primaria (25s con polling adattivo)
+                arrived = _wait_for_xhr_page(xhr, expected, timeout_s=25.0)
 
-            # Fallback DOM solo se XHR non ha portato NULLA per questa pagina
-            new_from_dom = 0
-            if new_from_xhr < expected:
-                scroll_until(page, expected=expected)
-                dom_links = extract_links(page)
-                new_dom = [u for u in dom_links if _normalize_url(u) not in seen_urls]
-                
-                for u in new_dom:
-                    seen_urls.add(_normalize_url(u))
-                    rows.append(parse_card(page, u))
+                # v2.3: se ancora mancanti, attesa supplementare 8s (batch lenti)
+                gap_check = expected - (len(xhr["links"]) - xhr["_cursor"])
+                if gap_check > 2:
+                    t_extra = time.time()
+                    while time.time() - t_extra < 8.0:
+                        if len(xhr["links"]) - xhr["_cursor"] >= expected:
+                            break
+                        page.wait_for_timeout(500)
+                    arrived = len(xhr["links"]) - xhr["_cursor"]
 
-                new_from_dom = len(new_dom)
+                new_from_xhr = _harvest_xhr_links(xhr, rows, page)
 
-            total_new = new_from_xhr + new_from_dom
+                # DOM fallback se gap > 0 (anche piccoli gap, non solo XHR==0)
+                new_from_dom = 0
+                gap_after_xhr = expected - new_from_xhr
+                if gap_after_xhr > 0:
+                    scroll_until(page, expected=expected)
+                    dom_links = extract_links(page)
+                    new_dom   = [u for u in dom_links if _normalize_url(u) not in seen_urls]
+                    for u in new_dom:
+                        seen_urls.add(_normalize_url(u))
+                        rows.append(parse_card(page, u))
+                    new_from_dom = len(new_dom)
+
+                total_new = new_from_xhr + new_from_dom
+                gap_final = expected - total_new
+
+                # Esci dal retry se completo o gap piccolo (≤2)
+                if gap_final <= 2:
+                    break
+                # Se primo tentativo ancora incompleto, riprova
+                if _attempt == 0:
+                    continue
+                # Secondo tentativo esaurito: segnala e prosegui
+                break
+
             src_label = f"XHR:{new_from_xhr}" + (f" DOM:{new_from_dom}" if new_from_dom else "")
-            # Avvisa se siamo short rispetto all'atteso (utile per debug)
-            gap = expected - total_new
-            gap_str = f" ⚠ MANCANTI:{gap}" if gap > 2 else ""
+            gap_str   = f" ⚠ MANCANTI:{gap_final}" if gap_final > 2 else ""
             print(f" → {total_new} nuovi ({src_label}) | tot seen: {len(seen_urls)}{gap_str}", flush=True)
 
             time.sleep(0.15)
@@ -1822,7 +1852,6 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true",  help="Diagnostica estesa")
     args = parser.parse_args()
     main(Path(args.out), debug=args.debug)
-
 
 
 
