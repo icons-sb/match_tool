@@ -704,8 +704,7 @@ def _result_to_row(result: dict, status_code: str = "", status_label: str = "") 
 
 
 def _fetch_one_status(status_code: str, status_label: str) -> list:
-    print(f"
-  Stato: {status_label} ({status_code})", flush=True)
+    print(f"\n  Stato: {status_label} ({status_code})", flush=True)
 
     first_url = _build_search_url(1)
     first_data = _fetch_json(first_url, status_code)
