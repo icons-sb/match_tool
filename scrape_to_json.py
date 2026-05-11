@@ -34,7 +34,7 @@ LIST_URL = (
 SEARCH_API  = "search-api/prod/rest/search"
 COOKIE_TEXT = "This site uses cookies"
 
-LINK_SELECTOR = 'css=a[href*="/topic-details/"], a[href*="/competitive-calls-cs/"], a[href*="/prospect-details/"]'
+LINK_SELECTOR = 'a[href*="/topic-details/"], a[href*="/competitive-calls-cs/"], a[href*="/prospect-details/"]'
 
 RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(s\)\s*found", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
@@ -464,54 +464,31 @@ def scroll_until(page, expected, max_ms=50000):
     start = time.time()
     last = -1
     stable_since = time.time()
-    while count_links(page) == 0 and (time.time()-start)*1000 < 10000:
-        accept_cookies(page)
-        wait_cookie_gone(page, 3000)
-        page.wait_for_timeout(700)
-    container = page.evaluate_handle(f"""() => {{
-        const sel = `{LINK_SELECTOR}`;
-        const links = document.querySelectorAll(sel);
-        if (!links.length) return null;
-        let el = links[0];
-        for (let i=0; i<20; i++) {{
-            if (!el) break;
-            const st = window.getComputedStyle(el);
-            const oy = st.overflowY;
-            if ((oy==='auto'||oy==='scroll') && el.scrollHeight>el.clientHeight+5) return el;
-            el = el.parentElement;
-        }}
-        return null;
-    }}""")
+    
     while (time.time()-start)*1000 < max_ms:
         accept_cookies(page)
-        wait_cookie_gone(page, 3000)
         c = count_links(page)
         if c >= expected:
             return c
+        
         if c != last:
             last = c
             stable_since = time.time()
-        try:
-            if container:
-                page.evaluate("(el)=>{ el.scrollTop = el.scrollTop + el.clientHeight*0.9; }", container)
-            else:
-                page.mouse.wheel(0, 1800)
-        except Exception:
-            pass
-        page.wait_for_timeout(600)
+        
+        # Scroll semplice e robusto
+        page.mouse.wheel(0, 2000)
+        page.wait_for_timeout(800)
+        
+        # Se siamo fermi da troppo, prova uno scroll forzato a fondo pagina
         if time.time()-stable_since > 5:
-            try:
-                if container:
-                    page.evaluate("(el)=>{ el.scrollTop = el.scrollHeight; }", container)
-                else:
-                    page.mouse.wheel(0, 5000)
-            except Exception:
-                pass
-            page.wait_for_timeout(600)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1000)
+            
     return count_links(page)
 
 def extract_links(page):
-    # Il locator di Playwright buca automaticamente lo Shadow DOM
+    # Locator nativo di Playwright: risolve il problema dello Shadow DOM 
+    # senza usare querySelector nel browser.
     locators = page.locator(LINK_SELECTOR).all()
     out, seen = [], set()
     for loc in locators:
