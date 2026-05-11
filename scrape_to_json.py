@@ -1,13 +1,21 @@
 """
-scrape_to_json.py
-─────────────────
-Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json
-direttamente, senza passare per Excel.
-Incorpora tutta la logica di classificazione di make_calls_json.py.
+scrape_to_json.py  —  v2.0 (rewrite)
+──────────────────────────────────────────────────────────────────────────────
+Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json.
+
+Miglioramenti rispetto alla versione precedente:
+  • Attesa attiva dei risultati tramite wait_for_selector / networkidle
+  • Lettura contatore robusta: testa testo body, shadow DOM, attributi ARIA,
+    query su selettori specifici del portale EU (eui-*, mat-*, angular)
+  • Diagnostica automatica: stampa URL, snapshot HTML, contatori trovati
+  • Gestione cookie più aggressiva (shadow DOM incluso)
+  • Retry automatico sulla navigazione in caso di timeout/redirect errato
+  • Tutte le logiche di classificazione originali intatte
 
 Uso:
     python scrape_to_json.py              # scrive calls.json nella cartella corrente
     python scrape_to_json.py --out /path  # percorso custom
+    python scrape_to_json.py --debug      # stampa diagnostica estesa
 """
 
 import re
@@ -18,11 +26,12 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-# ── Parametri ─────────────────────────────────────────────────────────────────
+# ── Parametri ──────────────────────────────────────────────────────────────────
 
 PAGE_SIZE = 50
+DEBUG     = False   # impostato da --debug; sovrascrive read_total verbose
 
 LIST_URL = (
     "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
@@ -40,7 +49,7 @@ LINK_SELECTOR = (
     'a[href*="/prospect-details/"]'
 )
 
-RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(s\)\s*found", re.IGNORECASE)
+RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(?s\)?\s*found", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
 RE_DEAD      = re.compile(r"Deadline date:\s*([^\|\n\r]+)",         re.IGNORECASE)
 RE_NEXT_DEAD = re.compile(r"Next deadline:\s*([^\|\n\r]+)",         re.IGNORECASE)
@@ -49,7 +58,6 @@ RE_ACTION    = re.compile(r"Type of action:\s*([^\|\n\r]+)",        re.IGNORECAS
 RE_CLUSTER   = re.compile(r"HORIZON-CL([1-6])",                     re.IGNORECASE)
 RE_CALL_ID   = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)",  re.IGNORECASE)
 
-# Budget patterns — ordered from most to least reliable
 RE_BUDGET_LABEL = re.compile(
     r"(?:total\s+)?budget[:\s]+(?:of\s+)?(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
     re.IGNORECASE,
@@ -72,7 +80,7 @@ MONTHS = {
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
 }
 
-# ── Tabelle di classificazione ────────────────────────────────────────────────
+# ── Tabelle di classificazione ─────────────────────────────────────────────────
 
 PROGRAMME_MAP = {
     "43108390":"Horizon Europe","43108391":"Horizon Europe",
@@ -129,7 +137,6 @@ PROGRAMME_THEMATIC_MAP = [
     ("Horizon Europe",                  "Cross-cutting / Other"),
 ]
 
-# (prefix, subcode_or_None, cluster_num, cluster_label, thematic)
 URL_RULES = [
     ("MISS","CIT",      "M-CIT", "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
     ("MISS","OCEAN",    "M-OCEAN","Healthy Oceans, Seas, Coastal & Inland Waters","Healthy Oceans, Seas, Coastal & Inland Waters"),
@@ -226,7 +233,7 @@ TOPIC_KEYWORDS = {
     "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
 }
 
-# ── Helpers di classificazione ────────────────────────────────────────────────
+# ── Helpers di classificazione ─────────────────────────────────────────────────
 
 def escape_rx(s: str) -> str:
     return re.escape(s or "")
@@ -268,7 +275,7 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
         "is_special_basic_research": special,
     }
 
-# ── Classificazione ───────────────────────────────────────────────────────────
+# ── Classificazione ────────────────────────────────────────────────────────────
 
 def _topic_id(url: str) -> str:
     s = (url or "").upper().split("?")[0]
@@ -329,7 +336,7 @@ def beneficiary_hint(action: str, prog: str, url_benef):
     if "external action" in p: hints.extend(["NGO","Public body","Research organisation"])
     return list(dict.fromkeys(hints))
 
-# ── Parsing date e budget ─────────────────────────────────────────────────────
+# ── Parsing date e budget ──────────────────────────────────────────────────────
 
 def parse_date_iso(s: str) -> str:
     s = re.sub(r"\s+", " ", str(s or "")).strip()
@@ -355,14 +362,9 @@ def parse_date_iso(s: str) -> str:
     return ""
 
 def parse_budget(s: str) -> int:
-    """Normalize a raw budget string to an integer euro amount.
-    Returns 0 if unparseable. Handles formats like:
-      1,500,000 / 1.500.000 / 1 500 000 / 1.5M / 2,3M
-    """
     if not s:
         return 0
     s = s.strip()
-    # Millions shorthand: 1.5M or 2,3M
     m = re.match(r"^([\d]+[.,][\d]+)\s*[Mm]$", s)
     if m:
         try:
@@ -375,16 +377,12 @@ def parse_budget(s: str) -> int:
             return int(m2.group(1)) * 1_000_000
         except ValueError:
             pass
-    # Strip anything that isn't a digit, comma, dot, or space
     cleaned = re.sub(r"[^\d,. ]", "", s).strip()
-    # Detect European format: 1.500.000 or 1.500.000,00
     if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", cleaned):
         cleaned = cleaned.replace(".", "").replace(",", ".")
-    # American format: 1,500,000 or 1,500,000.00
     elif re.match(r"^\d{1,3}(,\d{3})+(\.\d+)?$", cleaned):
         cleaned = cleaned.replace(",", "")
     else:
-        # Space-separated: 1 500 000
         cleaned = cleaned.replace(" ", "").replace(",", ".")
     try:
         return int(float(cleaned))
@@ -392,22 +390,17 @@ def parse_budget(s: str) -> int:
         return 0
 
 def extract_budget_from_text(text: str) -> int:
-    """Try multiple regex patterns against page body text.
-    Returns the best (largest plausible) match in euros, or 0.
-    """
     candidates = []
     for rx in (RE_BUDGET_INDICATIVE, RE_BUDGET_EXPECTED, RE_BUDGET_LABEL, RE_BUDGET_SUFFIX):
         for m in rx.finditer(text or ""):
             val = parse_budget(m.group(1))
-            # Sanity: between €10,000 and €10 billion
             if 10_000 <= val <= 10_000_000_000:
                 candidates.append(val)
     if not candidates:
         return 0
-    # Prefer the largest single figure (total budget > per-project budget)
     return max(candidates)
 
-# ── Utilità Playwright ────────────────────────────────────────────────────────
+# ── Utilità ────────────────────────────────────────────────────────────────────
 
 def clean(s):
     if not s:
@@ -419,123 +412,489 @@ def pick(rx, text):
     m = rx.search(text or "")
     return clean(m.group(1)) if m else None
 
+# ── Cookie handling ────────────────────────────────────────────────────────────
+
 def accept_cookies(page):
-    for label in ["Accept all","Accept All","Accept","I accept","Agree","OK"]:
+    """
+    Tenta di accettare il banner cookie sia nel DOM normale che in shadow DOM.
+    """
+    labels = ["Accept all", "Accept All", "Accept", "I accept", "Agree", "OK",
+              "Accetta", "Accetto", "Accepter"]
+
+    # 1. Cerca in tutti i frame
+    for label in labels:
         for scope in [page] + list(page.frames):
             try:
                 btn = scope.get_by_role("button", name=re.compile(label, re.IGNORECASE))
                 if btn.count():
                     btn.first.click(timeout=2000)
                     page.wait_for_timeout(800)
-                    return
+                    return True
             except Exception:
                 pass
+
+    # 2. Tenta via JavaScript (copre shadow DOM e web components)
+    try:
+        clicked = page.evaluate(r"""() => {
+            const labels = /accept|agree|ok|accetta/i;
+            // Cerca nei shadow roots ricorsivamente
+            function findInShadow(root) {
+                const btns = root.querySelectorAll('button, [role="button"], a');
+                for (const b of btns) {
+                    if (labels.test(b.innerText || b.textContent || '')) {
+                        b.click();
+                        return true;
+                    }
+                }
+                for (const el of root.querySelectorAll('*')) {
+                    if (el.shadowRoot) {
+                        if (findInShadow(el.shadowRoot)) return true;
+                    }
+                }
+                return false;
+            }
+            return findInShadow(document);
+        }""")
+        if clicked:
+            page.wait_for_timeout(800)
+            return True
+    except Exception:
+        pass
+
+    return False
 
 def wait_cookie_gone(page, max_ms=12000):
     t0 = time.time()
     while (time.time() - t0) * 1000 < max_ms:
         try:
-            body = page.locator("body").inner_text()
+            body = page.locator("body").inner_text(timeout=3000)
         except Exception:
             body = ""
         if COOKIE_TEXT.lower() not in (body or "").lower():
-            return
+            return True
+        accept_cookies(page)
         page.wait_for_timeout(600)
+    return False
 
-def count_links(page):
-    return page.locator(LINK_SELECTOR).count()
+# ── Lettura contatore risultati (riscritta) ────────────────────────────────────
 
-def read_total(page, timeout_ms=30000):
+# Pattern ordinati dal più specifico al più largo
+_TOTAL_PATTERNS = [
+    re.compile(r"(\d[\d,\.]*)\s*items?\s*\(?s?\)?\s*found",          re.IGNORECASE),
+    re.compile(r"(\d[\d,\.]*)\s*results?\s*found",                    re.IGNORECASE),
+    re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",               re.IGNORECASE),
+    re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",                      re.IGNORECASE),
+    re.compile(r"found\s+(\d[\d,\.]*)\s*results?",                    re.IGNORECASE),
+    re.compile(r"Total[:\s]+(\d[\d,\.]*)",                            re.IGNORECASE),
+    re.compile(r"Showing\s+\d+\s*[–\-]\s*\d+\s+of\s+(\d[\d,\.]*)",  re.IGNORECASE),
+    re.compile(r"of\s+(\d[\d,\.]*)\s+results?",                       re.IGNORECASE),
+    re.compile(r"(\d[\d,\.]*)\s*open\s*calls?",                       re.IGNORECASE),
+    re.compile(r"(\d[\d,\.]*)\s*proposals?\s*found",                  re.IGNORECASE),
+    re.compile(r"(\d+)\s*result",                                     re.IGNORECASE),  # largo
+]
+
+def _parse_count(raw: str) -> int:
+    return int(raw.replace(",", "").replace(".", "").replace(" ", ""))
+
+def _try_read_total_from_text(txt: str):
+    for pat in _TOTAL_PATTERNS:
+        m = pat.search(txt or "")
+        if m:
+            try:
+                val = _parse_count(m.group(1))
+                if val > 0:
+                    return val, pat.pattern
+            except Exception:
+                pass
+    return None, None
+
+def _read_total_shadow_dom(page) -> int | None:
     """
-    Attende e legge il numero totale di risultati dalla pagina.
-    Prova più pattern per coprire eventuali variazioni del portale EU.
+    Interroga il DOM via JavaScript, inclusi shadow roots e attributi aria/data.
+    Restituisce il primo numero plausibile trovato, o None.
     """
-    PATTERNS = [
-        re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",        re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",               re.IGNORECASE),
-        re.compile(r"found\s+(\d[\d,\.]*)\s*results?",             re.IGNORECASE),
-        re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),  # fallback largo
+    try:
+        result = page.evaluate(r"""() => {
+            const patterns = [
+                /(\d[\d,\.]*)\s*items?\s*found/i,
+                /(\d[\d,\.]*)\s*results?\s*found/i,
+                /found\s+(\d[\d,\.]*)\s*results?/i,
+                /(\d[\d,\.]*)\s*calls?\s*found/i,
+                /of\s+(\d[\d,\.]*)\s+results?/i,
+                /(\d+)\s*result/i,
+                /Total[:\s]+(\d[\d,\.]*)/i,
+            ];
+
+            function tryText(t) {
+                if (!t) return null;
+                for (const p of patterns) {
+                    const m = p.exec(t);
+                    if (m) {
+                        const v = parseInt(m[1].replace(/[,. ]/g, ''));
+                        if (v > 0) return v;
+                    }
+                }
+                return null;
+            }
+
+            function walkShadow(root, depth) {
+                if (depth > 12) return null;
+                // Cerca in elementi con classi/attributi semantici prima
+                const priority = root.querySelectorAll(
+                    '[class*="count"], [class*="total"], [class*="result"], [class*="found"], ' +
+                    '[aria-label*="result"], [aria-label*="item"], [aria-label*="found"], ' +
+                    'eui-count, eui-total, eui-results, ' +
+                    '.results-count, .search-count, .item-count, .total-count, ' +
+                    'span[data-testid], p[data-testid]'
+                );
+                for (const el of priority) {
+                    const v = tryText(el.innerText || el.textContent);
+                    if (v) return v;
+                    if (el.shadowRoot) {
+                        const sv = walkShadow(el.shadowRoot, depth + 1);
+                        if (sv) return sv;
+                    }
+                }
+                // Poi prova tutti gli elementi con shadow root
+                for (const el of root.querySelectorAll('*')) {
+                    if (el.shadowRoot) {
+                        const sv = walkShadow(el.shadowRoot, depth + 1);
+                        if (sv) return sv;
+                    }
+                }
+                return null;
+            }
+
+            // Prima cerca nel DOM normale
+            const bodyText = document.body?.innerText || '';
+            const v1 = tryText(bodyText);
+            if (v1) return { value: v1, source: 'body_text' };
+
+            // Poi nei shadow roots
+            const v2 = walkShadow(document, 0);
+            if (v2) return { value: v2, source: 'shadow_dom' };
+
+            // Fallback: cerca in tutti gli span/p/div con numeri plausibili vicini a keyword
+            const allEls = document.querySelectorAll('span, p, div, li, td, h1, h2, h3, h4, label');
+            for (const el of allEls) {
+                const t = el.innerText || el.textContent || '';
+                if (t.length > 5 && t.length < 200) {
+                    const v = tryText(t);
+                    if (v) return { value: v, source: 'element:' + (el.className || el.tagName) };
+                }
+            }
+
+            return null;
+        }""")
+
+        if result and result.get("value"):
+            if DEBUG:
+                print(f"  [shadow_dom] trovato {result['value']} via {result['source']}")
+            return result["value"]
+    except Exception as e:
+        if DEBUG:
+            print(f"  [shadow_dom] errore JS: {e}")
+    return None
+
+def _wait_for_results_to_load(page, timeout_ms=45000):
+    """
+    Attende che i risultati siano effettivamente presenti nella pagina.
+    Prova diversi selettori noti del portale EU.
+    """
+    selectors_to_try = [
+        # Selettori specifici del portale EU Funding & Tenders
+        "eui-search-results",
+        "eui-result-item",
+        "[class*='result-item']",
+        "[class*='search-result']",
+        "[class*='call-item']",
+        "[class*='opportunity']",
+        # Link alle call (il nostro selettore principale)
+        'a[href*="/topic-details/"]',
+        'a[href*="/competitive-calls-cs/"]',
+        # Selettori generici di lista risultati
+        ".results-list",
+        ".search-results",
+        "[role='list'] [role='listitem']",
+        # Testo con numero di risultati
+        "text=/\\d+\\s*item/i",
+        "text=/\\d+\\s*result/i",
+        "text=/\\d+\\s*call/i",
     ]
 
-    start = time.time()
-    while (time.time() - start) * 1000 < timeout_ms:
+    for sel in selectors_to_try:
         try:
-            txt = page.locator("body").inner_text()
+            page.wait_for_selector(sel, timeout=8000, state="visible")
+            if DEBUG:
+                print(f"  [load] selettore trovato: {sel}")
+            return True
+        except Exception:
+            pass
+
+    # Attesa minima per Angular/React
+    page.wait_for_timeout(3000)
+    return False
+
+def read_total(page, timeout_ms=60000) -> int | None:
+    """
+    Legge il numero totale di risultati dalla pagina.
+    Strategia multi-livello con diagnostica.
+    """
+    print(f"  URL corrente: {page.url}", flush=True)
+
+    # Attendi che i contenuti siano caricati
+    _wait_for_results_to_load(page, timeout_ms=min(timeout_ms, 30000))
+
+    start = time.time()
+    attempt = 0
+
+    while (time.time() - start) * 1000 < timeout_ms:
+        attempt += 1
+
+        # ── Strategia 1: testo body normale
+        try:
+            txt = page.locator("body").inner_text(timeout=5000)
+            val, pat = _try_read_total_from_text(txt)
+            if val:
+                print(f"  ✓ Contatore trovato (body text, pattern '{pat}'): {val}", flush=True)
+                return val
         except Exception:
             txt = ""
 
-        for pat in PATTERNS:
-            m = pat.search(txt or "")
-            if m:
-                raw = m.group(1).replace(",", "").replace(".", "")
-                print(f" Contatore trovato con pattern '{pat.pattern}': {raw}")
-                return int(raw)
+        # ── Strategia 2: shadow DOM + JS walk
+        val = _read_total_shadow_dom(page)
+        if val:
+            print(f"  ✓ Contatore trovato (shadow DOM): {val}", flush=True)
+            return val
 
-        page.wait_for_timeout(1000)
+        # ── Strategia 3: inner HTML grezzo (cattura attributi data-*)
+        try:
+            html = page.content()
+            # Cerca in attributi come data-total="123" data-count="123"
+            for attr_pat in [
+                re.compile(r'data-(?:total|count|results?)["\s]*[=:]["\s]*(\d+)', re.IGNORECASE),
+                re.compile(r'(?:total|count|results?)["\s]*:["\s]*(\d+)', re.IGNORECASE),
+            ]:
+                for m in attr_pat.finditer(html):
+                    try:
+                        v = int(m.group(1))
+                        if 10 < v < 100000:
+                            print(f"  ✓ Contatore trovato (HTML attr '{attr_pat.pattern}'): {v}", flush=True)
+                            return v
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
-    # Debug: stampa le prime 2000 caratteri del body
+        # ── Strategia 4: intercettazione XHR (se abbiamo un response handler attivo)
+        # (sarà gestita dal chiamante tramite _captured_total se disponibile)
+
+        # Diagnostica ogni 3 tentativi
+        if attempt % 3 == 0:
+            print(f"  [tentativo {attempt}] in attesa del contatore…", flush=True)
+            if DEBUG and txt:
+                # Mostra contesti numerici nel testo
+                number_contexts = re.findall(r'.{0,40}\d+.{0,40}', txt)
+                print(f"  Contesti numerici trovati ({len(number_contexts)}):")
+                for ctx in number_contexts[:15]:
+                    print(f"    › {ctx.strip()}")
+
+        # Scroll per stimolare il rendering
+        try:
+            page.mouse.wheel(0, 300)
+        except Exception:
+            pass
+
+        page.wait_for_timeout(1500)
+
+    # ── Fallback finale: usa numero di link trovati come stima
+    link_count = page.locator(LINK_SELECTOR).count()
+    if link_count > 0:
+        print(f"  ⚠ Contatore non trovato, uso {link_count} link come stima minima", flush=True)
+        return link_count
+
+    # ── Diagnostica finale se tutto fallisce
+    print("  ✗ Impossibile trovare il contatore. Diagnostica:", flush=True)
     try:
-        snippet = page.locator("body").inner_text()[:2000]
-        print(f" Testo body (primi 2000 char):\n{snippet}")
+        txt = page.locator("body").inner_text(timeout=5000)
+        print(f"  URL: {page.url}")
+        print(f"  Testo body (primi 3000 char):\n{txt[:3000]}", flush=True)
     except Exception as e:
-        print(f"Impossibile leggere il body: {e}")
+        print(f"  Errore lettura body: {e}", flush=True)
 
     return None
 
-def scroll_until(page, expected, max_ms=50000):
-    start = time.time()
-    last = -1
+# ── Intercettazione XHR per il totale ─────────────────────────────────────────
+
+def attach_total_interceptor(page) -> dict:
+    """
+    Registra un handler XHR che cattura il totale dalla search API.
+    Restituisce un dizionario condiviso dove verrà scritto 'total'.
+    """
+    captured = {}
+
+    def handle(response, _c=captured):
+        if SEARCH_API not in response.url:
+            return
+        if response.status != 200:
+            return
+        try:
+            body = response.json()
+            # Il portale EU restituisce spesso { "total": N, "results": [...] }
+            for key in ("total", "totalCount", "totalResults", "count", "numFound", "hits"):
+                v = body.get(key)
+                if isinstance(v, int) and v > 0:
+                    _c["total"] = v
+                    if DEBUG:
+                        print(f"  [XHR] total da key '{key}': {v}")
+                    return
+            # Oppure il totale può stare nel primo risultato come metadato
+            results = body.get("results", [])
+            if results and isinstance(results[0], dict):
+                meta = results[0].get("metadata", {}) or {}
+                for key in ("total", "totalCount", "numFound"):
+                    v = meta.get(key)
+                    if isinstance(v, int) and v > 0:
+                        _c["total"] = v
+                        return
+        except Exception:
+            pass
+
+    page.on("response", handle)
+    return captured
+
+# ── Navigazione robusta ────────────────────────────────────────────────────────
+
+def navigate_to_list(page, url: str, max_attempts: int = 3) -> bool:
+    """
+    Naviga alla pagina di lista con retry.
+    Gestisce redirect inattesi, timeout e pagine vuote.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Imposta intercettazione XHR PRIMA di navigare
+            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+
+            # Attendi caricamento Angular/React
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass  # networkidle può non arrivare su SPA pesanti
+
+            page.wait_for_timeout(2000)
+
+            # Gestisci cookie
+            accept_cookies(page)
+            wait_cookie_gone(page, max_ms=8000)
+
+            # Verifica che l'URL sia corretto (no redirect a login/errore)
+            current = page.url
+            if "calls-for-proposals" in current or "opportunities" in current:
+                return True
+            if "login" in current.lower() or "error" in current.lower():
+                print(f"  [navigate] redirect inatteso: {current}", flush=True)
+                if attempt < max_attempts:
+                    page.go_back(timeout=10000)
+                    page.wait_for_timeout(2000)
+                    continue
+
+            # Verifica presenza minima di contenuti
+            try:
+                txt = page.locator("body").inner_text(timeout=5000)
+                if len(txt) > 500:
+                    return True
+            except Exception:
+                pass
+
+        except PWTimeout:
+            print(f"  [navigate] timeout (tentativo {attempt}/{max_attempts})", flush=True)
+        except Exception as e:
+            print(f"  [navigate] errore: {e} (tentativo {attempt}/{max_attempts})", flush=True)
+
+        if attempt < max_attempts:
+            page.wait_for_timeout(3000 * attempt)
+
+    return False
+
+# ── Scroll e link ──────────────────────────────────────────────────────────────
+
+def count_links(page) -> int:
+    try:
+        return page.locator(LINK_SELECTOR).count()
+    except Exception:
+        return 0
+
+def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
+    """
+    Scrolla la pagina finché non compaiono almeno `expected` link.
+    Gestisce sia scroll globale che scroll di container virtuali.
+    """
+    start     = time.time()
+    last      = -1
     stable_since = time.time()
-    while count_links(page) == 0 and (time.time()-start)*1000 < 10000:
+
+    # Prima gestisci i cookie rimasti
+    while count_links(page) == 0 and (time.time() - start) * 1000 < 12000:
         accept_cookies(page)
         wait_cookie_gone(page, 3000)
         page.wait_for_timeout(700)
+
+    # Trova il container scrollabile (virtual scroll o overflow)
     container = page.evaluate_handle(f"""() => {{
         const sel = `{LINK_SELECTOR}`;
         const links = document.querySelectorAll(sel);
         if (!links.length) return null;
         let el = links[0];
-        for (let i=0; i<20; i++) {{
+        for (let i = 0; i < 20; i++) {{
             if (!el) break;
             const st = window.getComputedStyle(el);
             const oy = st.overflowY;
-            if ((oy==='auto'||oy==='scroll') && el.scrollHeight>el.clientHeight+5) return el;
+            if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 5) return el;
             el = el.parentElement;
         }}
         return null;
     }}""")
-    while (time.time()-start)*1000 < max_ms:
+
+    while (time.time() - start) * 1000 < max_ms:
         accept_cookies(page)
-        wait_cookie_gone(page, 3000)
         c = count_links(page)
+
         if c >= expected:
             return c
+
         if c != last:
             last = c
             stable_since = time.time()
+
+        # Scroll progressivo
         try:
             if container:
-                page.evaluate("(el)=>{ el.scrollTop = el.scrollTop + el.clientHeight*0.9; }", container)
+                page.evaluate("(el) => { el.scrollTop += el.clientHeight * 0.85; }", container)
             else:
                 page.mouse.wheel(0, 1800)
         except Exception:
-            pass
-        page.wait_for_timeout(600)
-        if time.time()-stable_since > 5:
             try:
-                if container:
-                    page.evaluate("(el)=>{ el.scrollTop = el.scrollHeight; }", container)
-                else:
-                    page.mouse.wheel(0, 5000)
+                page.mouse.wheel(0, 1800)
             except Exception:
                 pass
-            page.wait_for_timeout(600)
+
+        page.wait_for_timeout(700)
+
+        # Se bloccato, scroll aggressivo
+        if time.time() - stable_since > 6:
+            try:
+                if container:
+                    page.evaluate("(el) => { el.scrollTop = el.scrollHeight; }", container)
+                else:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            except Exception:
+                pass
+            page.wait_for_timeout(1000)
+            stable_since = time.time()
+
     return count_links(page)
 
-def extract_links(page):
+def extract_links(page) -> list[str]:
     hrefs = page.evaluate(f"""
         () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
                   .map(a => a.getAttribute('href'))
@@ -550,10 +909,10 @@ def extract_links(page):
             out.append(full)
     return out
 
-# ── Parsing card dalla lista ──────────────────────────────────────────────────
+# ── Parsing card dalla lista ───────────────────────────────────────────────────
 
 def parse_card(page, full_url: str) -> dict:
-    path = full_url.replace("https://ec.europa.eu","").split("?")[0]
+    path = full_url.replace("https://ec.europa.eu", "").split("?")[0]
     a = page.locator(f'a[href*="{path}"]').first
     title = clean(a.inner_text()) if a.count() else path.split("/")[-1]
 
@@ -569,18 +928,17 @@ def parse_card(page, full_url: str) -> dict:
     cluster_raw = pick(RE_CLUSTER, text) or pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, call_id or "")
 
     return {
-        "name":           title,
-        "call_id":        call_id,
-        "programme_raw":  pick(RE_PROG, text),
-        "action_raw":     pick(RE_ACTION, text),
-        "cluster_raw":    cluster_raw,
-        "opening_raw":    pick(RE_OPEN, text),
-        "deadline_raw":   dead,
-        "url":            full_url,
-        "_needs_enrich":  False,
+        "name":          title,
+        "call_id":       call_id,
+        "programme_raw": pick(RE_PROG, text),
+        "action_raw":    pick(RE_ACTION, text),
+        "cluster_raw":   cluster_raw,
+        "opening_raw":   pick(RE_OPEN, text),
+        "deadline_raw":  dead,
+        "url":           full_url,
     }
 
-# ── Arricchimento via XHR ─────────────────────────────────────────────────────
+# ── Arricchimento via XHR + DOM ────────────────────────────────────────────────
 
 def _first(meta, *keys):
     for k in keys:
@@ -591,26 +949,25 @@ def _first(meta, *keys):
             return v.strip()
     return ""
 
-def extract_budget_per_project_dom(page, topic_id):
-    """Logica Cacciatore: espande la tabella e preleva il budget semantico"""
-    parts = topic_id.split('?')[0].split('-')
+def extract_budget_per_project_dom(page, topic_id: str):
+    """
+    Espande 'Topic conditions and documents' e cerca il budget nella riga specifica.
+    """
+    parts = topic_id.split("?")[0].split("-")
     target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
     try:
-        # Espande la sezione 'Topic conditions'
         btn = page.locator("button:has-text('Topic conditions and documents')").first
         if btn.count() > 0:
             btn.scroll_into_view_if_needed()
             if btn.get_attribute("aria-expanded") == "false":
                 btn.click(force=True)
                 page.wait_for_timeout(3500)
-        
-        # Scrolla sulla riga specifica dell'ID
+
         row_locator = page.locator(f"tr:has-text('{target_match}')").first
         if row_locator.count() > 0:
             row_locator.scroll_into_view_if_needed()
             page.wait_for_timeout(1000)
-            
-        # Estrae il valore tramite JavaScript
+
         return page.evaluate(f"""
             (shortId) => {{
                 const allRows = Array.from(document.querySelectorAll('tr, .wt-table-row'));
@@ -630,77 +987,70 @@ def extract_budget_per_project_dom(page, topic_id):
                 return null;
             }}
         """, target_match)
-    except: return None
-        
+    except Exception:
+        return None
+
 def _enrich_one(page, row: dict) -> bool:
-    """
-    Apre una pagina di dettaglio, cattura i campi mancanti via XHR (handle)
-    e integra la nuova logica DOM per l'estrazione precisa del budget.
-    """
     url      = row["url"]
+    topic_id = url.split("/")[-1].split("?")[0]
     captured = {}
-    # Estraiamo il topic_id dall'URL per il Cacciatore di Righe
-    topic_id = url.split('/')[-1].split('?')[0]
 
     def handle(response, _c=captured):
-        if SEARCH_API in response.url and response.status == 200:
-            try:
-                body = response.json()
-                for item in body.get("results", [body]):
-                    meta    = item.get("metadata", {}) or {}
-                    prog_id = _first(meta, "frameworkProgramme", "programme")
-                    action  = _first(meta, "typesOfAction","typeOfAction","fundingScheme")
-                    cid     = _first(meta, "callIdentifier","identifier")
-                    
-                    if prog_id and not _c.get("prog"):
-                        _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
-                    if action and not _c.get("action"):
-                        _c["action"] = action
-                    if cid and not _c.get("call_id"):
-                        _c["call_id"] = cid
+        if SEARCH_API not in response.url or response.status != 200:
+            return
+        try:
+            body = response.json()
+            for item in body.get("results", [body]):
+                meta    = item.get("metadata", {}) or {}
+                prog_id = _first(meta, "frameworkProgramme", "programme")
+                action  = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                cid     = _first(meta, "callIdentifier", "identifier")
 
-                    # Budget da XHR (mantenuto come primo tentativo/backup)
-                    if not _c.get("budget"):
-                        for key in (
-                            "budgetOverviewTotal", "totalBudget", "budget",
-                            "budgetTopicActions", "indicativeBudget",
-                            "availableBudget", "estimatedTotalContribution"
-                        ):
-                            raw = meta.get(key)
-                            if isinstance(raw, list): raw = raw[0] if raw else None
-                            if raw is not None:
-                                val = parse_budget(str(raw))
-                                if val > 0:
-                                    _c["budget"] = val
-                                    break
-            except Exception:
-                pass
+                if prog_id and not _c.get("prog"):
+                    _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
+                if action and not _c.get("action"):
+                    _c["action"] = action
+                if cid and not _c.get("call_id"):
+                    _c["call_id"] = cid
+
+                if not _c.get("budget"):
+                    for key in (
+                        "budgetOverviewTotal", "totalBudget", "budget",
+                        "budgetTopicActions", "indicativeBudget",
+                        "availableBudget", "estimatedTotalContribution",
+                    ):
+                        raw = meta.get(key)
+                        if isinstance(raw, list):
+                            raw = raw[0] if raw else None
+                        if raw is not None:
+                            val = parse_budget(str(raw))
+                            if val > 0:
+                                _c["budget"] = val
+                                break
+        except Exception:
+            pass
 
     page.on("response", handle)
     try:
-        # 1. Navigazione
         page.goto(url, wait_until="domcontentloaded", timeout=40000)
-        page.wait_for_timeout(2500)
-        
-        # 2. Estrazione testo completo (fondamentale per le tue 13 aree tematiche)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2000)
+
         try:
             body_text = page.locator("body").inner_text(timeout=5000)
         except Exception:
             body_text = ""
         row["full_text"] = clean(body_text) or ""
 
-        # 3. LOGICA "CACCIATORE DI RIGHE" (Espansione Tabella DOM)
-        # Questa funzione deve essere definita sopra _enrich_one
         budget_val_dom = extract_budget_per_project_dom(page, topic_id)
-        
         if budget_val_dom:
-            # Se il cacciatore trova il valore nella tabella, ha la priorità
             row["budget_raw"] = budget_val_dom
         elif captured.get("budget"):
-            # Altrimenti usiamo il valore numerico trovato via XHR
             row["budget_raw"] = captured["budget"]
         elif body_text:
-            # Fallback finale: scansione Regex del testo
             val_reg = extract_budget_from_text(body_text)
             if val_reg > 0:
                 row["budget_raw"] = val_reg
@@ -708,9 +1058,11 @@ def _enrich_one(page, row: dict) -> bool:
     except Exception as e:
         print(f"    [ERR goto] {e}", flush=True)
     finally:
-        page.remove_listener("response", handle)
+        try:
+            page.remove_listener("response", handle)
+        except Exception:
+            pass
 
-    # 4. Assegnazione finale metadati (Logica originale intatta)
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
     if captured.get("action") and not row.get("action_raw"):
@@ -720,17 +1072,18 @@ def _enrich_one(page, row: dict) -> bool:
 
     return bool(captured) or bool(row.get("full_text"))
 
-
 def enrich(ctx, rows: list):
-    to_fix = [r for r in rows
-              if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id"))
-              and r.get("url")]
+    to_fix = [
+        r for r in rows
+        if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id"))
+        and r.get("url")
+    ]
     if not to_fix:
         print("  Tutti i campi già presenti ✓", flush=True)
         return
 
     print(f"  {len(to_fix)} call da arricchire…", flush=True)
-    page = ctx.new_page()
+    page    = ctx.new_page()
     skipped = 0
 
     for idx, row in enumerate(to_fix, 1):
@@ -755,7 +1108,7 @@ def enrich(ctx, rows: list):
             print(f"    [SKIP] nessun dato recuperato", flush=True)
 
         if idx % 100 == 0:
-            print(f"  [checkpoint] salvate {idx} call finora…", flush=True)
+            print(f"  [checkpoint] {idx} call elaborate…", flush=True)
 
         time.sleep(0.3)
 
@@ -774,7 +1127,7 @@ def to_call(row: dict) -> dict:
     action_raw = row.get("action_raw") or ""
 
     cluster_num = ""
-    for src in [call_id, row.get("cluster_raw",""), url]:
+    for src in [call_id, row.get("cluster_raw", ""), url]:
         m = RE_CLUSTER.search(src or "")
         if m:
             cluster_num = m.group(1)
@@ -785,12 +1138,9 @@ def to_call(row: dict) -> dict:
         cluster_num = u_cnum
 
     cluster_label = u_clabel or THEMATIC_MAP.get(cluster_num, "")
-    thematic      = u_thematic or resolve_thematic(cluster_num, prog_raw) or name_classify(row.get("name",""))
+    thematic      = u_thematic or resolve_thematic(cluster_num, prog_raw) or name_classify(row.get("name", ""))
     action        = normalize_action(action_raw)
     is_mission    = bool("/HORIZON-MISS" in url.upper())
-
-    opening_raw  = row.get("opening_raw") or ""
-    deadline_raw = row.get("deadline_raw") or ""
 
     full_text = row.get("full_text") or ""
     multi = classify_multitopic(row.get("name") or "", full_text, thematic)
@@ -803,10 +1153,10 @@ def to_call(row: dict) -> dict:
         "cluster_label":    cluster_label,
         "thematic_cluster": thematic,
         "action":           action,
-        "opening":          opening_raw,
-        "opening_iso":      parse_date_iso(opening_raw),
-        "deadline":         deadline_raw,
-        "deadline_iso":     parse_date_iso(deadline_raw),
+        "opening":          row.get("opening_raw") or "",
+        "opening_iso":      parse_date_iso(row.get("opening_raw") or ""),
+        "deadline":         row.get("deadline_raw") or "",
+        "deadline_iso":     parse_date_iso(row.get("deadline_raw") or ""),
         "url":              url,
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
@@ -817,17 +1167,15 @@ def to_call(row: dict) -> dict:
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
-# ── Changelog ─────────────────────────────────────────────────────────────────
+# ── Changelog ──────────────────────────────────────────────────────────────────
 
 def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, generated: str):
     old_by_url = {c["url"]: c for c in old_calls}
     new_by_url = {c["url"]: c for c in new_calls}
-
-    old_urls = set(old_by_url)
-    new_urls = set(new_by_url)
-
-    added   = [new_by_url[u] for u in sorted(new_urls - old_urls)]
-    removed = [old_by_url[u] for u in sorted(old_urls - new_urls)]
+    old_urls   = set(old_by_url)
+    new_urls   = set(new_by_url)
+    added      = [new_by_url[u] for u in sorted(new_urls - old_urls)]
+    removed    = [old_by_url[u] for u in sorted(old_urls - new_urls)]
 
     def thematic_counts(calls):
         tc = {}
@@ -837,8 +1185,7 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         return tc
 
     date_str = generated[:10]
-
-    lines = []
+    lines    = []
     lines.append(f"# Changelog calls.json")
     lines.append(f"")
     lines.append(f"**Ultimo aggiornamento:** {generated.replace('T',' ').replace('+00:00',' UTC')[:22]}")
@@ -856,7 +1203,7 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     if added:
         lines.append(f"## Call aggiunte ({len(added)})")
         lines.append(f"")
-        by_thematic = {}
+        by_thematic: dict[str, list] = {}
         for c in added:
             t = c.get("thematic_cluster") or "(non classificato)"
             by_thematic.setdefault(t, []).append(c)
@@ -864,12 +1211,12 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
             lines.append(f"### {thematic} ({len(calls)})")
             lines.append(f"")
             for c in calls:
-                name    = c.get("name") or "(senza nome)"
-                prog    = c.get("programme") or ""
-                action  = c.get("action") or ""
-                dead    = c.get("deadline") or ""
-                url     = c.get("url") or ""
-                meta = " · ".join(filter(None, [prog, action, f"Scadenza: {dead}" if dead else ""]))
+                name   = c.get("name") or "(senza nome)"
+                prog   = c.get("programme") or ""
+                action = c.get("action") or ""
+                dead   = c.get("deadline") or ""
+                url    = c.get("url") or ""
+                meta   = " · ".join(filter(None, [prog, action, f"Scadenza: {dead}" if dead else ""]))
                 lines.append(f"- **{name}**")
                 if meta:
                     lines.append(f"  {meta}")
@@ -905,14 +1252,11 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     print(f"\n📋 Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
 
     history_path = changelog_path.parent / "changelog_history.md"
-    history_line = (
-        f"| {date_str} | {len(new_calls)} | +{len(added)} | -{len(removed)} |"
-    )
+    history_line = f"| {date_str} | {len(new_calls)} | +{len(added)} | -{len(removed)} |"
     if history_path.exists():
         hist = history_path.read_text(encoding="utf-8")
         if history_line not in hist:
-            hist = hist.rstrip() + "\n" + history_line + "\n"
-            history_path.write_text(hist, encoding="utf-8")
+            history_path.write_text(hist.rstrip() + "\n" + history_line + "\n", encoding="utf-8")
     else:
         header = (
             "# Storico aggiornamenti calls.json\n\n"
@@ -923,75 +1267,103 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         history_path.write_text(header, encoding="utf-8")
     print(f"📋 History aggiornata: {history_path}")
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────────────────
 
-def main(out_path: Path):
+def main(out_path: Path, debug: bool = False):
+    global DEBUG
+    DEBUG = debug
+
     rows      = []
-    seen_urls = set()
+    seen_urls: set[str] = set()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=[
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+        ])
         ctx = browser.new_context(
             locale="en-US",
             viewport={"width": 1920, "height": 1080},
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
+                "Chrome/124.0.0.0 Safari/537.36"
             ),
+            # Disabilita il rilevamento automazione
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         )
+        # Maschera navigator.webdriver
+        ctx.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        """)
+
         page = ctx.new_page()
 
-        # ── Passo 1: lista ────────────────────────────────────────────────────
-        page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
-                  wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(3000)
-        accept_cookies(page)
-        wait_cookie_gone(page)
+        # Intercettore XHR per il totale (attivo per tutta la sessione lista)
+        xhr_total = attach_total_interceptor(page)
 
-        total = read_total(page)
+        # ── Passo 1: prima pagina e lettura totale ─────────────────────────────
+        first_url = LIST_URL.format(page=1, ps=PAGE_SIZE)
+        print(f"\n══ Passo 1: navigazione prima pagina ══", flush=True)
+        ok = navigate_to_list(page, first_url)
+        if not ok:
+            print("⚠ navigate_to_list ha restituito False, provo comunque a leggere il contatore…", flush=True)
+
+        # Se l'interceptor XHR ha già catturato il totale, usalo
+        if xhr_total.get("total"):
+            total = xhr_total["total"]
+            print(f"✅ Totale da XHR: {total}", flush=True)
+        else:
+            total = read_total(page)
+
         if total is None:
-            print("❌ Non riesco a leggere il contatore delle call.")
+            print("❌ Impossibile determinare il numero di call. Uscita.", flush=True)
             browser.close()
             return
-        max_pages = math.ceil(total / PAGE_SIZE)
-        print(f"✅ Totale: {total} call | pagine: {max_pages}")
 
+        max_pages = math.ceil(total / PAGE_SIZE)
+        print(f"✅ Totale: {total} call | pagine attese: {max_pages}", flush=True)
+
+        # ── Scraping pagine ────────────────────────────────────────────────────
         for pnum in range(1, max_pages + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
             expected  = min(PAGE_SIZE, remaining)
-            url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
-            print(f"\n[p{pnum}/{max_pages}] attese ~{expected}", end="", flush=True)
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            page.wait_for_timeout(1200)
-            accept_cookies(page)
-            wait_cookie_gone(page)
+            url       = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
+
+            print(f"\n[p{pnum}/{max_pages}] attese ~{expected} call", end="", flush=True)
+
+            if pnum > 1:
+                ok = navigate_to_list(page, url)
+                if not ok:
+                    print(f" ⚠ navigazione incerta, continuo…", flush=True)
 
             scroll_until(page, expected=expected)
             links     = extract_links(page)
             new_links = [u for u in links if u not in seen_urls]
-            print(f" → trovati {len(new_links)} nuovi", flush=True)
+            print(f" → trovati {len(new_links)} nuovi (tot seen: {len(seen_urls) + len(new_links)})", flush=True)
 
             for u in new_links:
                 seen_urls.add(u)
                 rows.append(parse_card(page, u))
-            time.sleep(0.1)
 
-        # ── Passo 2: arricchimento ────────────────────────────────────────────
-        print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
+            time.sleep(0.15)
+
+        # ── Passo 2: arricchimento ─────────────────────────────────────────────
+        print(f"\n══ Passo 2: arricchimento {len(rows)} call ══", flush=True)
         enrich(ctx, rows)
         browser.close()
 
-    # ── Classificazione e output ──────────────────────────────────────────────
-    calls = []
-    seen  = set()
+    # ── Classificazione ────────────────────────────────────────────────────────
+    calls: list[dict] = []
+    seen_final: set[str] = set()
     for row in rows:
         call = to_call(row)
-        if call["url"] and call["url"] not in seen:
-            seen.add(call["url"])
+        if call["url"] and call["url"] not in seen_final:
+            seen_final.add(call["url"])
             calls.append(call)
 
-    tc = {}
+    tc: dict[str, int] = {}
     for c in calls:
         k = c["thematic_cluster"] or "(non classificato)"
         tc[k] = tc.get(k, 0) + 1
@@ -1002,11 +1374,11 @@ def main(out_path: Path):
 
     generated = datetime.now(timezone.utc).isoformat()
 
-    # ── Changelog ────────────────────────────────────────────────────────────
-    old_calls = []
+    # ── Changelog ─────────────────────────────────────────────────────────────
+    old_calls: list[dict] = []
     if out_path.exists():
         try:
-            old_data = json.loads(out_path.read_text(encoding="utf-8"))
+            old_data  = json.loads(out_path.read_text(encoding="utf-8"))
             old_calls = old_data.get("calls", [])
             print(f"\nDataset precedente: {len(old_calls)} call")
         except Exception:
@@ -1015,24 +1387,18 @@ def main(out_path: Path):
     changelog_path = out_path.parent / "changelog.md"
     write_changelog(old_calls, calls, changelog_path, generated)
 
-    # ── Salva ─────────────────────────────────────────────────────────────────
-    payload = {
-        "generated": generated,
-        "calls": calls,
-    }
-    out_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    # ── Salva ──────────────────────────────────────────────────────────────────
+    payload = {"generated": generated, "calls": calls}
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n✅ Scritto {out_path} con {len(calls)} call")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
+    parser = argparse.ArgumentParser(description="EU Funding & Tenders scraper → calls.json")
+    parser.add_argument("--out",   default="calls.json", help="Percorso output JSON")
+    parser.add_argument("--debug", action="store_true",  help="Diagnostica estesa")
     args = parser.parse_args()
-    main(Path(args.out))
-
+    main(Path(args.out), debug=args.debug)
 
 
 
