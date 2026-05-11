@@ -447,44 +447,47 @@ def count_links(page):
 
 def read_total(page, timeout_ms=30000):
     """
-    Attende e legge il numero totale di risultati dalla pagina.
-    Prova più pattern per coprire eventuali variazioni del portale EU.
+    Tenta di recuperare il totale intercettando la risposta dell'API SEDIA
+    o leggendo i nuovi selettori testuali.
     """
-    PATTERNS = [
-        re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",        re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",               re.IGNORECASE),
-        re.compile(r"found\s+(\d[\d,\.]*)\s*results?",             re.IGNORECASE),
-        re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
-        re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),  # fallback largo
-    ]
+    total_found = {"value": None}
+
+    # Intercettiamo la risposta dell'API che abbiamo visto nello screenshot
+    def capture_total(response):
+        if "apiKey=SEDIA" in response.url and response.status == 200:
+            try:
+                data = response.json()
+                # Solitamente il campo è 'totalResults' o 'count'
+                count = data.get("totalResults") or data.get("count")
+                if count is not None:
+                    total_found["value"] = int(count)
+            except: pass
+
+    page.on("response", capture_total)
 
     start = time.time()
     while (time.time() - start) * 1000 < timeout_ms:
+        # Se l'API ha risposto, abbiamo il dato certo
+        if total_found["value"] is not None:
+            print(f" ✅ Totale letto dall'API SEDIA: {total_found['value']}")
+            page.remove_listener("response", capture_total)
+            return total_found["value"]
+        
+        # Fallback: nuovi pattern testuali per la versione 1.0.15
         try:
             txt = page.locator("body").inner_text()
-        except Exception:
-            txt = ""
-
-        for pat in PATTERNS:
-            m = pat.search(txt or "")
+            # Il portale ora potrebbe usare "results" invece di "item(s)"
+            m = re.search(r"(\d[\d,\.]*)\s*(?:results?|items?|opportunit)", txt, re.I)
             if m:
                 raw = m.group(1).replace(",", "").replace(".", "")
-                print(f" Contatore trovato con pattern '{pat.pattern}': {raw}")
+                page.remove_listener("response", capture_total)
                 return int(raw)
-
+        except: pass
+        
         page.wait_for_timeout(1000)
 
-    # Debug: stampa le prime 2000 caratteri del body
-    try:
-        snippet = page.locator("body").inner_text()[:2000]
-        print(f" Testo body (primi 2000 char):\n{snippet}")
-    except Exception as e:
-        print(f"Impossibile leggere il body: {e}")
-
+    page.remove_listener("response", capture_total)
     return None
-
 def scroll_until(page, expected, max_ms=50000):
     start = time.time()
     last = -1
@@ -945,7 +948,7 @@ def main(out_path: Path):
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
                   wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(5000)
         accept_cookies(page)
         wait_cookie_gone(page)
 
