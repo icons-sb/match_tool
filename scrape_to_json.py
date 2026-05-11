@@ -684,7 +684,7 @@ def _result_to_row(result: dict, fallback_status_code: str, fallback_status_labe
 def _fetch_one_status(status_code: str, status_label: str) -> list:
     print(f"\n  Stato: {status_label} ({status_code})", flush=True)
 
-    first_data = _fetch_json(_build_search_url(1, status_code))
+    first_data = _fetch_json(status_code, 1)
     total = _extract_total(first_data)
 
     if total > MAX_REASONABLE_TOTAL_PER_STATUS:
@@ -723,7 +723,7 @@ def _fetch_one_status(status_code: str, status_label: str) -> list:
     print(f"  [{status_label} p1/{max_pages}] +{added} call", flush=True)
 
     for pnum in range(2, max_pages + 1):
-        data = _fetch_json(_build_search_url(pnum, status_code))
+        data = _fetch_json(status_code, pnum)
         added = _process_page(data)
         print(f"  [{status_label} p{pnum}/{max_pages}] +{added} call (totale stato: {len(rows)})", flush=True)
         time.sleep(0.3)
