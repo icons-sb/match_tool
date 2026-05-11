@@ -491,15 +491,21 @@ def _build_search_url(page_num: int, status_code: str) -> str:
 
 
 def _fetch_json(status_code: str, page_num: int, retries: int = 3) -> dict:
-    """Versione corretta: i parametri sono passati esplicitamente per costruire il POST body"""
+    """Versione definitiva: forza il formato JSON sia negli headers che nel body"""
+    import json # Assicuriamoci che sia importato
+    
+    # L'URL deve essere pulito, senza parametri appesi
+    url = SEARCH_API_BASE 
+    
     headers = {
         "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json;charset=UTF-8",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json;charset=UTF-8", # Fondamentale: non x-www-form-urlencoded
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Origin": "https://ec.europa.eu",
+        "Referer": "https://ec.europa.eu/"
     }
     
-    # Costruiamo il payload come richiesto dalle nuove API EUI17
+    # Il payload deve essere esattamente questo
     payload = {
         "apiKey": SEARCH_API_KEY,
         "text": "***",
@@ -512,21 +518,24 @@ def _fetch_json(status_code: str, page_num: int, retries: int = 3) -> dict:
         "displayLanguage": "en"
     }
 
-    url = SEARCH_API_BASE # Usiamo la costante definita a inizio file
-    
     for attempt in range(1, retries + 1):
         try:
+            # TRUCCO: Usiamo json.dumps e codifichiamo in utf-8
+            data_json = json.dumps(payload).encode("utf-8")
+            
             req = urllib.request.Request(
                 url, 
-                data=json.dumps(payload).encode("utf-8"), 
+                data=data_json, 
                 headers=headers, 
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception as e:
+            # Se vedi ancora 400 qui, significa che un parametro nel payload è scritto male
             print(f"  [HTTP attempt {attempt}] Error: {e}")
-            time.sleep(2 * attempt)
+            if attempt < retries:
+                time.sleep(2 * attempt)
     return {}
 
 
