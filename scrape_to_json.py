@@ -1,121 +1,66 @@
 """
-scrape_to_json.py  —  v2.1 (hotfix post-update portale EU maggio 2026)
-──────────────────────────────────────────────────────────────────────────────
-Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json.
+scrape_to_json.py
+─────────────────
+Scrapa il portale EU Funding & Tenders e produce calls.json.
 
-Modifiche v2.1 rispetto a v2.0:
-  • _sniff_api_path(): annusa dinamicamente quale path API usa il portale
-    PRIMA di iniziare lo scraping → SEARCH_API aggiornato a runtime
-  • attach_link_interceptor(): pattern URL più ampio (qualsiasi path sotto
-    /rest/ o /api/ del dominio EC), raccoglie URL da 10+ campi della risposta
-    inclusi canonicalUrl, detailsUrl, _links, landingPage, ecc.
-  • LINK_SELECTORS_CANDIDATES: aggiunti selettori post-update Angular (data-*,
-    eui-card, mat-card, [class*="card"], router-link, ecc.)
-  • _discover_link_selector(): fallback finale che dumpa tutti gli href trovati
-    e tenta pattern generici /screen/opportunities/ e portal/screen/
-  • navigate_to_list(): aggiunge route-intercept Playwright per catturare
-    richieste API anche se il path è cambiato
-  • Tutte le logiche di classificazione originali intatte
+Obiettivo:
+- estrarre SOLO le call con status:
+  - 31094502 = Open
+  - 31094501 = Forthcoming
+- NON filtrare per programmePeriod
+- mantenere classificazione tematica, keyword hits, budget, changelog e arricchimento dettagli
+
+Uso:
+    python scrape_to_json.py
+    python scrape_to_json.py --out calls.json
 """
 
-import re
-import math
-import time
-import json
 import argparse
+import json
+import math
+import re
+import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from playwright.sync_api import sync_playwright
 
-# ── Parametri ──────────────────────────────────────────────────────────────────
+# ── Parametri ─────────────────────────────────────────────────────────────────
 
 PAGE_SIZE = 50
-DEBUG     = False
 
-LIST_URL = (
-    "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
-    "/opportunities/calls-for-proposals"
-    "?order=DESC&pageNumber={page}&pageSize={ps}&sortBy=startDate"
-    "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
-)
+SEARCH_API_BASE = "https://api.tech.ec.europa.eu/search-api/prod/rest/search"
+SEARCH_API_KEY = "SEDIA"
 
-# Sarà aggiornato dinamicamente da _sniff_api_path() prima dello scraping.
-# I pattern qui sono tutti i path noti, dal più recente al più vecchio.
-SEARCH_API_CANDIDATES = [
-    "search-api/prod/rest/search",
-    "search-api/rest/search",
-    "rest/search",
-    "/api/search",
-    "/api/v1/search",
-    "/api/v2/search",
-    "funding-tenders/opportunities/rest",
-    "opportunities/rest",
-    "portal/rest",
-]
-SEARCH_API = SEARCH_API_CANDIDATES[0]   # aggiornato a runtime
+PORTAL_BASE = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
+TOPIC_BASE = f"{PORTAL_BASE}/opportunities/topic-details"
+SEARCH_API_PATH = "search-api/prod/rest/search"
 
-COOKIE_TEXT = "This site uses cookies"
-
-# Selettori candidati — provati in ordine sulla prima pagina.
-# Aggiunti selettori Angular/Material/EUI moderni (post-update maggio 2026).
-LINK_SELECTORS_CANDIDATES = [
-    # ── Post-update maggio 2026 (Angular Material / EUI v3+) ──
-    'eui-card a[href]',
-    'mat-card a[href]',
-    '[class*="opportunity-card"] a[href]',
-    '[class*="call-card"] a[href]',
-    '[class*="result-card"] a[href]',
-    'a[routerlink*="/calls/"]',
-    'a[routerlink*="/topic-details/"]',
-    '[data-testid*="call"] a[href]',
-    '[data-cy*="call"] a[href]',
-    # ── Pattern href noti ──
-    'a[href*="/calls/"]',
-    'a[href*="callIdentifier"]',
-    'a[href*="/opportunities/"]',
-    'a[href*="/topic-details/"]',
-    'a[href*="/competitive-calls-cs/"]',
-    'a[href*="/prospect-details/"]',
-    'a[href*="ec.europa.eu/info/funding"]',
-    'a[href*="cftIdentifier"]',
-    # ── Fallback ultra-generico: qualsiasi link nella sezione risultati ──
-    '[class*="results"] a[href]',
-    '[class*="list"] a[href]',
-    'main a[href]',
+# Come richiesto dall'utente:
+# 31094502 = Open
+# 31094501 = Forthcoming
+STATUS_FILTERS = [
+    ("31094502", "Open"),
+    ("31094501", "Forthcoming"),
 ]
 
-LINK_SELECTOR: str = ""
+MAX_REASONABLE_TOTAL_PER_STATUS = 10000
 
-HREF_CALL_PATTERNS = [
-    re.compile(r"/topic-details/",        re.IGNORECASE),
-    re.compile(r"/competitive-calls-cs/", re.IGNORECASE),
-    re.compile(r"/prospect-details/",     re.IGNORECASE),
-    re.compile(r"/calls/[A-Z0-9\-]+",     re.IGNORECASE),
-    re.compile(r"callIdentifier=",        re.IGNORECASE),
-    re.compile(r"cftIdentifier=",         re.IGNORECASE),
-    re.compile(r"topicId=",               re.IGNORECASE),
-    re.compile(r"/opportunities/portal",  re.IGNORECASE),
-    re.compile(r"portal/screen/",         re.IGNORECASE),
-]
-
-RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(?s\)?\s*found", re.IGNORECASE)
-RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
-RE_DEAD      = re.compile(r"Deadline date:\s*([^\|\n\r]+)",         re.IGNORECASE)
-RE_NEXT_DEAD = re.compile(r"Next deadline:\s*([^\|\n\r]+)",         re.IGNORECASE)
-RE_PROG      = re.compile(r"Programme:\s*([^\|\n\r]+)",             re.IGNORECASE)
-RE_ACTION    = re.compile(r"Type of action:\s*([^\|\n\r]+)",        re.IGNORECASE)
-RE_CLUSTER   = re.compile(r"HORIZON-CL([1-6])",                     re.IGNORECASE)
-RE_CALL_ID   = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)",  re.IGNORECASE)
+RE_OPEN = re.compile(r"Opening date:\s*([^\|\n\r]+)", re.IGNORECASE)
+RE_DEAD = re.compile(r"Deadline date:\s*([^\|\n\r]+)", re.IGNORECASE)
+RE_NEXT_DEAD = re.compile(r"Next deadline:\s*([^\|\n\r]+)", re.IGNORECASE)
+RE_PROG = re.compile(r"Programme:\s*([^\|\n\r]+)", re.IGNORECASE)
+RE_ACTION = re.compile(r"Type of action:\s*([^\|\n\r]+)", re.IGNORECASE)
+RE_CLUSTER = re.compile(r"HORIZON-CL([1-6])", re.IGNORECASE)
+RE_CALL_ID = re.compile(r"callIdentifier[=:\s]+([^\s&\|\n\r]+)", re.IGNORECASE)
 
 RE_BUDGET_LABEL = re.compile(
     r"(?:total\s+)?budget[:\s]+(?:of\s+)?(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
     re.IGNORECASE,
 )
-RE_BUDGET_SUFFIX = re.compile(
-    r"([\d][0-9 .,]+)\s*(?:EUR|€|euro)",
-    re.IGNORECASE,
-)
+RE_BUDGET_SUFFIX = re.compile(r"([\d][0-9 .,]+)\s*(?:EUR|€|euro)", re.IGNORECASE)
 RE_BUDGET_INDICATIVE = re.compile(
     r"indicative\s+(?:total\s+)?budget[:\s]+(?:EUR|€|euro)?\s*([\d][0-9 .,]+)",
     re.IGNORECASE,
@@ -126,170 +71,218 @@ RE_BUDGET_EXPECTED = re.compile(
 )
 
 MONTHS = {
-    "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
-    "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
 }
 
-# ── Tabelle di classificazione (invariate) ─────────────────────────────────────
+# ── Tabelle di classificazione ────────────────────────────────────────────────
 
 PROGRAMME_MAP = {
-    "43108390":"Horizon Europe","43108391":"Horizon Europe",
-    "43152860":"Digital Europe Programme","111111":"EU External Action-Prospect",
-    "44181033":"European Defence Fund","43353764":"Erasmus+",
-    "43251589":"CERV","43251814":"Creative Europe (CREA)",
-    "43252476":"Single Market Programme (SMP)","43298664":"AGRIP",
-    "43251842":"EUAF","43298916":"Euratom",
-    "43089234":"Innovation Fund (INNOVFUND)","43637601":"PPPA",
-    "44416173":"I3","45532249":"EUBA",
-    "43252368":"Internal Security Fund (ISF)","43252449":"RFCS",
-    "43298203":"UCPM","43254037":"European Solidarity Corps (ESC)",
-    "44773066":"Just Transition Mechanism (JTM)",
-    "43251567":"Connecting Europe Facility (CEF)",
-    "43252386":"JUST","43252433":"Pericles IV","43252517":"SOCPL",
-    "43253967":"RENEWFM","43254019":"European Social Fund+ (ESF+)",
-    "43392145":"EMFAF",
+    "43108390": "Horizon Europe",
+    "43108391": "Horizon Europe",
+    "43152860": "Digital Europe Programme",
+    "111111": "EU External Action-Prospect",
+    "44181033": "European Defence Fund",
+    "43353764": "Erasmus+",
+    "43251589": "CERV",
+    "43251814": "Creative Europe (CREA)",
+    "43252476": "Single Market Programme (SMP)",
+    "43298664": "AGRIP",
+    "43251842": "EUAF",
+    "43298916": "Euratom",
+    "43089234": "Innovation Fund (INNOVFUND)",
+    "43637601": "PPPA",
+    "44416173": "I3",
+    "45532249": "EUBA",
+    "43252368": "Internal Security Fund (ISF)",
+    "43252449": "RFCS",
+    "43298203": "UCPM",
+    "43254037": "European Solidarity Corps (ESC)",
+    "44773066": "Just Transition Mechanism (JTM)",
+    "43251567": "Connecting Europe Facility (CEF)",
+    "43252386": "JUST",
+    "43252433": "Pericles IV",
+    "43252517": "SOCPL",
+    "43253967": "RENEWFM",
+    "43254019": "European Social Fund+ (ESF+)",
+    "43392145": "EMFAF",
 }
 
 THEMATIC_MAP = {
-    "1":"Health & Life Sciences","2":"Culture, Creativity & Inclusion",
-    "3":"Security & Resilience","4":"Digital, Industry & Space",
-    "5":"Climate, Energy & Mobility","6":"Food, Bioeconomy & Environment",
-    "M-CIT":"Climate-neutral & Smart Cities",
-    "M-OCEAN":"Healthy Oceans, Seas, Coastal & Inland Waters",
+    "1": "Health & Life Sciences",
+    "2": "Culture, Creativity & Inclusion",
+    "3": "Security & Resilience",
+    "4": "Digital, Industry & Space",
+    "5": "Climate, Energy & Mobility",
+    "6": "Food, Bioeconomy & Environment",
+    "M-CIT": "Climate-neutral & Smart Cities",
+    "M-OCEAN": "Healthy Oceans, Seas, Coastal & Inland Waters",
 }
 
 PROGRAMME_THEMATIC_MAP = [
-    ("European Defence Fund",           "Defence"),
-    ("EDF",                             "Defence"),
-    ("EU External Action",              "External Action & International Cooperation"),
-    ("EU External Action-Prospect",     "External Action & International Cooperation"),
-    ("Single Market Programme",         "SME, Entrepreneurship & Market Uptake"),
-    ("CERV",                            "Culture, Creativity & Inclusion"),
-    ("Creative Europe",                 "Culture, Creativity & Inclusion"),
-    ("Erasmus+",                        "Culture, Creativity & Inclusion"),
-    ("European Social Fund+",           "Culture, Creativity & Inclusion"),
-    ("Just Transition",                 "Climate, Energy & Mobility"),
-    ("Innovation Fund",                 "Climate, Energy & Mobility"),
-    ("EMFAF",                           "Food, Bioeconomy & Environment"),
-    ("LIFE",                            "Food, Bioeconomy & Environment"),
-    ("Euratom",                         "Climate, Energy & Mobility"),
-    ("Connecting Europe",               "Climate, Energy & Mobility"),
-    ("Internal Security Fund",          "Security & Resilience"),
-    ("European Solidarity Corps",       "Culture, Creativity & Inclusion"),
-    ("Digital Europe",                  "Digital, Industry & Space"),
-    ("RENEWFM",                         "Climate, Energy & Mobility"),
-    ("SOCPL",                           "Culture, Creativity & Inclusion"),
-    ("JUST",                            "Culture, Creativity & Inclusion"),
-    ("Pericles IV",                     "Culture, Creativity & Inclusion"),
-    ("I3",                              "SME, Entrepreneurship & Market Uptake"),
-    ("ERC",                             "Cross-cutting / Other"),
-    ("43392145",                        "Food, Bioeconomy & Environment"),
-    ("Horizon Europe",                  "Cross-cutting / Other"),
+    ("European Defence Fund", "Defence"),
+    ("EDF", "Defence"),
+    ("EU External Action", "External Action & International Cooperation"),
+    ("EU External Action-Prospect", "External Action & International Cooperation"),
+    ("Single Market Programme", "SME, Entrepreneurship & Market Uptake"),
+    ("CERV", "Culture, Creativity & Inclusion"),
+    ("Creative Europe", "Culture, Creativity & Inclusion"),
+    ("Erasmus+", "Culture, Creativity & Inclusion"),
+    ("European Social Fund+", "Culture, Creativity & Inclusion"),
+    ("Just Transition", "Climate, Energy & Mobility"),
+    ("Innovation Fund", "Climate, Energy & Mobility"),
+    ("EMFAF", "Food, Bioeconomy & Environment"),
+    ("LIFE", "Food, Bioeconomy & Environment"),
+    ("Euratom", "Climate, Energy & Mobility"),
+    ("Connecting Europe", "Climate, Energy & Mobility"),
+    ("Internal Security Fund", "Security & Resilience"),
+    ("European Solidarity Corps", "Culture, Creativity & Inclusion"),
+    ("Digital Europe", "Digital, Industry & Space"),
+    ("RENEWFM", "Climate, Energy & Mobility"),
+    ("SOCPL", "Culture, Creativity & Inclusion"),
+    ("JUST", "Culture, Creativity & Inclusion"),
+    ("Pericles IV", "Culture, Creativity & Inclusion"),
+    ("I3", "SME, Entrepreneurship & Market Uptake"),
+    ("ERC", "Cross-cutting / Other"),
+    ("43392145", "Food, Bioeconomy & Environment"),
+    ("Horizon Europe", "Cross-cutting / Other"),
 ]
 
 URL_RULES = [
-    ("MISS","CIT",      "M-CIT", "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
-    ("MISS","OCEAN",    "M-OCEAN","Healthy Oceans, Seas, Coastal & Inland Waters","Healthy Oceans, Seas, Coastal & Inland Waters"),
-    ("MISS","CLIMA",    "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("MISS","CANCER",   "1",     "Health",                                        "Health & Life Sciences"),
-    ("MISS","SOIL",     "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("MISS","CROSS",    "",      "",                                              "Cross-cutting / Other"),
-    ("HLTH",     None,  "1",     "Health",                                        "Health & Life Sciences"),
-    ("EIC",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    ("EIE",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    ("EITUM-BP", None,  "M-CIT", "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
-    ("EIT",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
-    ("CID",      None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("EURATOM",  None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("EUROHPC",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("JU-CLEAN-AVIATION",None,"","",                                              "Clean Aviation"),
-    ("JU-",      None,  "",      "",                                              "Climate, Energy & Mobility"),
-    ("MSCA",     None,  "",      "",                                              "Cross-cutting / Other"),
-    ("NEB",      None,  "",      "",                                              "Climate-neutral & Smart Cities"),
-    ("RAISE",    None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("WIDERA",   None,  "",      "",                                              "Cross-cutting / Other"),
-    ("CL3","INFRA",     "3",     "Civil Security for Society",                    "Security & Resilience"),
-    ("INFRA","TECH",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("INFRA","SERV",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("INFRA","DEV",     "",      "",                                              "Cross-cutting / Other"),
-    ("INFRA","EOSC",    "",      "",                                              "Cross-cutting / Other"),
-    ("INFRA",    None,  "",      "",                                              "Cross-cutting / Other"),
-    ("AGRIP",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("EUAF",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("DIGITAL",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("UCPM",     None,  "",      "",                                              "Cross-cutting / Other"),
-    ("RFCS",     None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("EUBA",     None,  "",      "",                                              "External Action & International Cooperation"),
-    ("PPPA","CHIPS",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("PPPA","MEDIA",    "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("PPPA",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("RENEWFM",  None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
-    ("SOCPL",    None,  "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("ERC",      None,  "",      "",                                              "Cross-cutting / Other"),
-    ("EMFAF",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("JUST",     None,  "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("I3",       None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
+    ("MISS", "CIT", "M-CIT", "Climate-neutral & Smart Cities", "Climate-neutral & Smart Cities"),
+    ("MISS", "OCEAN", "M-OCEAN", "Healthy Oceans, Seas, Coastal & Inland Waters", "Healthy Oceans, Seas, Coastal & Inland Waters"),
+    ("MISS", "CLIMA", "5", "Climate, Energy and Mobility", "Climate, Energy & Mobility"),
+    ("MISS", "CANCER", "1", "Health", "Health & Life Sciences"),
+    ("MISS", "SOIL", "6", "Food, Bioeconomy, Natural Resources, Agriculture and Environment", "Food, Bioeconomy & Environment"),
+    ("MISS", "CROSS", "", "", "Cross-cutting / Other"),
+    ("HLTH", None, "1", "Health", "Health & Life Sciences"),
+    ("EIC", None, "", "", "SME, Entrepreneurship & Market Uptake"),
+    ("EIE", None, "", "", "SME, Entrepreneurship & Market Uptake"),
+    ("EITUM-BP", None, "M-CIT", "Climate-neutral & Smart Cities", "Climate-neutral & Smart Cities"),
+    ("EIT", None, "", "", "SME, Entrepreneurship & Market Uptake"),
+    ("CID", None, "5", "Climate, Energy and Mobility", "Climate, Energy & Mobility"),
+    ("EURATOM", None, "5", "Climate, Energy and Mobility", "Climate, Energy & Mobility"),
+    ("EUROHPC", None, "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("JU-CLEAN-AVIATION", None, "", "", "Clean Aviation"),
+    ("JU-", None, "", "", "Climate, Energy & Mobility"),
+    ("MSCA", None, "", "", "Cross-cutting / Other"),
+    ("NEB", None, "", "", "Climate-neutral & Smart Cities"),
+    ("RAISE", None, "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("WIDERA", None, "", "", "Cross-cutting / Other"),
+    ("CL3", "INFRA", "3", "Civil Security for Society", "Security & Resilience"),
+    ("INFRA", "TECH", "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("INFRA", "SERV", "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("INFRA", "DEV", "", "", "Cross-cutting / Other"),
+    ("INFRA", "EOSC", "", "", "Cross-cutting / Other"),
+    ("INFRA", None, "", "", "Cross-cutting / Other"),
+    ("AGRIP", None, "6", "Food, Bioeconomy, Natural Resources, Agriculture and Environment", "Food, Bioeconomy & Environment"),
+    ("EUAF", None, "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("DIGITAL", None, "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("UCPM", None, "", "", "Cross-cutting / Other"),
+    ("RFCS", None, "5", "Climate, Energy and Mobility", "Climate, Energy & Mobility"),
+    ("EUBA", None, "", "", "External Action & International Cooperation"),
+    ("PPPA", "CHIPS", "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("PPPA", "MEDIA", "", "", "Culture, Creativity & Inclusion"),
+    ("PPPA", None, "4", "Digital, Industry and Space", "Digital, Industry & Space"),
+    ("RENEWFM", None, "5", "Climate, Energy and Mobility", "Climate, Energy & Mobility"),
+    ("SOCPL", None, "", "", "Culture, Creativity & Inclusion"),
+    ("ERC", None, "", "", "Cross-cutting / Other"),
+    ("EMFAF", None, "6", "Food, Bioeconomy, Natural Resources, Agriculture and Environment", "Food, Bioeconomy & Environment"),
+    ("JUST", None, "", "", "Culture, Creativity & Inclusion"),
+    ("I3", None, "", "", "SME, Entrepreneurship & Market Uptake"),
 ]
 
 NUMERIC_ID_NAME_RULES = [
-    ("OHAMR",       "Health & Life Sciences"),
-    ("ERA4HEALTH",  "Health & Life Sciences"),
+    ("OHAMR", "Health & Life Sciences"),
+    ("ERA4HEALTH", "Health & Life Sciences"),
     ("ERA4 HEALTH", "Health & Life Sciences"),
     ("BRAINHEALTH", "Health & Life Sciences"),
-    ("EP BRAINHEALTH","Health & Life Sciences"),
-    ("ERDERA",      "Health & Life Sciences"),
-    ("BE READY",    "Health & Life Sciences"),
-    ("OVERWEIGHT",  "Health & Life Sciences"),
-    ("OBESITY",     "Health & Life Sciences"),
-    ("CARDIOVASC",  "Health & Life Sciences"),
-    ("CLINICAL TRIAL","Health & Life Sciences"),
-    ("NEUROSCI",    "Health & Life Sciences"),
-    ("RARE DISEASE","Health & Life Sciences"),
-    ("EITUM",       "Climate-neutral & Smart Cities"),
-    ("URBAN MOBILITY","Climate-neutral & Smart Cities"),
-    ("DRIVING URBAN","Climate-neutral & Smart Cities"),
+    ("EP BRAINHEALTH", "Health & Life Sciences"),
+    ("ERDERA", "Health & Life Sciences"),
+    ("BE READY", "Health & Life Sciences"),
+    ("OVERWEIGHT", "Health & Life Sciences"),
+    ("OBESITY", "Health & Life Sciences"),
+    ("CARDIOVASC", "Health & Life Sciences"),
+    ("CLINICAL TRIAL", "Health & Life Sciences"),
+    ("NEUROSCI", "Health & Life Sciences"),
+    ("RARE DISEASE", "Health & Life Sciences"),
+    ("EITUM", "Climate-neutral & Smart Cities"),
+    ("URBAN MOBILITY", "Climate-neutral & Smart Cities"),
+    ("DRIVING URBAN", "Climate-neutral & Smart Cities"),
     ("EIC AWARDEE", "SME, Entrepreneurship & Market Uptake"),
-    ("INNOMATCH",   "SME, Entrepreneurship & Market Uptake"),
-    ("STARTUP",     "SME, Entrepreneurship & Market Uptake"),
-    ("FOOD SUSTAINABILITY","Food, Bioeconomy & Environment"),
-    ("MARINE BIODIVERSITY","Food, Bioeconomy & Environment"),
-    ("BLUEACTION",  "Food, Bioeconomy & Environment"),
-    ("TASC-RESTOREMED","Food, Bioeconomy & Environment"),
-    ("RESTORE",     "Food, Bioeconomy & Environment"),
-    ("FERMENTED",   "Food, Bioeconomy & Environment"),
+    ("INNOMATCH", "SME, Entrepreneurship & Market Uptake"),
+    ("STARTUP", "SME, Entrepreneurship & Market Uptake"),
+    ("FOOD SUSTAINABILITY", "Food, Bioeconomy & Environment"),
+    ("MARINE BIODIVERSITY", "Food, Bioeconomy & Environment"),
+    ("BLUEACTION", "Food, Bioeconomy & Environment"),
+    ("TASC-RESTOREMED", "Food, Bioeconomy & Environment"),
+    ("RESTORE", "Food, Bioeconomy & Environment"),
+    ("FERMENTED", "Food, Bioeconomy & Environment"),
 ]
 
 URL_BENEFICIARY_OVERRIDE = {
-    "MSCA":  ["Research organisation"],
+    "MSCA": ["Research organisation"],
     "INFRA": ["Research organisation"],
-    "EUBA":  ["Public body"],
+    "EUBA": ["Public body"],
 }
 
 SPECIAL_BASIC_RESEARCH_CATEGORY = "Internships, fellowships & scholarships"
-SPECIAL_TITLE_KEYWORDS = ["internship","internships","fellowship","fellowships","msca","scholarship","scholarships"]
+SPECIAL_TITLE_KEYWORDS = ["internship", "internships", "fellowship", "fellowships", "msca", "scholarship", "scholarships"]
+
 TOPIC_KEYWORDS = {
-    "Health & Life Sciences": ["health","biotech","biotechnology","pharma","pharmaceutical","therapeutic","medical","diagnostic","genomic","genomics","public health","clinical"],
-    "Culture, Creativity & Inclusion": ["culture","creative","heritage","museum","archive","inclusion","social inclusion","democracy","education","skills"],
-    "Security & Resilience": ["security","cybersecurity","cyber security","disaster resilience","emergency","critical infrastructure","civil protection","border security"],
-    "Digital, Industry & Space": ["digital","artificial intelligence","machine learning","generative ai","data space","data sharing","cloud","edge","software","semiconductor","microelectronics","quantum","robotics","space","satellite"],
-    "Climate, Energy & Mobility": ["climate","adaptation","mitigation","energy","electricity","power system","grid","hydrogen","battery","batteries","mobility","transport","renewable","solar","photovoltaic","wind","storage","smart grid","building renovation","built environment","city","cities"],
-    "Food, Bioeconomy & Environment": ["agriculture","farming","crop","food system","bioeconomy","biodiversity","forestry","soil","water resources","environment","ecosystem","marine"],
-    "Defence": ["defence","defense","dual-use","dual use","military"],
-    "SME, Entrepreneurship & Market Uptake": ["sme","startup","entrepreneurship","venture","scale-up","market uptake","innovation uptake"],
-    "External Action & International Cooperation": ["international cooperation","development cooperation","global south","partner countries","external action"],
-    "Climate-neutral & Smart Cities": ["smart city","smart cities","climate-neutral city","urban transition","city mission"],
-    "Healthy Oceans, Seas, Coastal & Inland Waters": ["ocean","oceans","sea","seas","coastal","inland waters","marine","blue economy"],
-    "Clean Aviation": ["aviation","aircraft","aeronautics","sustainable aviation"],
-    "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
+    "Health & Life Sciences": ["health", "biotech", "biotechnology", "pharma", "pharmaceutical", "therapeutic", "medical", "diagnostic", "genomic", "genomics", "public health", "clinical"],
+    "Culture, Creativity & Inclusion": ["culture", "creative", "heritage", "museum", "archive", "inclusion", "social inclusion", "democracy", "education", "skills"],
+    "Security & Resilience": ["security", "cybersecurity", "cyber security", "disaster resilience", "emergency", "critical infrastructure", "civil protection", "border security"],
+    "Digital, Industry & Space": ["digital", "artificial intelligence", "machine learning", "generative ai", "data space", "data sharing", "cloud", "edge", "software", "semiconductor", "microelectronics", "quantum", "robotics", "space", "satellite"],
+    "Climate, Energy & Mobility": ["climate", "adaptation", "mitigation", "energy", "electricity", "power system", "grid", "hydrogen", "battery", "batteries", "mobility", "transport", "renewable", "solar", "photovoltaic", "wind", "storage", "smart grid", "building renovation", "built environment", "city", "cities"],
+    "Food, Bioeconomy & Environment": ["agriculture", "farming", "crop", "food system", "bioeconomy", "biodiversity", "forestry", "soil", "water resources", "environment", "ecosystem", "marine"],
+    "Defence": ["defence", "defense", "dual-use", "dual use", "military"],
+    "SME, Entrepreneurship & Market Uptake": ["sme", "startup", "entrepreneurship", "venture", "scale-up", "market uptake", "innovation uptake"],
+    "External Action & International Cooperation": ["international cooperation", "development cooperation", "global south", "partner countries", "external action"],
+    "Climate-neutral & Smart Cities": ["smart city", "smart cities", "climate-neutral city", "urban transition", "city mission"],
+    "Healthy Oceans, Seas, Coastal & Inland Waters": ["ocean", "oceans", "sea", "seas", "coastal", "inland waters", "marine", "blue economy"],
+    "Clean Aviation": ["aviation", "aircraft", "aeronautics", "sustainable aviation"],
+    "Cross-cutting / Other": ["interdisciplinary", "cross-cutting", "widening", "research infrastructure", "eosc"],
 }
 
-# ── Helpers classificazione (invariati) ───────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def clean(s):
+    if not s:
+        return None
+    s = re.sub(r"\s+", " ", str(s)).strip()
+    return s or None
+
+
+def _first(meta, *keys):
+    for k in keys:
+        v = meta.get(k) if isinstance(meta, dict) else None
+        if isinstance(v, list) and v:
+            return clean(v[0]) or ""
+        if v and isinstance(v, str):
+            return v.strip()
+        if v is not None and not isinstance(v, (dict, list)):
+            return str(v).strip()
+    return ""
+
 
 def escape_rx(s: str) -> str:
     return re.escape(s or "")
 
+
 def text_has_keyword(text: str, keyword: str) -> bool:
     return bool(re.search(rf"(?<![A-Za-z]){escape_rx(keyword.lower())}(?![A-Za-z])", (text or "").lower()))
+
 
 def keyword_hits_for_thematic(text: str, thematic: str):
     hits = []
@@ -298,14 +291,17 @@ def keyword_hits_for_thematic(text: str, thematic: str):
             hits.append(kw)
     return list(dict.fromkeys(hits))
 
+
 def title_is_special_basic_research(title: str) -> bool:
     tl = (title or "").lower()
     return any(text_has_keyword(tl, kw) for kw in SPECIAL_TITLE_KEYWORDS)
 
-def classify_multitopic(name: str, full_text: str, thematic: str):
+
+def classify_multitopic(name: str, full_text: str):
     text = re.sub(r"\s+", " ", (full_text or "")).strip().lower()
     keyword_hits = {}
     multi_thematic = []
+
     for area in TOPIC_KEYWORDS:
         hits = keyword_hits_for_thematic(text, area)
         if hits:
@@ -314,7 +310,9 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
 
     special = title_is_special_basic_research(name)
     if special:
-        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = [kw for kw in SPECIAL_TITLE_KEYWORDS if text_has_keyword((name or "").lower(), kw)]
+        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = [
+            kw for kw in SPECIAL_TITLE_KEYWORDS if text_has_keyword((name or "").lower(), kw)
+        ]
         if SPECIAL_BASIC_RESEARCH_CATEGORY not in multi_thematic:
             multi_thematic.append(SPECIAL_BASIC_RESEARCH_CATEGORY)
 
@@ -325,25 +323,28 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
         "is_special_basic_research": special,
     }
 
+# ── Classificazione ───────────────────────────────────────────────────────────
+
 def _topic_id(url: str) -> str:
     s = (url or "").upper().split("?")[0]
-    for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/"]:
-        i = s.find(m)
+    for marker in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/"]:
+        i = s.find(marker)
         if i >= 0:
-            return s[i + len(m):]
+            return s[i + len(marker):]
     return s
+
 
 def url_classify(url: str):
     tid = _topic_id(url)
     for prefix, subcode, c_num, c_label, thematic in URL_RULES:
         if prefix not in tid:
             continue
-        if subcode is not None:
-            if subcode not in tid:
-                continue
+        if subcode is not None and subcode not in tid:
+            continue
         benef = URL_BENEFICIARY_OVERRIDE.get(prefix, None)
         return c_num, c_label, thematic, benef
     return "", "", "", None
+
 
 def name_classify(name: str):
     name_up = (name or "").upper()
@@ -352,6 +353,7 @@ def name_classify(name: str):
             return thematic
     return ""
 
+
 def prog_thematic(prog: str) -> str:
     pl = (prog or "").lower()
     for key, label in PROGRAMME_THEMATIC_MAP:
@@ -359,18 +361,25 @@ def prog_thematic(prog: str) -> str:
             return label
     return ""
 
+
 def resolve_thematic(cluster_num: str, prog: str) -> str:
     if cluster_num and THEMATIC_MAP.get(cluster_num):
         return THEMATIC_MAP[cluster_num]
     return prog_thematic(prog)
 
+
 def normalize_action(v: str) -> str:
     s = (v or "").lower()
-    if "research and innovation action" in s: return "RIA"
-    if "innovation action" in s:              return "IA"
-    if "coordination and support" in s:       return "CSA"
-    if "cofund" in s:                         return "COFUND"
+    if "research and innovation action" in s:
+        return "RIA"
+    if "innovation action" in s:
+        return "IA"
+    if "coordination and support" in s:
+        return "CSA"
+    if "cofund" in s:
+        return "COFUND"
     return v or ""
+
 
 def beneficiary_hint(action: str, prog: str, url_benef):
     if url_benef is not None:
@@ -378,25 +387,34 @@ def beneficiary_hint(action: str, prog: str, url_benef):
     a = (action or "").upper()
     p = (prog or "").lower()
     hints = []
-    if a == "IA":   hints.extend(["SME","Large enterprise","Research organisation"])
-    if a == "RIA":  hints.extend(["Research organisation","SME","Large enterprise"])
-    if a == "CSA":  hints.extend(["Research organisation","Public body","NGO","SME"])
-    if "external action" in p: hints.extend(["NGO","Public body","Research organisation"])
+    if a == "IA":
+        hints.extend(["SME", "Large enterprise", "Research organisation"])
+    if a == "RIA":
+        hints.extend(["Research organisation", "SME", "Large enterprise"])
+    if a == "CSA":
+        hints.extend(["Research organisation", "Public body", "NGO", "SME"])
+    if "external action" in p:
+        hints.extend(["NGO", "Public body", "Research organisation"])
     return list(dict.fromkeys(hints))
+
+# ── Parsing date e budget ─────────────────────────────────────────────────────
 
 def parse_date_iso(s: str) -> str:
     s = re.sub(r"\s+", " ", str(s or "")).strip()
     if not s:
         return ""
+
     m = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", s)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+
     m = re.search(r"\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b", s)
     if m:
         try:
             return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
         except ValueError:
             pass
+
     m = re.search(r"\b(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\b", s)
     if m:
         mo = MONTHS.get(m.group(2).lower())
@@ -405,24 +423,29 @@ def parse_date_iso(s: str) -> str:
                 return datetime(int(m.group(3)), mo, int(m.group(1))).strftime("%Y-%m-%d")
             except ValueError:
                 pass
+
     return ""
+
 
 def parse_budget(s: str) -> int:
     if not s:
         return 0
-    s = s.strip()
+    s = str(s).strip()
+
     m = re.match(r"^([\d]+[.,][\d]+)\s*[Mm]$", s)
     if m:
         try:
             return int(float(m.group(1).replace(",", ".")) * 1_000_000)
         except ValueError:
             pass
+
     m2 = re.match(r"^([\d]+)\s*[Mm]$", s)
     if m2:
         try:
             return int(m2.group(1)) * 1_000_000
         except ValueError:
             pass
+
     cleaned = re.sub(r"[^\d,. ]", "", s).strip()
     if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", cleaned):
         cleaned = cleaned.replace(".", "").replace(",", ".")
@@ -430,10 +453,12 @@ def parse_budget(s: str) -> int:
         cleaned = cleaned.replace(",", "")
     else:
         cleaned = cleaned.replace(" ", "").replace(",", ".")
+
     try:
         return int(float(cleaned))
     except ValueError:
         return 0
+
 
 def extract_budget_from_text(text: str) -> int:
     candidates = []
@@ -442,776 +467,313 @@ def extract_budget_from_text(text: str) -> int:
             val = parse_budget(m.group(1))
             if 10_000 <= val <= 10_000_000_000:
                 candidates.append(val)
-    if not candidates:
-        return 0
-    return max(candidates)
+    return max(candidates) if candidates else 0
 
-def clean(s):
-    if not s:
-        return None
-    s = re.sub(r"\s+", " ", str(s)).strip()
-    return s or None
+# ── Search API REST ───────────────────────────────────────────────────────────
 
-def pick(rx, text):
-    m = rx.search(text or "")
-    return clean(m.group(1)) if m else None
+def _build_query_string(status_code: str) -> str:
+    return f"type=1&status={status_code}"
 
-# ── NEW v2.1: Sniffing dinamico del path API ───────────────────────────────────
 
-def _sniff_api_path(page) -> str:
-    """
-    Naviga la home del portale e osserva le richieste XHR per trovare il path
-    effettivo dell'API di ricerca. Aggiorna SEARCH_API globalmente.
+def _build_search_url(page_num: int, status_code: str) -> str:
+    # Importante: il filtro query viene messo nella query string dell'URL.
+    # Il metodo resta POST perché il server rifiuta GET, ma il filtro NON viene lasciato solo nel body.
+    params = {
+        "apiKey": SEARCH_API_KEY,
+        "text": "*",
+        "pageSize": str(PAGE_SIZE),
+        "pageNumber": str(page_num),
+        "query": _build_query_string(status_code),
+        "sortBy": "startDate",
+        "orderBy": "DESC",
+    }
+    return SEARCH_API_BASE + "?" + urllib.parse.urlencode(params)
 
-    Strategia:
-      1. Registra un handler su tutte le response del dominio EC
-      2. Naviga la pagina lista (prima pagina) con wait=commit (veloce)
-      3. Aspetta max 15s osservando quale URL XHR restituisce JSON con "results"
-      4. Usa il path trovato; fallback al primo candidato se nessuno trovato
-    """
-    global SEARCH_API
 
-    detected: dict = {}
+def _fetch_json(url: str, retries: int = 3) -> dict:
+    """Scarica JSON dalla Search API. POST con filtri nella query string URL."""
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Origin": "https://ec.europa.eu",
+        "Referer": "https://ec.europa.eu/info/funding-tenders/opportunities/portal/",
+    }
+    body = urllib.parse.urlencode({
+        "languages": "en",
+        "displayLanguage": "en",
+    }).encode("utf-8")
 
-    def _detect(response, _d=detected):
-        if _d.get("found"):
-            return
-        url = response.url
-        # Filtra solo chiamate EC con JSON
-        if "europa.eu" not in url:
-            return
-        ct = response.headers.get("content-type", "")
-        if "json" not in ct:
-            return
-        # Deve avere un path API-like
-        if not any(kw in url for kw in ["/rest/", "/api/", "/search", "/query"]):
-            return
+    for attempt in range(1, retries + 1):
         try:
-            body = response.json()
-            # Controlla se è una risposta di ricerca
-            has_results = (
-                isinstance(body.get("results"), list) or
-                isinstance(body.get("hits"), list) or
-                isinstance(body.get("items"), list) or
-                isinstance(body.get("data"), list) or
-                isinstance(body.get("content"), list)
-            )
-            has_total = any(
-                isinstance(body.get(k), int)
-                for k in ("total", "totalCount", "totalResults", "count", "numFound", "totalElements")
-            )
-            if has_results or has_total:
-                _d["found"] = True
-                _d["url"]   = url
-                # Estrai la parte path dopo il dominio
-                m = re.search(r"europa\.eu(/[^?]+)", url)
-                if m:
-                    _d["path"] = m.group(1).lstrip("/")
-                if DEBUG:
-                    print(f"  [sniff] API rilevata: {url}")
-        except Exception:
-            pass
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            print(f"  [HTTP attempt {attempt}] {e}", flush=True)
+            if attempt < retries:
+                time.sleep(2 * attempt)
 
-    page.on("response", _detect)
+    return {}
 
-    # Carica la prima pagina lista (commit = appena il server risponde, non aspetta JS)
-    try:
-        page.goto(
-            LIST_URL.format(page=1, ps=PAGE_SIZE),
-            wait_until="commit",
-            timeout=30000,
-        )
-    except Exception:
-        pass
 
-    # Aspetta max 15s che arrivi la risposta API
-    t0 = time.time()
-    while time.time() - t0 < 15:
-        if detected.get("found"):
+def _extract_results(data: dict) -> list:
+    for key in ("results", "hits", "items", "documents"):
+        v = data.get(key)
+        if isinstance(v, list):
+            return v
+    return []
+
+
+def _extract_total(data: dict) -> int:
+    for key in ("totalResults", "total", "count", "totalElements"):
+        v = data.get(key)
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str) and v.isdigit():
+            return int(v)
+    return len(_extract_results(data))
+
+
+def _metadata(result: dict) -> dict:
+    meta = result.get("metadata", {}) or {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _result_to_url(result: dict) -> str:
+    meta = _metadata(result)
+
+    url = result.get("url") or meta.get("url")
+    if isinstance(url, list):
+        url = url[0] if url else None
+    if url:
+        url = str(url).strip()
+        if url.startswith("http"):
+            return url
+
+    # topicIdentifier prima di callIdentifier: evita dedupliche sbagliate.
+    for key in ("topicIdentifier", "identifier", "callIdentifier"):
+        val = meta.get(key)
+        if isinstance(val, list):
+            val = val[0] if val else None
+        if val:
+            val = str(val).strip()
+            if val.startswith("http"):
+                return val
+            return f"{TOPIC_BASE}/{val}"
+
+    rid = result.get("id", "")
+    if rid:
+        return f"{TOPIC_BASE}/{rid}"
+
+    return ""
+
+
+def _read_status_from_meta(meta: dict, fallback_code: str, fallback_label: str) -> tuple[str, str]:
+    raw = _first(meta, "status", "callStatus", "submissionStatus")
+    code = raw or fallback_code
+    label = fallback_label
+    for known_code, known_label in STATUS_FILTERS:
+        if code == known_code:
+            label = known_label
             break
-        page.wait_for_timeout(500)
-
-    try:
-        page.remove_listener("response", _detect)
-    except Exception:
-        pass
-
-    if detected.get("path"):
-        SEARCH_API = detected["path"]
-        print(f"✅ API path rilevato: /{SEARCH_API}", flush=True)
-    elif detected.get("url"):
-        # Usa l'URL completo come stringa di match
-        SEARCH_API = detected["url"].split("?")[0].split("europa.eu/")[-1]
-        print(f"✅ API path rilevato (URL completo): /{SEARCH_API}", flush=True)
-    else:
-        print(f"⚠ API path non rilevato automaticamente, uso default: {SEARCH_API}", flush=True)
-        if DEBUG:
-            print(f"  Candidati testati: {SEARCH_API_CANDIDATES}")
-
-    return SEARCH_API
+    return code, label
 
 
-def _is_search_api_url(url: str) -> bool:
-    """Controlla se un URL corrisponde all'API di ricerca attiva."""
-    return SEARCH_API in url
+def _result_uid(row: dict) -> str:
+    return "|".join([
+        row.get("submission_status_code") or "",
+        row.get("topic_id") or "",
+        row.get("url") or "",
+        row.get("call_id") or "",
+        row.get("name") or "",
+    ])
 
 
-# ── Cookie handling (invariato) ───────────────────────────────────────────────
+def _result_to_row(result: dict, fallback_status_code: str, fallback_status_label: str) -> dict | None:
+    meta = _metadata(result)
+
+    title = (
+        _first(result, "title")
+        or _first(meta, "title", "topicTitle", "callTitle", "name")
+        or ""
+    )
+    title = clean(title) or ""
+
+    topic_id = _first(meta, "topicIdentifier", "identifier")
+    call_id = _first(meta, "callIdentifier") or topic_id
+
+    url = _result_to_url(result)
+    if not url:
+        return None
+
+    status_code, status_label = _read_status_from_meta(meta, fallback_status_code, fallback_status_label)
+
+    prog_id = _first(meta, "frameworkProgramme", "programme")
+    prog = PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else ""
+
+    action = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+
+    cluster_raw = ""
+    for src in [topic_id, call_id, url]:
+        m = RE_CLUSTER.search(src or "")
+        if m:
+            cluster_raw = m.group(1)
+            break
+
+    def _date(*keys):
+        for key in keys:
+            v = meta.get(key)
+            if isinstance(v, list):
+                v = v[0] if v else None
+            if v:
+                return str(v).strip()
+        return ""
+
+    opening_raw = _date("startDate", "openingDate")
+    deadline_raw = _date("deadlineDate", "nextDeadline", "deadline")
+
+    budget_raw = 0
+    for key in (
+        "budgetOverviewTotal",
+        "totalBudget",
+        "budget",
+        "indicativeBudget",
+        "availableBudget",
+        "estimatedTotalContribution",
+    ):
+        raw = meta.get(key)
+        if isinstance(raw, list):
+            raw = raw[0] if raw else None
+        if raw is not None:
+            val = parse_budget(str(raw))
+            if val > 0:
+                budget_raw = val
+                break
+
+    return {
+        "name": title,
+        "topic_id": topic_id,
+        "call_id": call_id,
+        "submission_status_code": status_code,
+        "submission_status": status_label,
+        "programme_raw": prog,
+        "action_raw": action,
+        "cluster_raw": cluster_raw,
+        "opening_raw": opening_raw,
+        "deadline_raw": deadline_raw,
+        "url": url,
+        "budget_raw": budget_raw,
+        "full_text": "",
+    }
+
+
+def _fetch_one_status(status_code: str, status_label: str) -> list:
+    print(f"\n  Stato: {status_label} ({status_code})", flush=True)
+
+    first_data = _fetch_json(_build_search_url(1, status_code))
+    total = _extract_total(first_data)
+
+    if total > MAX_REASONABLE_TOTAL_PER_STATUS:
+        print(
+            f"  ⚠️ Totale anomalo ({total}). La Search API sta ignorando il filtro status.",
+            flush=True,
+        )
+        print("  Interrompo per evitare di scaricare migliaia di pagine sbagliate.", flush=True)
+        return []
+
+    results_first = _extract_results(first_data)
+    if not total:
+        total = len(results_first)
+        print(f"  totalResults non trovato, uso len(results)={total}", flush=True)
+
+    max_pages = max(1, math.ceil(total / PAGE_SIZE))
+    print(f"  Totale {status_label}: {total} | Pagine: {max_pages}", flush=True)
+
+    rows = []
+    seen_ids = set()
+
+    def _process_page(data: dict) -> int:
+        added = 0
+        for result in _extract_results(data):
+            row = _result_to_row(result, status_code, status_label)
+            if not row:
+                continue
+            uid = _result_uid(row)
+            if uid and uid not in seen_ids:
+                seen_ids.add(uid)
+                rows.append(row)
+                added += 1
+        return added
+
+    added = _process_page(first_data)
+    print(f"  [{status_label} p1/{max_pages}] +{added} call", flush=True)
+
+    for pnum in range(2, max_pages + 1):
+        data = _fetch_json(_build_search_url(pnum, status_code))
+        added = _process_page(data)
+        print(f"  [{status_label} p{pnum}/{max_pages}] +{added} call (totale stato: {len(rows)})", flush=True)
+        time.sleep(0.3)
+
+    if total and len(rows) != total:
+        print(
+            f"  ⚠️ API dichiara {total}, righe univoche raccolte {len(rows)} per {status_label}",
+            flush=True,
+        )
+
+    return rows
+
+
+def fetch_all_calls_via_api() -> list:
+    print("═══ Passo 1: raccolta lista call via Search API REST ═══", flush=True)
+    print("  Filtri: type=1 + status Open/Forthcoming. Nessun filtro programmePeriod.", flush=True)
+    print("  Modalità: query separate per status, poi unione senza deduplica distruttiva.", flush=True)
+
+    all_rows = []
+    global_seen = set()
+    expected_total = 0
+
+    for status_code, status_label in STATUS_FILTERS:
+        rows = _fetch_one_status(status_code, status_label)
+        expected_total += len(rows)
+        for row in rows:
+            uid = _result_uid(row)
+            if uid and uid not in global_seen:
+                global_seen.add(uid)
+                all_rows.append(row)
+
+    print(f"\n  Totale atteso da somma stati: {expected_total}", flush=True)
+    print(f"  ✅ Raccolta completata: {len(all_rows)} call/righe univoche", flush=True)
+
+    if len(all_rows) != expected_total:
+        print(
+            f"  ⚠️ Deduplica globale: rimosse {expected_total - len(all_rows)} righe duplicate tra stati",
+            flush=True,
+        )
+
+    return all_rows
+
+# ── Playwright — arricchimento dettagli ───────────────────────────────────────
 
 def accept_cookies(page):
-    labels = ["Accept all", "Accept All", "Accept", "I accept", "Agree", "OK",
-              "Accetta", "Accetto", "Accepter"]
-    for label in labels:
+    for label in ["Accept all", "Accept All", "Accept", "I accept", "Agree", "OK"]:
         for scope in [page] + list(page.frames):
             try:
                 btn = scope.get_by_role("button", name=re.compile(label, re.IGNORECASE))
                 if btn.count():
                     btn.first.click(timeout=2000)
                     page.wait_for_timeout(800)
-                    return True
-            except Exception:
-                pass
-    try:
-        clicked = page.evaluate(r"""() => {
-            const labels = /accept|agree|ok|accetta/i;
-            function findInShadow(root) {
-                const btns = root.querySelectorAll('button, [role="button"], a');
-                for (const b of btns) {
-                    if (labels.test(b.innerText || b.textContent || '')) {
-                        b.click();
-                        return true;
-                    }
-                }
-                for (const el of root.querySelectorAll('*')) {
-                    if (el.shadowRoot) {
-                        if (findInShadow(el.shadowRoot)) return true;
-                    }
-                }
-                return false;
-            }
-            return findInShadow(document);
-        }""")
-        if clicked:
-            page.wait_for_timeout(800)
-            return True
-    except Exception:
-        pass
-    return False
-
-def wait_cookie_gone(page, max_ms=12000):
-    t0 = time.time()
-    while (time.time() - t0) * 1000 < max_ms:
-        try:
-            body = page.locator("body").inner_text(timeout=3000)
-        except Exception:
-            body = ""
-        if COOKIE_TEXT.lower() not in (body or "").lower():
-            return True
-        accept_cookies(page)
-        page.wait_for_timeout(600)
-    return False
-
-# ── Lettura contatore (invariata) ─────────────────────────────────────────────
-
-_TOTAL_PATTERNS = [
-    re.compile(r"(\d[\d,\.]*)\s*items?\s*\(?s?\)?\s*found",          re.IGNORECASE),
-    re.compile(r"(\d[\d,\.]*)\s*results?\s*found",                    re.IGNORECASE),
-    re.compile(r"(\d[\d,\.]*)\s*opportunit\w+\s*found",               re.IGNORECASE),
-    re.compile(r"(\d[\d,\.]*)\s*calls?\s*found",                      re.IGNORECASE),
-    re.compile(r"found\s+(\d[\d,\.]*)\s*results?",                    re.IGNORECASE),
-    re.compile(r"Total[:\s]+(\d[\d,\.]*)",                            re.IGNORECASE),
-    re.compile(r"Showing\s+\d+\s*[–\-]\s*\d+\s+of\s+(\d[\d,\.]*)",  re.IGNORECASE),
-    re.compile(r"of\s+(\d[\d,\.]*)\s+results?",                       re.IGNORECASE),
-    re.compile(r"(\d[\d,\.]*)\s*open\s*calls?",                       re.IGNORECASE),
-    re.compile(r"(\d[\d,\.]*)\s*proposals?\s*found",                  re.IGNORECASE),
-    re.compile(r"(\d+)\s*result",                                     re.IGNORECASE),
-]
-
-def _parse_count(raw: str) -> int:
-    return int(raw.replace(",", "").replace(".", "").replace(" ", ""))
-
-def _try_read_total_from_text(txt: str):
-    for pat in _TOTAL_PATTERNS:
-        m = pat.search(txt or "")
-        if m:
-            try:
-                val = _parse_count(m.group(1))
-                if val > 0:
-                    return val, pat.pattern
-            except Exception:
-                pass
-    return None, None
-
-def _read_total_shadow_dom(page) -> int | None:
-    try:
-        result = page.evaluate(r"""() => {
-            const patterns = [
-                /(\d[\d,\.]*)\s*items?\s*found/i,
-                /(\d[\d,\.]*)\s*results?\s*found/i,
-                /found\s+(\d[\d,\.]*)\s*results?/i,
-                /(\d[\d,\.]*)\s*calls?\s*found/i,
-                /of\s+(\d[\d,\.]*)\s+results?/i,
-                /(\d+)\s*result/i,
-                /Total[:\s]+(\d[\d,\.]*)/i,
-            ];
-            function tryText(t) {
-                if (!t) return null;
-                for (const p of patterns) {
-                    const m = p.exec(t);
-                    if (m) {
-                        const v = parseInt(m[1].replace(/[,. ]/g, ''));
-                        if (v > 0) return v;
-                    }
-                }
-                return null;
-            }
-            function walkShadow(root, depth) {
-                if (depth > 12) return null;
-                const priority = root.querySelectorAll(
-                    '[class*="count"], [class*="total"], [class*="result"], [class*="found"], ' +
-                    '[aria-label*="result"], [aria-label*="item"], [aria-label*="found"], ' +
-                    'eui-count, eui-total, eui-results, ' +
-                    '.results-count, .search-count, .item-count, .total-count, ' +
-                    'span[data-testid], p[data-testid]'
-                );
-                for (const el of priority) {
-                    const v = tryText(el.innerText || el.textContent);
-                    if (v) return v;
-                    if (el.shadowRoot) {
-                        const sv = walkShadow(el.shadowRoot, depth + 1);
-                        if (sv) return sv;
-                    }
-                }
-                for (const el of root.querySelectorAll('*')) {
-                    if (el.shadowRoot) {
-                        const sv = walkShadow(el.shadowRoot, depth + 1);
-                        if (sv) return sv;
-                    }
-                }
-                return null;
-            }
-            const bodyText = document.body?.innerText || '';
-            const v1 = tryText(bodyText);
-            if (v1) return { value: v1, source: 'body_text' };
-            const v2 = walkShadow(document, 0);
-            if (v2) return { value: v2, source: 'shadow_dom' };
-            const allEls = document.querySelectorAll('span, p, div, li, td, h1, h2, h3, h4, label');
-            for (const el of allEls) {
-                const t = el.innerText || el.textContent || '';
-                if (t.length > 5 && t.length < 200) {
-                    const v = tryText(t);
-                    if (v) return { value: v, source: 'element:' + (el.className || el.tagName) };
-                }
-            }
-            return null;
-        }""")
-        if result and result.get("value"):
-            if DEBUG:
-                print(f"  [shadow_dom] trovato {result['value']} via {result['source']}")
-            return result["value"]
-    except Exception as e:
-        if DEBUG:
-            print(f"  [shadow_dom] errore JS: {e}")
-    return None
-
-def _wait_for_results_to_load(page, timeout_ms=45000):
-    selectors_to_try = [
-        "eui-search-results",
-        "eui-result-item",
-        "[class*='result-item']",
-        "[class*='search-result']",
-        "[class*='call-item']",
-        "[class*='opportunity']",
-        'a[href*="/topic-details/"]',
-        'a[href*="/competitive-calls-cs/"]',
-        ".results-list",
-        ".search-results",
-        "[role='list'] [role='listitem']",
-        "text=/\\d+\\s*item/i",
-        "text=/\\d+\\s*result/i",
-        "text=/\\d+\\s*call/i",
-    ]
-    for sel in selectors_to_try:
-        try:
-            page.wait_for_selector(sel, timeout=8000, state="visible")
-            if DEBUG:
-                print(f"  [load] selettore trovato: {sel}")
-            return True
-        except Exception:
-            pass
-    page.wait_for_timeout(3000)
-    return False
-
-def read_total(page, timeout_ms=60000) -> int | None:
-    print(f"  URL corrente: {page.url}", flush=True)
-    _wait_for_results_to_load(page, timeout_ms=min(timeout_ms, 30000))
-    start   = time.time()
-    attempt = 0
-
-    while (time.time() - start) * 1000 < timeout_ms:
-        attempt += 1
-        try:
-            txt = page.locator("body").inner_text(timeout=5000)
-            val, pat = _try_read_total_from_text(txt)
-            if val:
-                print(f"  ✓ Contatore trovato (body text, pattern '{pat}'): {val}", flush=True)
-                return val
-        except Exception:
-            txt = ""
-
-        val = _read_total_shadow_dom(page)
-        if val:
-            print(f"  ✓ Contatore trovato (shadow DOM): {val}", flush=True)
-            return val
-
-        try:
-            html = page.content()
-            for attr_pat in [
-                re.compile(r'data-(?:total|count|results?)["\s]*[=:]["\s]*(\d+)', re.IGNORECASE),
-                re.compile(r'(?:total|count|results?)["\s]*:["\s]*(\d+)', re.IGNORECASE),
-            ]:
-                for m in attr_pat.finditer(html):
-                    try:
-                        v = int(m.group(1))
-                        if 10 < v < 100000:
-                            print(f"  ✓ Contatore trovato (HTML attr): {v}", flush=True)
-                            return v
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        if attempt % 3 == 0:
-            print(f"  [tentativo {attempt}] in attesa del contatore…", flush=True)
-            if DEBUG and txt:
-                number_contexts = re.findall(r'.{0,40}\d+.{0,40}', txt)
-                print(f"  Contesti numerici trovati ({len(number_contexts)}):")
-                for ctx in number_contexts[:15]:
-                    print(f"    › {ctx.strip()}")
-
-        try:
-            page.mouse.wheel(0, 300)
-        except Exception:
-            pass
-        page.wait_for_timeout(1500)
-
-    link_count = page.locator(LINK_SELECTOR).count() if LINK_SELECTOR else 0
-    if link_count > 0:
-        print(f"  ⚠ Contatore non trovato, uso {link_count} link come stima minima", flush=True)
-        return link_count
-
-    print("  ✗ Impossibile trovare il contatore. Diagnostica:", flush=True)
-    try:
-        txt = page.locator("body").inner_text(timeout=5000)
-        print(f"  URL: {page.url}")
-        print(f"  Testo body (primi 3000 char):\n{txt[:3000]}", flush=True)
-    except Exception as e:
-        print(f"  Errore lettura body: {e}", flush=True)
-    return None
-
-# ── NEW v2.1: Intercettatore XHR migliorato ───────────────────────────────────
-
-def attach_link_interceptor(page) -> dict:
-    """
-    Intercetta TUTTE le risposte JSON del dominio EC (non solo SEARCH_API),
-    le filtra per struttura, ed estrae link + totale.
-
-    Fonte primaria per la raccolta link — completamente indipendente dal DOM.
-    """
-    captured: dict = {"links": [], "total": None, "seen": set(), "api_urls": set()}
-
-    def handle(response, _c=captured):
-        url = response.url
-        # Filtra: solo dominio EC, solo JSON
-        if "europa.eu" not in url:
-            return
-        if response.status != 200:
-            return
-        ct = response.headers.get("content-type", "")
-        if "json" not in ct and "javascript" not in ct:
-            return
-        # Deve sembrare una chiamata API (path con /rest/, /api/, /search, ecc.)
-        if not any(kw in url for kw in ["/rest/", "/api/", "/search", "/query", "search-api"]):
-            return
-
-        try:
-            body = response.json()
-        except Exception:
-            return
-
-        # ── Leggi totale ──
-        if _c["total"] is None:
-            for key in ("total", "totalCount", "totalResults", "count", "numFound",
-                        "hits", "totalElements", "resultCount"):
-                v = body.get(key)
-                if isinstance(v, int) and v > 0:
-                    _c["total"] = v
-                    _c["api_urls"].add(url.split("?")[0])
-                    if DEBUG:
-                        print(f"  [XHR total] {v} da key '{key}' in {url}")
-                    break
-
-        # ── Estrai link dai risultati ──
-        results = (
-            body.get("results") or
-            body.get("hits") or
-            body.get("items") or
-            body.get("data") or
-            body.get("content") or
-            []
-        )
-        if not isinstance(results, list):
-            return
-
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-
-            meta = item.get("metadata") or item.get("_source") or item.get("fields") or item
-
-            call_url = _extract_url_from_meta(meta)
-            if call_url and call_url not in _c["seen"]:
-                _c["seen"].add(call_url)
-                _c["links"].append(call_url)
-                if DEBUG:
-                    print(f"  [XHR link] {call_url}")
-
-    page.on("response", handle)
-    return captured
-
-
-def _extract_url_from_meta(meta: dict) -> str | None:
-    """
-    Estrae un URL di dettaglio da un oggetto metadati della search API.
-    Prova una lista estesa di campi, sia URL diretti che identificatori
-    da cui ricostruire l'URL.
-    """
-    if not isinstance(meta, dict):
-        return None
-
-    # ── 1. Campi che contengono URL diretti ──
-    direct_url_keys = [
-        "url", "link", "detailUrl", "href", "landingPageUrl",
-        "canonicalUrl", "detailsUrl", "pageUrl", "callUrl",
-        "topicUrl", "opportunityUrl", "viewUrl",
-        # Struttura _links HAL-style
-        "_links",
-    ]
-    for key in direct_url_keys:
-        v = meta.get(key)
-        if isinstance(v, dict):
-            # HAL _links: { self: { href: "..." }, detail: { href: "..." } }
-            for sub_key in ("detail", "self", "canonical", "alternate"):
-                sub = v.get(sub_key)
-                if isinstance(sub, dict):
-                    href = sub.get("href")
-                    if href and isinstance(href, str) and href.startswith("http"):
-                        return href
-                if isinstance(sub, str) and sub.startswith("http"):
-                    return sub
-        if isinstance(v, list) and v:
-            v = v[0]
-        if v and isinstance(v, str):
-            if v.startswith("http"):
-                return v
-            # Path relativo EC
-            if v.startswith("/info/funding") or v.startswith("/opportunities"):
-                return "https://ec.europa.eu" + v
-
-    # ── 2. Campi che contengono identificatori ──
-    id_keys = [
-        "identifier", "callIdentifier", "topicIdentifier",
-        "cftIdentifier", "topicId", "id", "callId",
-        "topicProgrammeMap", "name", "reference",
-    ]
-    for key in id_keys:
-        v = meta.get(key)
-        if isinstance(v, list):
-            v = v[0] if v else None
-        if v and isinstance(v, str):
-            built = _build_url_from_id(v.strip())
-            if built:
-                return built
-
-    return None
-
-
-def _build_url_from_id(identifier: str) -> str | None:
-    """
-    Dato un identificatore, restituisce l'URL di dettaglio sul portale EU.
-    Copre tutti i pattern storici + nuovi pattern post-update.
-    """
-    i = identifier.upper()
-    base = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities"
-
-    horizon_prefixes = (
-        "HORIZON-", "HLTH-", "MSCA-", "ERC-", "EIC-", "EIT-", "MISS-",
-        "DIGITAL-", "EURATOM-", "EUROHPC-", "NEB-", "WIDERA-", "RAISE-",
-        "RFCS-", "AGRIP-", "UCPM-", "PPPA-", "RENEWFM-", "SOCPL-", "JUST-",
-        "EMFAF-", "EUBA-", "I3-", "JU-", "CID-",
-    )
-    if any(i.startswith(p) for p in horizon_prefixes):
-        return f"{base}/topic-details/{identifier}"
-
-    if i.startswith("CFT-") or i.startswith("COMP-"):
-        return f"{base}/competitive-calls-cs/{identifier}"
-
-    if i.startswith("PROSPECT-") or i.startswith("EOI-"):
-        return f"{base}/prospect-details/{identifier}"
-
-    # Numerico puro — non abbastanza informazioni
-    if re.match(r"^\d+$", identifier):
-        return None
-
-    # Fallback generico: prova topic-details
-    if len(identifier) > 5 and "-" in identifier:
-        return f"{base}/topic-details/{identifier}"
-
-    return None
-
-# ── Selettore DOM (migliorato v2.1) ───────────────────────────────────────────
-
-def _discover_link_selector(page) -> str:
-    """
-    Discovery automatico del selettore CSS per i link alle call.
-    v2.1: analizza anche attributi routerLink, data-href, e link relativi EC.
-    """
-    global LINK_SELECTOR
-
-    try:
-        all_hrefs: list[str] = page.evaluate("""
-            () => {
-                const links = Array.from(document.querySelectorAll('a'));
-                return links.map(a => ({
-                    href: a.getAttribute('href') || '',
-                    rl:   a.getAttribute('routerLink') || a.getAttribute('routerlink') || '',
-                    text: (a.innerText || a.textContent || '').trim().substring(0, 80),
-                })).filter(x => x.href.length > 5 || x.rl.length > 5);
-            }
-        """)
-    except Exception:
-        return LINK_SELECTOR or ""
-
-    if not all_hrefs:
-        if DEBUG:
-            print("  [discovery] nessun link trovato nel DOM")
-        return LINK_SELECTOR or ""
-
-    hrefs = [x.get("href", "") for x in all_hrefs]
-    rls   = [x.get("rl", "")   for x in all_hrefs]
-
-    # ── Conta match per ogni pattern ──
-    pattern_counts: dict[int, int] = {}
-    for idx, pat in enumerate(HREF_CALL_PATTERNS):
-        pattern_counts[idx] = sum(
-            1 for h in hrefs + rls if h and pat.search(h)
-        )
-
-    best_idx   = max(pattern_counts, key=lambda k: pattern_counts[k])
-    best_count = pattern_counts[best_idx]
-
-    if best_count == 0:
-        print("  ⚠ Discovery DOM: nessun pattern di call trovato.", flush=True)
-        if DEBUG:
-            print(f"  Campione href: {hrefs[:20]}")
-            print(f"  Campione routerLink: {[r for r in rls if r][:20]}")
-        # Ultimo tentativo: link con /portal/screen/ nel path
-        screen_links = [h for h in hrefs if "/portal/screen/" in h and len(h) > 30]
-        if screen_links:
-            LINK_SELECTOR = 'a[href*="/portal/screen/"]'
-            print(f"  ✓ Selettore generico fallback: '{LINK_SELECTOR}' ({len(screen_links)} link)", flush=True)
-            return LINK_SELECTOR
-        return LINK_SELECTOR or ""
-
-    matching = [h for h in hrefs + rls if h and HREF_CALL_PATTERNS[best_idx].search(h)]
-    m        = HREF_CALL_PATTERNS[best_idx].search(matching[0])
-    if m:
-        fragment = m.group(0).rstrip("/").rstrip("=")
-        if "=" in fragment:
-            sel = f'a[href*="{fragment}"]'
-        else:
-            sel = f'a[href*="{fragment}/"], a[href*="{fragment}?"]'
-
-        print(f"  🔍 Discovery DOM selettore: '{sel}' ({best_count} link trovati)", flush=True)
-        LINK_SELECTOR = sel
-        return sel
-
-    return LINK_SELECTOR or ""
-
-
-def _set_link_selector_from_candidates(page) -> str:
-    """Prova i selettori candidati in ordine e usa il primo che trova link."""
-    global LINK_SELECTOR
-
-    for sel in LINK_SELECTORS_CANDIDATES:
-        try:
-            count = page.locator(sel).count()
-            if count > 0:
-                print(f"  ✓ Selettore DOM attivo: '{sel}' ({count} link)", flush=True)
-                LINK_SELECTOR = sel
-                return sel
-        except Exception:
-            pass
-
-    print("  ⚠ Nessun selettore candidato funziona, avvio discovery…", flush=True)
-    return _discover_link_selector(page)
-
-# ── Scroll e link (invariati) ─────────────────────────────────────────────────
-
-def count_links(page) -> int:
-    if not LINK_SELECTOR:
-        return 0
-    try:
-        return page.locator(LINK_SELECTOR).count()
-    except Exception:
-        return 0
-
-
-def scroll_until(page, expected: int, max_ms: int = 60000) -> int:
-    start        = time.time()
-    last         = -1
-    stable_since = time.time()
-    selector_checked = False
-
-    while count_links(page) == 0 and (time.time() - start) * 1000 < 12000:
-        accept_cookies(page)
-        wait_cookie_gone(page, 3000)
-        page.wait_for_timeout(700)
-
-    if count_links(page) == 0 and not selector_checked:
-        _set_link_selector_from_candidates(page)
-        selector_checked = True
-
-    container = None
-    if LINK_SELECTOR:
-        try:
-            container = page.evaluate_handle(f"""() => {{
-                const sel = `{LINK_SELECTOR}`;
-                const links = document.querySelectorAll(sel);
-                if (!links.length) return null;
-                let el = links[0];
-                for (let i = 0; i < 20; i++) {{
-                    if (!el) break;
-                    const st = window.getComputedStyle(el);
-                    const oy = st.overflowY;
-                    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 5) return el;
-                    el = el.parentElement;
-                }}
-                return null;
-            }}""")
-        except Exception:
-            container = None
-
-    while (time.time() - start) * 1000 < max_ms:
-        accept_cookies(page)
-        c = count_links(page)
-
-        if c >= expected:
-            return c
-
-        if c != last:
-            last = c
-            stable_since = time.time()
-
-        try:
-            if container:
-                page.evaluate("(el) => { el.scrollTop += el.clientHeight * 0.85; }", container)
-            else:
-                page.mouse.wheel(0, 1800)
-        except Exception:
-            try:
-                page.mouse.wheel(0, 1800)
+                    return
             except Exception:
                 pass
 
-        page.wait_for_timeout(700)
 
-        if time.time() - stable_since > 6:
-            try:
-                if container:
-                    page.evaluate("(el) => { el.scrollTop = el.scrollHeight; }", container)
-                else:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            except Exception:
-                pass
-            if c == 0 and not selector_checked:
-                _set_link_selector_from_candidates(page)
-                selector_checked = True
-            page.wait_for_timeout(1000)
-            stable_since = time.time()
-
-    return count_links(page)
-
-
-def extract_links(page) -> list[str]:
-    """Estrae link dal DOM usando il selettore attivo."""
-    if not LINK_SELECTOR:
-        return []
-    try:
-        hrefs = page.evaluate(f"""
-            () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
-                      .map(a => a.getAttribute('href'))
-        """)
-    except Exception:
-        return []
-
-    out, seen = [], set()
-    for h in hrefs or []:
-        if not h:
-            continue
-        full = "https://ec.europa.eu" + h if h.startswith("/") else h
-        if full not in seen:
-            seen.add(full)
-            out.append(full)
-    return out
-
-# ── Parsing card (invariato) ──────────────────────────────────────────────────
-
-def parse_card(page, full_url: str) -> dict:
-    path = full_url.replace("https://ec.europa.eu", "").split("?")[0]
-    try:
-        a = page.locator(f'a[href*="{path}"]').first
-    except Exception:
-        a = None
-    title = clean(a.inner_text()) if (a and a.count()) else path.split("/")[-1]
-
-    try:
-        card = a.locator(
-            "xpath=ancestor::*[contains(.,'Programme:') or contains(.,'Opening date:') or "
-            "contains(.,'Deadline date:') or contains(.,'Type of action:')][1]"
-        ).first if a and a.count() else None
-        text = (card.inner_text() if (card and card.count())
-                else (a.locator("xpath=ancestor::*[1]").inner_text() if (a and a.count()) else ""))
-    except Exception:
-        text = ""
-
-    dead     = pick(RE_DEAD, text) or pick(RE_NEXT_DEAD, text)
-    call_id  = pick(RE_CALL_ID, full_url) or pick(RE_CALL_ID, text)
-    cluster_raw = pick(RE_CLUSTER, text) or pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, call_id or "")
-
-    return {
-        "name":          title,
-        "call_id":       call_id,
-        "programme_raw": pick(RE_PROG, text),
-        "action_raw":    pick(RE_ACTION, text),
-        "cluster_raw":   cluster_raw,
-        "opening_raw":   pick(RE_OPEN, text),
-        "deadline_raw":  dead,
-        "url":           full_url,
-    }
-
-# ── Arricchimento (invariato) ─────────────────────────────────────────────────
-
-def _first(meta, *keys):
-    for k in keys:
-        v = meta.get(k)
-        if isinstance(v, list) and v:
-            return re.sub(r"\s+", " ", str(v[0])).strip()
-        if v and isinstance(v, str):
-            return v.strip()
-    return ""
-
-def extract_budget_per_project_dom(page, topic_id: str):
+def extract_budget_per_project_dom(page, topic_id):
     parts = topic_id.split("?")[0].split("-")
     target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
     try:
@@ -1227,76 +789,84 @@ def extract_budget_per_project_dom(page, topic_id: str):
             row_locator.scroll_into_view_if_needed()
             page.wait_for_timeout(1000)
 
-        return page.evaluate(f"""
-            (shortId) => {{
+        return page.evaluate(
+            """
+            (shortId) => {
                 const allRows = Array.from(document.querySelectorAll('tr, .wt-table-row'));
                 const targetRow = allRows.find(el => el.innerText.includes(shortId));
-                if (targetRow) {{
+                if (targetRow) {
                     const cells = Array.from(targetRow.querySelectorAll('td, .wt-table-cell')).map(c => c.innerText.trim());
-                    const candidates = cells.filter(txt => {{
+                    const candidates = cells.filter(txt => {
                         const hasMoney = txt.includes('€') || txt.toLowerCase().includes('eur');
                         const isDate = /202[0-9]/.test(txt) && txt.length < 15;
                         return hasMoney && !isDate;
-                    }});
-                    if (candidates.length > 0) {{
+                    });
+                    if (candidates.length > 0) {
                         const specific = candidates.find(b => /around|to|between/i.test(b));
                         return specific || candidates[candidates.length - 1];
-                    }}
-                }}
+                    }
+                }
                 return null;
-            }}
-        """, target_match)
+            }
+            """,
+            target_match,
+        )
     except Exception:
         return None
 
+
 def _enrich_one(page, row: dict) -> bool:
-    url      = row["url"]
-    topic_id = url.split("/")[-1].split("?")[0]
+    url = row["url"]
+    topic_id = row.get("topic_id") or url.split("/")[-1].split("?")[0]
     captured = {}
 
     def handle(response, _c=captured):
-        if not _is_search_api_url(response.url) or response.status != 200:
-            return
-        try:
-            body = response.json()
-            for item in body.get("results", [body]):
-                meta    = item.get("metadata", {}) or {}
-                prog_id = _first(meta, "frameworkProgramme", "programme")
-                action  = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
-                cid     = _first(meta, "callIdentifier", "identifier")
+        if SEARCH_API_PATH in response.url and response.status == 200:
+            try:
+                body = response.json()
+                items = _extract_results(body) or [body]
+                for item in items:
+                    meta = _metadata(item)
+                    prog_id = _first(meta, "frameworkProgramme", "programme")
+                    action = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                    cid = _first(meta, "callIdentifier")
+                    tid = _first(meta, "topicIdentifier", "identifier")
 
-                if prog_id and not _c.get("prog"):
-                    _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
-                if action and not _c.get("action"):
-                    _c["action"] = action
-                if cid and not _c.get("call_id"):
-                    _c["call_id"] = cid
+                    if prog_id and not _c.get("prog"):
+                        _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
+                    if action and not _c.get("action"):
+                        _c["action"] = action
+                    if cid and not _c.get("call_id"):
+                        _c["call_id"] = cid
+                    if tid and not _c.get("topic_id"):
+                        _c["topic_id"] = tid
 
-                if not _c.get("budget"):
-                    for key in (
-                        "budgetOverviewTotal", "totalBudget", "budget",
-                        "budgetTopicActions", "indicativeBudget",
-                        "availableBudget", "estimatedTotalContribution",
-                    ):
-                        raw = meta.get(key)
-                        if isinstance(raw, list):
-                            raw = raw[0] if raw else None
-                        if raw is not None:
-                            val = parse_budget(str(raw))
-                            if val > 0:
-                                _c["budget"] = val
-                                break
-        except Exception:
-            pass
+                    if not _c.get("budget"):
+                        for key in (
+                            "budgetOverviewTotal",
+                            "totalBudget",
+                            "budget",
+                            "budgetTopicActions",
+                            "indicativeBudget",
+                            "availableBudget",
+                            "estimatedTotalContribution",
+                        ):
+                            raw = meta.get(key)
+                            if isinstance(raw, list):
+                                raw = raw[0] if raw else None
+                            if raw is not None:
+                                val = parse_budget(str(raw))
+                                if val > 0:
+                                    _c["budget"] = val
+                                    break
+            except Exception:
+                pass
 
     page.on("response", handle)
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=40000)
-        try:
-            page.wait_for_load_state("networkidle", timeout=10000)
-        except Exception:
-            pass
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(2500)
+        accept_cookies(page)
 
         try:
             body_text = page.locator("body").inner_text(timeout=5000)
@@ -1328,27 +898,32 @@ def _enrich_one(page, row: dict) -> bool:
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
+    if captured.get("topic_id") and not row.get("topic_id"):
+        row["topic_id"] = captured["topic_id"]
 
     return bool(captured) or bool(row.get("full_text"))
 
+
 def enrich(ctx, rows: list):
     to_fix = [
-        r for r in rows
-        if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id"))
+        r
+        for r in rows
+        if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id") or not r.get("budget_raw"))
         and r.get("url")
     ]
+
     if not to_fix:
         print("  Tutti i campi già presenti ✓", flush=True)
         return
 
-    print(f"  {len(to_fix)} call da arricchire…", flush=True)
-    page    = ctx.new_page()
+    print(f"  {len(to_fix)} call da arricchire via Playwright…", flush=True)
+    page = ctx.new_page()
     skipped = 0
 
     for idx, row in enumerate(to_fix, 1):
-        print(f"  [{idx:>4}/{len(to_fix)}] {(row['name'] or '')[:60]}", flush=True)
-
+        print(f"  [{idx:>4}/{len(to_fix)}] {(row.get('name') or '')[:60]}", flush=True)
         ok = False
+
         for attempt in range(1, 3):
             try:
                 ok = _enrich_one(page, row)
@@ -1364,10 +939,10 @@ def enrich(ctx, rows: list):
 
         if not ok:
             skipped += 1
-            print(f"    [SKIP] nessun dato recuperato", flush=True)
+            print("    [SKIP] nessun dato recuperato", flush=True)
 
         if idx % 100 == 0:
-            print(f"  [checkpoint] {idx} call elaborate…", flush=True)
+            print(f"  [checkpoint] arricchite {idx} call…", flush=True)
 
         time.sleep(0.3)
 
@@ -1375,18 +950,20 @@ def enrich(ctx, rows: list):
         page.close()
     except Exception:
         pass
+
     print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
 
-# ── to_call (invariato) ───────────────────────────────────────────────────────
+# ── Trasformazione finale ─────────────────────────────────────────────────────
 
 def to_call(row: dict) -> dict:
-    url        = row.get("url", "")
-    prog_raw   = row.get("programme_raw") or ""
-    call_id    = row.get("call_id") or ""
+    url = row.get("url", "")
+    prog_raw = row.get("programme_raw") or ""
+    call_id = row.get("call_id") or ""
+    topic_id = row.get("topic_id") or ""
     action_raw = row.get("action_raw") or ""
 
     cluster_num = ""
-    for src in [call_id, row.get("cluster_raw", ""), url]:
+    for src in [topic_id, call_id, row.get("cluster_raw", ""), url]:
         m = RE_CLUSTER.search(src or "")
         if m:
             cluster_num = m.group(1)
@@ -1397,44 +974,54 @@ def to_call(row: dict) -> dict:
         cluster_num = u_cnum
 
     cluster_label = u_clabel or THEMATIC_MAP.get(cluster_num, "")
-    thematic      = u_thematic or resolve_thematic(cluster_num, prog_raw) or name_classify(row.get("name", ""))
-    action        = normalize_action(action_raw)
-    is_mission    = bool("/HORIZON-MISS" in url.upper())
+    thematic = u_thematic or resolve_thematic(cluster_num, prog_raw) or name_classify(row.get("name", ""))
+    action = normalize_action(action_raw)
+    is_mission = bool("/HORIZON-MISS" in url.upper() or "HORIZON-MISS" in topic_id.upper())
 
-    full_text = row.get("full_text") or ""
-    multi = classify_multitopic(row.get("name") or "", full_text, thematic)
+    opening_raw = row.get("opening_raw") or ""
+    deadline_raw = row.get("deadline_raw") or ""
+
+    multi = classify_multitopic(row.get("name") or "", row.get("full_text") or "")
 
     return {
-        "name":             row.get("name") or "",
-        "call_id":          call_id,
-        "programme":        prog_raw,
-        "cluster_num":      cluster_num,
-        "cluster_label":    cluster_label,
+        "name": row.get("name") or "",
+        "topic_id": topic_id,
+        "call_id": call_id,
+        "submission_status_code": row.get("submission_status_code") or "",
+        "submission_status": row.get("submission_status") or "",
+        "programme": prog_raw,
+        "cluster_num": cluster_num,
+        "cluster_label": cluster_label,
         "thematic_cluster": thematic,
-        "action":           action,
-        "opening":          row.get("opening_raw") or "",
-        "opening_iso":      parse_date_iso(row.get("opening_raw") or ""),
-        "deadline":         row.get("deadline_raw") or "",
-        "deadline_iso":     parse_date_iso(row.get("deadline_raw") or ""),
-        "url":              url,
-        "is_mission":       is_mission,
+        "action": action,
+        "opening": opening_raw,
+        "opening_iso": parse_date_iso(opening_raw),
+        "deadline": deadline_raw,
+        "deadline_iso": parse_date_iso(deadline_raw),
+        "url": url,
+        "is_mission": is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
-        "budget":           row.get("budget_raw") or 0,
-        "full_text":        multi["full_text"],
-        "keyword_hits":     multi["keyword_hits"],
-        "multi_thematic":   multi["multi_thematic"],
+        "budget": row.get("budget_raw") or 0,
+        "full_text": multi["full_text"],
+        "keyword_hits": multi["keyword_hits"],
+        "multi_thematic": multi["multi_thematic"],
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
-# ── Changelog (invariato) ─────────────────────────────────────────────────────
+# ── Changelog ─────────────────────────────────────────────────────────────────
 
 def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, generated: str):
-    old_by_url = {c["url"]: c for c in old_calls}
-    new_by_url = {c["url"]: c for c in new_calls}
-    old_urls   = set(old_by_url)
-    new_urls   = set(new_by_url)
-    added      = [new_by_url[u] for u in sorted(new_urls - old_urls)]
-    removed    = [old_by_url[u] for u in sorted(old_urls - new_urls)]
+    def key(c):
+        return (c.get("submission_status_code") or "", c.get("topic_id") or "", c.get("url") or "")
+
+    old_by_key = {key(c): c for c in old_calls if c.get("url")}
+    new_by_key = {key(c): c for c in new_calls if c.get("url")}
+
+    old_keys = set(old_by_key)
+    new_keys = set(new_by_key)
+
+    added = [new_by_key[k] for k in sorted(new_keys - old_keys)]
+    removed = [old_by_key[k] for k in sorted(old_keys - new_keys)]
 
     def thematic_counts(calls):
         tc = {}
@@ -1444,68 +1031,71 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
         return tc
 
     date_str = generated[:10]
-    lines    = []
-    lines.append(f"# Changelog calls.json")
-    lines.append(f"")
-    lines.append(f"**Ultimo aggiornamento:** {generated.replace('T',' ').replace('+00:00',' UTC')[:22]}")
-    lines.append(f"")
-    lines.append(f"## Riepilogo")
-    lines.append(f"")
-    lines.append(f"| | Numero |")
-    lines.append(f"|---|---|")
+
+    lines = []
+    lines.append("# Changelog calls.json")
+    lines.append("")
+    lines.append(f"**Ultimo aggiornamento:** {generated.replace('T', ' ').replace('+00:00', ' UTC')[:22]}")
+    lines.append("")
+    lines.append("## Riepilogo")
+    lines.append("")
+    lines.append("| | Numero |")
+    lines.append("|---|---|")
     lines.append(f"| Call totali (nuovo) | {len(new_calls)} |")
     lines.append(f"| Call totali (precedente) | {len(old_calls)} |")
     lines.append(f"| **Nuove call aggiunte** | **{len(added)}** |")
-    lines.append(f"| Call rimosse (scadute/chiuse) | {len(removed)} |")
-    lines.append(f"")
+    lines.append(f"| Call rimosse | {len(removed)} |")
+    lines.append("")
 
     if added:
         lines.append(f"## Call aggiunte ({len(added)})")
-        lines.append(f"")
-        by_thematic: dict[str, list] = {}
+        lines.append("")
+        by_thematic = {}
         for c in added:
             t = c.get("thematic_cluster") or "(non classificato)"
             by_thematic.setdefault(t, []).append(c)
         for thematic, calls in sorted(by_thematic.items()):
             lines.append(f"### {thematic} ({len(calls)})")
-            lines.append(f"")
+            lines.append("")
             for c in calls:
-                name   = c.get("name") or "(senza nome)"
-                prog   = c.get("programme") or ""
+                name = c.get("name") or "(senza nome)"
+                prog = c.get("programme") or ""
                 action = c.get("action") or ""
-                dead   = c.get("deadline") or ""
-                url    = c.get("url") or ""
-                meta   = " · ".join(filter(None, [prog, action, f"Scadenza: {dead}" if dead else ""]))
+                status = c.get("submission_status") or ""
+                dead = c.get("deadline") or ""
+                url = c.get("url") or ""
+                meta = " · ".join(filter(None, [status, prog, action, f"Scadenza: {dead}" if dead else ""]))
                 lines.append(f"- **{name}**")
                 if meta:
                     lines.append(f"  {meta}")
                 if url:
                     lines.append(f"  {url}")
-                lines.append(f"")
+                lines.append("")
     else:
-        lines.append(f"## Call aggiunte")
-        lines.append(f"")
-        lines.append(f"Nessuna nuova call rispetto alla rilevazione precedente.")
-        lines.append(f"")
+        lines.append("## Call aggiunte")
+        lines.append("")
+        lines.append("Nessuna nuova call rispetto alla rilevazione precedente.")
+        lines.append("")
 
     if removed:
         lines.append(f"## Call rimosse ({len(removed)})")
-        lines.append(f"")
+        lines.append("")
         for c in removed:
             name = c.get("name") or "(senza nome)"
+            status = c.get("submission_status") or ""
             prog = c.get("programme") or ""
             dead = c.get("deadline") or ""
-            meta = " · ".join(filter(None, [prog, f"Scadenza: {dead}" if dead else ""]))
+            meta = " · ".join(filter(None, [status, prog, f"Scadenza: {dead}" if dead else ""]))
             lines.append(f"- **{name}**{(' — ' + meta) if meta else ''}")
-        lines.append(f"")
+        lines.append("")
 
-    lines.append(f"## Distribuzione per area tematica (nuovo dataset)")
-    lines.append(f"")
-    lines.append(f"| Area tematica | Call |")
-    lines.append(f"|---|---|")
+    lines.append("## Distribuzione per area tematica (nuovo dataset)")
+    lines.append("")
+    lines.append("| Area tematica | Call |")
+    lines.append("|---|---|")
     for k, v in sorted(thematic_counts(new_calls).items(), key=lambda x: -x[1]):
         lines.append(f"| {k} | {v} |")
-    lines.append(f"")
+    lines.append("")
 
     changelog_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\n📋 Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
@@ -1515,74 +1105,32 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     if history_path.exists():
         hist = history_path.read_text(encoding="utf-8")
         if history_line not in hist:
-            history_path.write_text(hist.rstrip() + "\n" + history_line + "\n", encoding="utf-8")
+            hist = hist.rstrip() + "\n" + history_line + "\n"
+            history_path.write_text(hist, encoding="utf-8")
     else:
         header = (
             "# Storico aggiornamenti calls.json\n\n"
             "| Data | Call totali | Aggiunte | Rimosse |\n"
             "|---|---|---|---|\n"
-            + history_line + "\n"
+            + history_line
+            + "\n"
         )
         history_path.write_text(header, encoding="utf-8")
     print(f"📋 History aggiornata: {history_path}")
 
-# ── Navigazione robusta (aggiornata v2.1) ─────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
-def navigate_to_list(page, url: str, max_attempts: int = 3) -> bool:
-    for attempt in range(1, max_attempts + 1):
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            try:
-                page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                pass
-            page.wait_for_timeout(2000)
+def main(out_path: Path):
+    rows = fetch_all_calls_via_api()
 
-            accept_cookies(page)
-            wait_cookie_gone(page, max_ms=8000)
+    if not rows:
+        print("❌ Nessuna call recuperata dalla Search API. Controlla connessione o parametri.")
+        return
 
-            current = page.url
-            if "calls-for-proposals" in current or "opportunities" in current:
-                return True
-            if "login" in current.lower() or "error" in current.lower():
-                print(f"  [navigate] redirect inatteso: {current}", flush=True)
-                if attempt < max_attempts:
-                    page.go_back(timeout=10000)
-                    page.wait_for_timeout(2000)
-                    continue
-
-            try:
-                txt = page.locator("body").inner_text(timeout=5000)
-                if len(txt) > 500:
-                    return True
-            except Exception:
-                pass
-
-        except PWTimeout:
-            print(f"  [navigate] timeout (tentativo {attempt}/{max_attempts})", flush=True)
-        except Exception as e:
-            print(f"  [navigate] errore: {e} (tentativo {attempt}/{max_attempts})", flush=True)
-
-        if attempt < max_attempts:
-            page.wait_for_timeout(3000 * attempt)
-
-    return False
-
-# ── Main (aggiornato v2.1) ────────────────────────────────────────────────────
-
-def main(out_path: Path, debug: bool = False):
-    global DEBUG
-    DEBUG = debug
-
-    rows: list       = []
-    seen_urls: set   = set()
+    print(f"\n═══ Passo 2: arricchimento {len(rows)} call via Playwright ═══", flush=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=[
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-blink-features=AutomationControlled",
-        ])
+        browser = p.chromium.launch(headless=True)
         ctx = browser.new_context(
             locale="en-US",
             viewport={"width": 1920, "height": 1080},
@@ -1591,125 +1139,32 @@ def main(out_path: Path, debug: bool = False):
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         )
-        ctx.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        """)
-
-        page = ctx.new_page()
-
-        # ══ FASE 0: sniffing API path (NUOVO v2.1) ══════════════════════════
-        print(f"\n══ Fase 0: sniffing API path ══", flush=True)
-        _sniff_api_path(page)
-
-        # ══ FASE 1: navigazione prima pagina ════════════════════════════════
-        # Attacca l'interceptor XHR — rimane attivo per tutta la sessione
-        xhr = attach_link_interceptor(page)
-
-        first_url = LIST_URL.format(page=1, ps=PAGE_SIZE)
-        print(f"\n══ Fase 1: navigazione prima pagina ══", flush=True)
-        ok = navigate_to_list(page, first_url)
-        if not ok:
-            print("⚠ navigate_to_list ha restituito False, provo comunque…", flush=True)
-
-        # Attendi risposte XHR
-        page.wait_for_timeout(3000)
-
-        # Totale: prima dall'XHR, poi dal DOM
-        total: int | None = None
-        if xhr.get("total"):
-            total = xhr["total"]
-            print(f"✅ Totale da XHR: {total}", flush=True)
-        else:
-            total = read_total(page)
-
-        if total is None:
-            if xhr["links"]:
-                total = len(xhr["links"])
-                print(f"⚠ Totale stimato da link XHR: {total}", flush=True)
-            else:
-                print("❌ Impossibile determinare il numero di call. Uscita.", flush=True)
-                browser.close()
-                return
-
-        max_pages = math.ceil(total / PAGE_SIZE)
-        print(f"✅ Totale: {total} call | pagine attese: {max_pages}", flush=True)
-
-        # Scopri selettore DOM sulla prima pagina (usato come fallback)
-        _set_link_selector_from_candidates(page)
-
-        def _harvest_xhr_links(xhr_captured: dict, seen: set, row_list: list, pg):
-            new_count = 0
-            for u in list(xhr_captured["links"]):
-                if u not in seen:
-                    seen.add(u)
-                    row_list.append(parse_card(pg, u))
-                    new_count += 1
-            return new_count
-
-        new_from_xhr = _harvest_xhr_links(xhr, seen_urls, rows, page)
-        print(f"  Prima pagina XHR: {new_from_xhr} link | DOM: {count_links(page)} link", flush=True)
-
-        if new_from_xhr == 0:
-            scroll_until(page, expected=min(PAGE_SIZE, total))
-            dom_links = extract_links(page)
-            new_links = [u for u in dom_links if u not in seen_urls]
-            for u in new_links:
-                seen_urls.add(u)
-                rows.append(parse_card(page, u))
-            print(f"  Prima pagina DOM fallback: {len(new_links)} link", flush=True)
-
-        # ══ FASE 2: scraping pagine 2..N ════════════════════════════════════
-        for pnum in range(2, max_pages + 1):
-            remaining = total - (pnum - 1) * PAGE_SIZE
-            expected  = min(PAGE_SIZE, remaining)
-            url       = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
-
-            print(f"\n[p{pnum}/{max_pages}] attese ~{expected} call", end="", flush=True)
-
-            ok = navigate_to_list(page, url)
-            if not ok:
-                print(f" ⚠ navigazione incerta, continuo…", flush=True)
-
-            page.wait_for_timeout(2500)
-
-            new_from_xhr = _harvest_xhr_links(xhr, seen_urls, rows, page)
-
-            new_from_dom = 0
-            if new_from_xhr == 0:
-                scroll_until(page, expected=expected)
-                dom_links = extract_links(page)
-                new_dom   = [u for u in dom_links if u not in seen_urls]
-                for u in new_dom:
-                    seen_urls.add(u)
-                    rows.append(parse_card(page, u))
-                new_from_dom = len(new_dom)
-
-            total_new = new_from_xhr + new_from_dom
-            src_label = f"XHR:{new_from_xhr}" + (f" DOM:{new_from_dom}" if new_from_dom else "")
-            print(f" → {total_new} nuovi ({src_label}) | tot seen: {len(seen_urls)}", flush=True)
-
-            time.sleep(0.15)
-
-        # ══ FASE 3: arricchimento ════════════════════════════════════════════
-        print(f"\n══ Fase 3: arricchimento {len(rows)} call ══", flush=True)
         enrich(ctx, rows)
         browser.close()
 
-    # ── Classificazione ────────────────────────────────────────────────────────
-    calls: list[dict] = []
-    seen_final: set   = set()
+    calls = []
+    seen = set()
     for row in rows:
         call = to_call(row)
-        if call["url"] and call["url"] not in seen_final:
-            seen_final.add(call["url"])
+        uid = (call.get("submission_status_code") or "", call.get("topic_id") or "", call.get("url") or "")
+        if uid not in seen:
+            seen.add(uid)
             calls.append(call)
 
-    tc: dict = {}
+    tc = {}
+    sc = {}
     for c in calls:
-        k = c["thematic_cluster"] or "(non classificato)"
-        tc[k] = tc.get(k, 0) + 1
+        t = c.get("thematic_cluster") or "(non classificato)"
+        s = c.get("submission_status") or "(status sconosciuto)"
+        tc[t] = tc.get(t, 0) + 1
+        sc[s] = sc.get(s, 0) + 1
+
+    print(f"\nTotale finale: {len(calls)} call")
+    print("\nStatus:")
+    for k, v in sorted(sc.items(), key=lambda x: -x[1]):
+        print(f"  {v:5d}  {k}")
+
     print(f"\nClassificazione ({len(calls)} call totali):")
     for k, v in sorted(tc.items(), key=lambda x: -x[1]):
         print(f"  {v:5d}  {k}")
@@ -1717,29 +1172,36 @@ def main(out_path: Path, debug: bool = False):
 
     generated = datetime.now(timezone.utc).isoformat()
 
-    old_calls: list = []
+    old_calls = []
     if out_path.exists():
         try:
-            old_data  = json.loads(out_path.read_text(encoding="utf-8"))
+            old_data = json.loads(out_path.read_text(encoding="utf-8"))
             old_calls = old_data.get("calls", [])
             print(f"\nDataset precedente: {len(old_calls)} call")
         except Exception:
-            print("\nNessun dataset precedente trovato.")
+            print("\nNessun dataset precedente leggibile.")
 
     changelog_path = out_path.parent / "changelog.md"
     write_changelog(old_calls, calls, changelog_path, generated)
 
-    payload = {"generated": generated, "calls": calls}
+    payload = {
+        "generated": generated,
+        "filters": {
+            "type": "1",
+            "statuses": [{"code": code, "label": label} for code, label in STATUS_FILTERS],
+            "programmePeriod": None,
+        },
+        "calls": calls,
+    }
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n✅ Scritto {out_path} con {len(calls)} call")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="EU Funding & Tenders scraper → calls.json")
-    parser.add_argument("--out",   default="calls.json", help="Percorso output JSON")
-    parser.add_argument("--debug", action="store_true",  help="Diagnostica estesa")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
-    main(Path(args.out), debug=args.debug)
+    main(Path(args.out))
 
 
 
