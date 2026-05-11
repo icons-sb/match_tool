@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth
+from playwright_stealth import playwright_stealth
 
 # ── Parametri ─────────────────────────────────────────────────────────────────
 
@@ -923,7 +923,7 @@ def main(out_path: Path):
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         page = ctx.new_page()
-        playwright_stealth.stealth(page)
+        playwright_stealth.stealth.stealth(page)
 
         # ── Passo 1: lista ────────────────────────────────────────────────────
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
