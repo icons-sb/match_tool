@@ -27,8 +27,12 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install playwright playwright-stealth
-          playwright install chromium --with-deps
+          # Installa le dipendenze di sistema (Librerie X11, ecc.) con privilegi sudo
+          sudo playwright install-deps chromium
+          # Installa il browser vero e proprio
+          playwright install chromium
       - name: Scrape open/forthcoming EU calls
         run: xvfb-run python scrape_to_json.py --out calls.json
         timeout-minutes: 90
