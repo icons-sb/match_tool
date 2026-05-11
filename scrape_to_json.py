@@ -530,8 +530,7 @@ def _fetch_json(url: str, status_code: str, retries: int = 3) -> dict:
             parts = []
 
             def add_part(name, value, content_type=None):
-                parts.append(f"--{boundary}
-".encode("utf-8"))
+                parts.append(("--" + boundary + "\r\n").encode("utf-8"))
                 parts.append(f'Content-Disposition: form-data; name="{name}"
 '.encode("utf-8"))
                 if content_type:
@@ -1213,6 +1212,7 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
+
 
 
 
