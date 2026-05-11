@@ -222,7 +222,7 @@ TOPIC_KEYWORDS = {
 
 # ── NEW: fetch ALL calls via the official REST API ─────────────────────────────
 
-def build_query():
+def build_query(page_number: int) -> dict:
     # This specific structure is required to get the ~787 grants
     return {
         "bool": {
