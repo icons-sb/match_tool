@@ -490,18 +490,18 @@ def _build_search_url(page_num: int, status_code: str) -> str:
     return SEARCH_API_BASE + "?" + urllib.parse.urlencode(params)
 
 
-def _fetch_json(url: str, status_code: str, page_num: int, retries: int = 3) -> dict:
-    """Versione aggiornata per gestire i nuovi filtri EUI17"""
+def _fetch_json(status_code: str, page_num: int, retries: int = 3) -> dict:
+    """Versione corretta: i parametri sono passati esplicitamente per costruire il POST body"""
     headers = {
         "Accept": "application/json, text/plain, */*",
         "Content-Type": "application/json;charset=UTF-8",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Origin": "https://ec.europa.eu",
     }
     
-    # Costruiamo il payload JSON come richiesto dalle nuove API
+    # Costruiamo il payload come richiesto dalle nuove API EUI17
     payload = {
-        "apiKey": "SEDIA",
+        "apiKey": SEARCH_API_KEY,
         "text": "***",
         "pageSize": PAGE_SIZE,
         "pageNumber": page_num,
@@ -512,10 +512,12 @@ def _fetch_json(url: str, status_code: str, page_num: int, retries: int = 3) -> 
         "displayLanguage": "en"
     }
 
+    url = SEARCH_API_BASE # Usiamo la costante definita a inizio file
+    
     for attempt in range(1, retries + 1):
         try:
             req = urllib.request.Request(
-                "https://api.tech.ec.europa.eu/search-api/prod/rest/search", 
+                url, 
                 data=json.dumps(payload).encode("utf-8"), 
                 headers=headers, 
                 method="POST"
