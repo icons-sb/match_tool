@@ -34,7 +34,7 @@ LIST_URL = (
 SEARCH_API  = "search-api/prod/rest/search"
 COOKIE_TEXT = "This site uses cookies"
 
-LINK_SELECTOR = "a[href*='topic-details'], a[href*='competitive-calls-cs']"
+LINK_SELECTOR = 'css=a[href*="/topic-details/"], a[href*="/competitive-calls-cs/"], a[href*="/prospect-details/"]'
 
 RE_TOTAL     = re.compile(r"(\d+)\s*item\s*\(s\)\s*found", re.IGNORECASE)
 RE_OPEN      = re.compile(r"Opening date:\s*([^\|\n\r]+)",          re.IGNORECASE)
@@ -417,12 +417,12 @@ def pick(rx, text):
 
 def accept_cookies(page):
     try:
-        # Cerca i pulsanti sia nel DOM principale che negli shadow roots
-        accept_btn = page.locator("button#accept, a#accept, .eui-button:has-text('Accept all')").first
-        if accept_btn.is_visible(timeout=3000):
-            accept_btn.click()
+        # Usiamo un selettore più aggressivo che cerca ovunque
+        btn = page.locator("button#accept, a#accept, .eui-button:has-text('Accept all')").first
+        if btn.is_visible(timeout=2000):
+            btn.click()
             page.wait_for_timeout(1000)
-    except Exception:
+    except:
         pass
 
 def wait_cookie_gone(page, max_ms=12000):
@@ -511,16 +511,15 @@ def scroll_until(page, expected, max_ms=50000):
     return count_links(page)
 
 def extract_links(page):
-    # Playwright penetra lo shadow DOM automaticamente con locator().all()
+    # Il locator di Playwright buca automaticamente lo Shadow DOM
     locators = page.locator(LINK_SELECTOR).all()
     out, seen = [], set()
-    
     for loc in locators:
         try:
             h = loc.get_attribute("href")
             if h:
                 full = "https://ec.europa.eu" + h if h.startswith("/") else h
-                if full not in seen and ("/topic-details/" in full or "/competitive-calls-cs/" in full):
+                if full not in seen:
                     seen.add(full)
                     out.append(full)
         except:
