@@ -935,56 +935,41 @@ def extract_from_json(json_data):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(out_path: Path):
-    rows      = []
-    seen_urls = set()
+    # 1. Definisci la lista FUORI, così è visibile a tutti
+    interception_results = []
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-        ctx = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-        page = ctx.new_page()
-        try:
-            if hasattr(playwright_stealth, 'stealth_sync'):
-                playwright_stealth.stealth_sync(page)
-            elif hasattr(playwright_stealth, 'stealth'):
-                from playwright_stealth.stealth import stealth as _st
-                _st(page)
-            else:
-                print("⚠️ Impossibile applicare stealth, procedo comunque...")
-        except Exception as e:
-            print(f"⚠️ Errore stealth ignorato: {e}")
+    def handle_response(response):
+        if "apiKey=SEDIA" in response.url and response.status == 200:
+            try:
+                data = response.json()
+                items = data.get("results", [])
+                for item in items:
+                    # AGGIUNGIAMO ALLA LISTA DEFINITA SOPRA
+                    interception_results.append({
+                        "id": item.get("identifier"),
+                        "title": item.get("title"),
+                        "link": f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{item.get('identifier')}",
+                        "deadline": item.get("deadlineDate")
+                    })
+                print(f"✅ Intercettate {len(items)} call dal JSON (XHR)")
+            except:
+                pass
 
-        # ── Passo 1: lista ────────────────────────────────────────────────────
-        all_calls = []
-        
-        def handle_response(response):
-            if "apiKey=SEDIA" in response.url and response.status == 200:
-                try:
-                    data = response.json()
-                    new_calls = extract_from_json(data)
-                    all_calls.extend(new_calls)
-                    print(f"✅ Intercettate {len(new_calls)} call dal JSON (XHR)")
-                except Exception as e:
-                    print(f"❌ Errore nel parsing del JSON: {e}")
+    # ... inizializzazione browser e page ...
+    page.on("response", handle_response)
+    page.goto(LIST_URL.format(page=1, ps=50), wait_until="networkidle")
 
-# Registra il listener prima di andare sulla pagina
-        page.on("response", handle_response)
+    # ATTESA: Diamo tempo al listener di finire il lavoro
+    page.wait_for_timeout(5000) 
 
-# Vai sulla pagina
-        page.goto(LIST_URL, wait_until="networkidle")
+    # --- PUNTO CRITICO ---
+    # Lo script probabilmente usa una variabile chiamata 'calls'. 
+    # Dobbiamo passarle i dati intercettati.
+    calls = interception_results 
 
-# IMPORTANTE: Clicca i cookie per sbloccare l'invio dei dati
-        try:
-            page.get_by_role("button", name=re.compile(r"Accept all cookies", re.I)).click()
-            page.wait_for_timeout(3000) # Aspetta che il JSON arrivi
-        except:
-            pass
-
-        # ── Passo 2: arricchimento ────────────────────────────────────────────
-        print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
-        enrich(ctx, rows)
-        browser.close()
+    print(f"--- Passo 2: arricchimento {len(calls)} call totali ---")
+    enrich(ctx, rows)
+    browser.close()
 
     # ── Classificazione e output ──────────────────────────────────────────────
     calls = []
