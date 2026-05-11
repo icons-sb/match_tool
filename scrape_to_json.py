@@ -224,13 +224,17 @@ TOPIC_KEYWORDS = {
 
 def build_query(page_number: int) -> dict:
     """
-    The SEDIA Search API is NOT a raw Elasticsearch endpoint.
-    The 'query' form field accepts a simplified filter object, NOT ES bool/must syntax.
-    Filters must be expressed as top-level key:value pairs.
-    Complex filters (multi-value) use the URL params instead (see fetch_all_calls_via_api).
-    We keep the body query minimal and rely on URL params for the real filtering.
+    SEDIA Search API query format (NOT Elasticsearch).
+    Filters are expressed as a nested dict with 'AND' conditions.
+    Each filter has 'name' (the metadata field) and 'values' (list of accepted values).
     """
-    return {}   # filtering is done via URL params; body query is intentionally empty
+    return {
+        "AND": [
+            {"name": "type",             "values": CALL_TYPES},
+            {"name": "status",           "values": STATUS_CODES},
+            {"name": "programmePeriod",  "values": [PROGRAMME_PERIOD]},
+        ]
+    }
 
 
 def fetch_all_calls_via_api() -> list[dict]:
@@ -260,32 +264,27 @@ def fetch_all_calls_via_api() -> list[dict]:
     print("═══ Step 1: Fetching all calls via REST API ═══")
 
     while True:
-        # SEDIA API filters are passed as repeated URL query params, not in the POST body.
-        # Each value in a multi-value filter is a separate param with the same key.
-        params = [
-            ("apiKey",      API_KEY),
-            ("text",        "***"),
-            ("pageSize",    PAGE_SIZE),
-            ("pageNumber",  page_num),
-        ]
-        for s in STATUS_CODES:
-            params.append(("status", s))
-        for t in CALL_TYPES:
-            params.append(("type", t))
-        params.append(("programmePeriod", PROGRAMME_PERIOD))
+        params = {
+            "apiKey":      API_KEY,
+            "text":        "***",
+            "pageSize":    PAGE_SIZE,
+            "pageNumber":  page_num,
+        }
 
-        form_data = {}
+        form_data = {
+            "query": json.dumps(build_query(page_num)),
+        }
         if LANGUAGE:
             form_data["languages"] = json.dumps([LANGUAGE])
 
         for attempt in range(1, 4):
             try:
-                resp = session.post(
-                    SEARCH_API_URL,
-                    params=params,
-                    data=form_data,
-                    timeout=30,
-                )
+                req = requests.Request("POST", SEARCH_API_URL, params=params, data=form_data)
+                prepared = session.prepare_request(req)
+                if page_num == 1:
+                    print(f"\n[DEBUG] URL: {prepared.url}")
+                    print(f"[DEBUG] Body: {prepared.body}\n")
+                resp = session.send(prepared, timeout=30)
                 resp.raise_for_status()
                 body = resp.json()
                 break
