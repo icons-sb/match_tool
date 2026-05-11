@@ -490,35 +490,41 @@ def _build_search_url(page_num: int, status_code: str) -> str:
     return SEARCH_API_BASE + "?" + urllib.parse.urlencode(params)
 
 
-def _fetch_json(url: str, retries: int = 3) -> dict:
-    """Scarica JSON dalla Search API. POST con filtri nella query string URL."""
+def _fetch_json(url: str, status_code: str, page_num: int, retries: int = 3) -> dict:
+    """Versione aggiornata per gestire i nuovi filtri EUI17"""
     headers = {
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
+        "Content-Type": "application/json;charset=UTF-8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Origin": "https://ec.europa.eu",
-        "Referer": "https://ec.europa.eu/info/funding-tenders/opportunities/portal/",
     }
-    body = urllib.parse.urlencode({
-        "languages": "en",
-        "displayLanguage": "en",
-    }).encode("utf-8")
+    
+    # Costruiamo il payload JSON come richiesto dalle nuove API
+    payload = {
+        "apiKey": "SEDIA",
+        "text": "***",
+        "pageSize": PAGE_SIZE,
+        "pageNumber": page_num,
+        "query": f"type=1&status={status_code}",
+        "sortBy": "startDate",
+        "orderBy": "DESC",
+        "languages": ["en"],
+        "displayLanguage": "en"
+    }
 
     for attempt in range(1, retries + 1):
         try:
-            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            req = urllib.request.Request(
+                "https://api.tech.ec.europa.eu/search-api/prod/rest/search", 
+                data=json.dumps(payload).encode("utf-8"), 
+                headers=headers, 
+                method="POST"
+            )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception as e:
-            print(f"  [HTTP attempt {attempt}] {e}", flush=True)
-            if attempt < retries:
-                time.sleep(2 * attempt)
-
+            print(f"  [HTTP attempt {attempt}] Error: {e}")
+            time.sleep(2 * attempt)
     return {}
 
 
@@ -761,16 +767,13 @@ def fetch_all_calls_via_api() -> list:
 # ── Playwright — arricchimento dettagli ───────────────────────────────────────
 
 def accept_cookies(page):
-    for label in ["Accept all", "Accept All", "Accept", "I accept", "Agree", "OK"]:
-        for scope in [page] + list(page.frames):
-            try:
-                btn = scope.get_by_role("button", name=re.compile(label, re.IGNORECASE))
-                if btn.count():
-                    btn.first.click(timeout=2000)
-                    page.wait_for_timeout(800)
-                    return
-            except Exception:
-                pass
+    try:
+        # Cerca il tasto "Accept all" anche se è dentro uno shadow DOM
+        button = page.locator("button#accept, button:has-text('Accept all')").first
+        if button.is_visible(timeout=3000):
+            button.click()
+    except:
+        pass # Se non appare, proseguiamo comunque
 
 
 def extract_budget_per_project_dom(page, topic_id):
@@ -1202,6 +1205,7 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
+
 
 
 
