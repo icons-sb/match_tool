@@ -224,19 +224,13 @@ TOPIC_KEYWORDS = {
 
 def build_query(page_number: int) -> dict:
     """
-    Build the POST body query for the Search API.
-    Pagination is done via 'from' (0-based offset) rather than pageNumber,
-    which is the correct way to paginate SEDIA's Elasticsearch-backed API.
+    The SEDIA Search API is NOT a raw Elasticsearch endpoint.
+    The 'query' form field accepts a simplified filter object, NOT ES bool/must syntax.
+    Filters must be expressed as top-level key:value pairs.
+    Complex filters (multi-value) use the URL params instead (see fetch_all_calls_via_api).
+    We keep the body query minimal and rely on URL params for the real filtering.
     """
-    return {
-        "bool": {
-            "must": [
-                {"terms": {"type": CALL_TYPES}},
-                {"terms": {"status": STATUS_CODES}},
-                {"term":  {"programmePeriod": PROGRAMME_PERIOD}},
-            ]
-        }
-    }
+    return {}   # filtering is done via URL params; body query is intentionally empty
 
 
 def fetch_all_calls_via_api() -> list[dict]:
@@ -266,15 +260,21 @@ def fetch_all_calls_via_api() -> list[dict]:
     print("═══ Step 1: Fetching all calls via REST API ═══")
 
     while True:
-        params = {
-            "apiKey": API_KEY,
-            "text": "***",
-            "pageSize": PAGE_SIZE,
-            "pageNumber": page_num,
-        }
-        form_data = {
-            "query": json.dumps(build_query(page_num)),
-        }
+        # SEDIA API filters are passed as repeated URL query params, not in the POST body.
+        # Each value in a multi-value filter is a separate param with the same key.
+        params = [
+            ("apiKey",      API_KEY),
+            ("text",        "***"),
+            ("pageSize",    PAGE_SIZE),
+            ("pageNumber",  page_num),
+        ]
+        for s in STATUS_CODES:
+            params.append(("status", s))
+        for t in CALL_TYPES:
+            params.append(("type", t))
+        params.append(("programmePeriod", PROGRAMME_PERIOD))
+
+        form_data = {}
         if LANGUAGE:
             form_data["languages"] = json.dumps([LANGUAGE])
 
