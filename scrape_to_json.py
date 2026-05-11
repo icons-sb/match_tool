@@ -222,39 +222,28 @@ TOPIC_KEYWORDS = {
 
 # ── NEW: fetch ALL calls via the official REST API ─────────────────────────────
 
-def build_query(page_number: int) -> dict:
+def build_query() -> dict:
     """
-    SEDIA Search API query format (NOT Elasticsearch).
-    Filters are expressed as a nested dict with 'AND' conditions.
-    Each filter has 'name' (the metadata field) and 'values' (list of accepted values).
+    Correct SEDIA Search API filter format: Elasticsearch bool/must/terms.
+    Passed as JSON body (Content-Type: application/json), NOT form-urlencoded.
     """
     return {
-        "AND": [
-            {"name": "type",             "values": CALL_TYPES},
-            {"name": "status",           "values": STATUS_CODES},
-            {"name": "programmePeriod",  "values": [PROGRAMME_PERIOD]},
-        ]
+        "bool": {
+            "must": [
+                {"terms": {"type":   CALL_TYPES}},
+                {"terms": {"status": STATUS_CODES}},
+                {"term":  {"programmePeriod": PROGRAMME_PERIOD}},
+            ]
+        }
     }
 
 
 def fetch_all_calls_via_api() -> list[dict]:
-    """
-    Paginate through the Search API and collect every call record.
-    Returns a list of raw metadata dicts (one per call/topic).
-
-    Key insight from the PDF docs:
-      POST https://api.tech.ec.europa.eu/search-api/prod/rest/search
-           ?apiKey=SEDIA&text=***
-      Form data: { query: <JSON>, languages: ["en"] }
-      Response: { totalResults: N, results: [...] }
-
-    The API supports pageSize up to 50 and uses pageNumber (1-based).
-    To avoid multilingual duplicates (noted in the PDF), we filter to "en".
-    """
     session = requests.Session()
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (compatible; EU-FT-Scraper/2.0)",
-        "Accept": "application/json",
+        "User-Agent":   "Mozilla/5.0 (compatible; EU-FT-Scraper/2.0)",
+        "Accept":       "application/json",
+        "Content-Type": "application/json",
     })
 
     all_rows = []
@@ -265,24 +254,22 @@ def fetch_all_calls_via_api() -> list[dict]:
 
     while True:
         params = {
-            "apiKey":      API_KEY,
-            "text":        "***",
-            "pageSize":    PAGE_SIZE,
-            "pageNumber":  page_num,
-        }
-
-        form_data = {
-            "query": json.dumps(build_query(page_num)),
+            "apiKey":     API_KEY,
+            "text":       "***",
+            "pageSize":   PAGE_SIZE,
+            "pageNumber": page_num,
         }
         if LANGUAGE:
-            form_data["languages"] = json.dumps([LANGUAGE])
+            params["language"] = LANGUAGE
+
+        payload = {"query": build_query()}
 
         for attempt in range(1, 4):
             try:
-                req = requests.Request("POST", SEARCH_API_URL, params=params, data=form_data)
+                req = requests.Request("POST", SEARCH_API_URL, params=params, json=payload)
                 prepared = session.prepare_request(req)
                 if page_num == 1:
-                    print(f"\n[DEBUG] URL: {prepared.url}")
+                    print(f"\n[DEBUG] URL:  {prepared.url}")
                     print(f"[DEBUG] Body: {prepared.body}\n")
                 resp = session.send(prepared, timeout=30)
                 resp.raise_for_status()
@@ -304,6 +291,7 @@ def fetch_all_calls_via_api() -> list[dict]:
             print(f"  Page {page_num}: no results returned, stopping.")
             break
 
+        accepted = 0
         for item in results:
             meta = item.get("metadata", {}) or {}
             url_raw = item.get("url", "") or ""
@@ -350,9 +338,10 @@ def fetch_all_calls_via_api() -> list[dict]:
                 "full_text":     "",
                 "_api_meta":     meta,   # keep for enrichment fallback
             })
+            accepted += 1
 
         fetched_so_far = (page_num - 1) * PAGE_SIZE + len(results)
-        print(f"  Page {page_num}/{total_pages}: +{len(results)} rows  (total so far: {fetched_so_far}/{total_results})", flush=True)
+        print(f"  Page {page_num}/{total_pages}: +{len(results)} rows  accepted={accepted}  (total so far: {fetched_so_far}/{total_results})", flush=True)
 
         if fetched_so_far >= total_results:
             break
@@ -925,7 +914,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default=".", help="Output directory (default: current dir)")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
