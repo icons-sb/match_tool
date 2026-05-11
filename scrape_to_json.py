@@ -772,8 +772,7 @@ def fetch_all_calls_via_api() -> list:
                 global_seen.add(uid)
                 all_rows.append(row)
 
-    print(f"
-  Totale atteso da somma stati: {expected_total}", flush=True)
+    print(f" Totale atteso da somma stati: {expected_total}", flush=True)
     print(f"  ✅ Raccolta completata: {len(all_rows)} call/righe univoche", flush=True)
 
     if len(all_rows) != expected_total:
