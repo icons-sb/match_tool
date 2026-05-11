@@ -234,12 +234,6 @@ def build_query(page_number: int) -> dict:
         }
     }
 
-# In your fetch loop, ensure the POST request looks exactly like this:
-form_data = {
-    "query": json.dumps(build_query(page_num)),
-    "languages": json.dumps(["en"])
-}
-
 
 def fetch_all_calls_via_api() -> list[dict]:
     """
