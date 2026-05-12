@@ -1275,13 +1275,7 @@
     c._assigned=norm(c.thematic_cluster);
     c._action_norm=normalizeAction(c.action);
     c._deadline_norm=c.deadline_iso||'';
-    // budget is now an integer from the scraper; budget_total is total call budget
-    c._budget_value = (typeof c.budget === 'number' && c.budget > 0)
-      ? c.budget
-      : parseBudgetValue(c.budget);
-    c._budget_total_value = (typeof c.budget_total === 'number' && c.budget_total > 0)
-      ? c.budget_total
-      : parseBudgetValue(c.budget_total);
+    c._budget_value=parseBudgetValue(c.budget);
     c._search=textForSearch(c);
     c._special=Boolean(c.is_special_basic_research||titleHasSpecial(c.name));
     c._keyword_hits={};
@@ -1357,11 +1351,7 @@
     return calls
       .map(enrichCall)
       .map(call=>{
-        // Escludi call già scadute (deadline nel passato)
-        const today=new Date().toISOString().slice(0,10);
-        if(call._deadline_norm&&call._deadline_norm<today) return null;
-        // Se specificato il projectEnd: mostra solo call che scadono ENTRO la fine progetto
-        if(projectEnd&&call._deadline_norm&&call._deadline_norm>projectEnd) return null;
+        if(projectEnd&&call._deadline_norm&&call._deadline_norm<=projectEnd) return null;
         const bs=bucketAndScore(call,answers);
         if(!bs) return null;
         return {...call,_bucket:bs.bucket,_score:bs.score,_primaryAssigned:bs.primaryAssigned,_secondaryAssigned:bs.secondaryAssigned,_primaryHits:bs.primaryHits,_secondaryHits:bs.secondaryHits};
@@ -1483,7 +1473,7 @@
         call.thematic_cluster?`Thematic area: ${esc(call.thematic_cluster)}`:'',
         call.cluster_label?`Horizon area: ${esc(call.cluster_label)}`:'',
         call.action?`Action: ${esc(call.action)}`:'',
-        (call._budget_value>0)?`Budget per progetto: ${call._budget_value.toLocaleString('it-IT')} EUR`:(call.budget?`Budget: ${esc(call.budget)}`:''  ),
+        call.budget?`Budget: ${esc(call.budget)}`:'',
         call.opening?`Opening: ${esc(call.opening)}`:'',
         call.deadline?`Deadline: ${esc(call.deadline)}`:'',
       ].filter(Boolean).join(' · ');
@@ -1538,8 +1528,7 @@
       : lastFiltered;
     return rows.map(c=>({
       name:c.name||'',programme:c.programme||'',thematic_cluster:c.thematic_cluster||'',
-      cluster_label:c.cluster_label||'',action:c.action||'',
-      budget_per_project:c._budget_value||'',budget_total:c._budget_total_value||'',expected_grants:c.expected_grants||'',
+      cluster_label:c.cluster_label||'',action:c.action||'',budget:c.budget||'',
       opening:c.opening||'',deadline:c.deadline||'',url:c.url||'',
       bucket:c._bucket||'',score:c._score||''
     }));
