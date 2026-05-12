@@ -660,14 +660,14 @@ def _enrich_one(page, row: dict) -> bool:
                         if raw_overview:
                             try:
                                 overview = json.loads(raw_overview) if isinstance(raw_overview, str) else raw_overview
-                                topic_id_local = row.get("call_id") or row.get("url","").split("/")[-1].split("?")[0]
+                                # Identifier del topic dall'URL (es. HORIZON-CL6-2027-02-FARM2FORK-06)
+                                # NON il callIdentifier (es. HORIZON-CL6-2027-02) che è troppo generico
+                                tid_local = row.get("url","").split("/")[-1].split("?")[0].upper()
                                 topic_map = overview.get("budgetTopicActionMap", {})
                                 for entry_list in topic_map.values():
                                     for entry in (entry_list if isinstance(entry_list, list) else [entry_list]):
-                                        action_str = entry.get("action", "")
-                                        # Controlla se questa entry riguarda il topic corrente
-                                        if topic_id_local and topic_id_local.upper() in action_str.upper():
-                                            # minContribution = budget per singolo progetto
+                                        action_str = entry.get("action", "").upper()
+                                        if tid_local and tid_local in action_str:
                                             min_c = entry.get("minContribution")
                                             if min_c and int(min_c) > 0:
                                                 _c["budget"] = int(min_c)
@@ -716,14 +716,15 @@ def _enrich_one(page, row: dict) -> bool:
         # Questa funzione deve essere definita sopra _enrich_one
         budget_val_dom = extract_budget_per_project_dom(page, topic_id)
         
-        # Budget per progetto: budgetOverview > DOM > regex testo
+        # Priorità budget: 1) budgetOverview XHR (preciso per topic)
+        #                   2) DOM tabella  3) regex testo libero
         if captured.get("budget"):
-            row["budget_raw"]        = captured["budget"]
-            row["budget_total_raw"]  = captured.get("budget_total", captured["budget"])
-            row["expected_grants"]   = captured.get("expected_grants")
-        elif budget_val_dom:
+            row["budget_raw"]       = captured["budget"]
+            row["budget_total_raw"] = captured.get("budget_total", captured["budget"])
+            row["expected_grants"]  = captured.get("expected_grants")
+        if not row.get("budget_raw") and budget_val_dom:
             row["budget_raw"] = budget_val_dom
-        elif body_text:
+        if not row.get("budget_raw") and body_text:
             val_reg = extract_budget_from_text(body_text)
             if val_reg > 0:
                 row["budget_raw"] = val_reg
@@ -1165,7 +1166,10 @@ def main(out_path: Path):
                         "_needs_enrich": False,
                     })
                     print(f"  ✚ {clean(title) or ref}", flush=True)
-            print(f"  Dopo recupero: {len(rows)}/{total} call", flush=True)
+            still_missing = total - len(rows)
+            print(f"  Dopo recupero: {len(rows)}/{total} call (ancora mancanti: {still_missing})", flush=True)
+            if still_missing > 0:
+                print(f"  ⚠️  {still_missing} call irreperibili dopo doppia passata — potrebbero essere duplicati lato server SEDIA o call ritirate nel frattempo.", flush=True)
 
         # ── Passo 2: arricchimento ────────────────────────────────────────────
         print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
