@@ -1,44 +1,44 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-12 09:27:43.75
+**Ultimo aggiornamento:** 2026-05-12 10:43:45.12
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 785 |
-| Call totali (precedente) | 717 |
-| **Nuove call aggiunte** | **1** |
-| Call rimosse (scadute/chiuse) | 2 |
+| Call totali (nuovo) | 787 |
+| Call totali (precedente) | 785 |
+| **Nuove call aggiunte** | **2** |
+| Call rimosse (scadute/chiuse) | 0 |
 
-## Call aggiunte (1)
+## Call aggiunte (2)
 
-### Climate, Energy & Mobility (1)
+### Digital, Industry & Space (1)
 
-- **Assessing the effect of airport operations on air quality and noise in nearby communities**
-  Horizon Europe · RIA · Scadenza: 2027-04-14T00:00:00.000+0000
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL5-2027-03-D5-20
+- **Advanced manufacturing for key products (IA) (Made in Europe partnership)**
+  Horizon Europe · IA · Scadenza: 2027-02-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL4-2027-01-MAT-PROD-02
 
-## Call rimosse (2)
+### Health & Life Sciences (1)
 
-- **Advanced manufacturing for key products (IA) (Made in Europe partnership)** — Horizon Europe · Scadenza: 2027-02-02T00:00:00.000+0000
-- **European Partnership on Rare Diseases (ERDERA) (Phase 2)** — Horizon Europe · Scadenza: 2026-09-15T00:00:00.000+0000
+- **European Partnership on Rare Diseases (ERDERA) (Phase 2)**
+  Horizon Europe · COFUND · Scadenza: 2026-09-15
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-HLTH-2026-02-DISEASE-12
 
 ## Distribuzione per area tematica (nuovo dataset)
 
 | Area tematica | Call |
 |---|---|
-| Digital, Industry & Space | 132 |
-| Climate, Energy & Mobility | 131 |
-| Food, Bioeconomy & Environment | 87 |
+| Climate, Energy & Mobility | 172 |
+| Digital, Industry & Space | 149 |
+| Food, Bioeconomy & Environment | 110 |
 | Culture, Creativity & Inclusion | 85 |
-| Cross-cutting / Other | 76 |
-| Security & Resilience | 47 |
+| SME, Entrepreneurship & Market Uptake | 61 |
+| Security & Resilience | 49 |
 | External Action & International Cooperation | 41 |
 | Defence | 38 |
-| Health & Life Sciences | 31 |
-| (non classificato) | 31 |
-| SME, Entrepreneurship & Market Uptake | 29 |
-| Climate-neutral & Smart Cities | 29 |
+| Health & Life Sciences | 28 |
+| Climate-neutral & Smart Cities | 19 |
 | Clean Aviation | 18 |
-| Healthy Oceans, Seas, Coastal & Inland Waters | 10 |
+| Internships, fellowships & scholarships | 10 |
+| Healthy Oceans, Seas, Coastal & Inland Waters | 7 |
