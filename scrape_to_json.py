@@ -18,13 +18,12 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
 from playwright.sync_api import sync_playwright
 import playwright_stealth
 
 # ── Parametri ─────────────────────────────────────────────────────────────────
 
-PAGE_SIZE = 200
+PAGE_SIZE = 50
 
 LIST_URL = (
     "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
@@ -1071,68 +1070,70 @@ def main(out_path: Path):
                 rows.append(r)
             time.sleep(0.3)
 
-        # ── Passo 1b: recupero call mancanti via requests diretti ────────────
+        # ── Passo 1b: recupero call mancanti con seconda passata Playwright ──
         missing = total - len(rows)
-        api_base = api_url_captured.get("url", "")
-        if missing > 0 and api_base:
-            print(f"\n⚠️  Mancano {missing} call (duplicati cross-pagina SEDIA). Recupero in corso...", flush=True)
-            # Ricostruisce l'URL base dell'API sostituendo pageNumber e pageSize
-            import re as _re
-            # Estrae i cookie dal browser per autenticazione
-            cookies = {c["name"]: c["value"] for c in ctx.cookies()}
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "application/json",
-                "Referer": "https://ec.europa.eu/",
-            }
-            # Chiama ogni pagina con requests finché non troviamo tutti i ref mancanti
-            seen_refs = {r.get("_ref", r["url"]) for r in rows}
+        if missing > 0:
+            print(f"\n⚠️  {missing} call mancanti (duplicati cross-pagina SEDIA). Seconda passata...", flush=True)
             for pg in range(1, max_pages + 1):
                 if len(rows) >= total:
                     break
-                # Sostituisce pageNumber nell'URL catturato
-                api_pg_url = _re.sub(r"pageNumber=\d+", f"pageNumber={pg}", api_base)
+                url2 = LIST_URL.format(page=pg, ps=PAGE_SIZE)
+                page_results2 = []
+
+                def handle_recovery(response, _pr=page_results2):
+                    if SEARCH_API in response.url and response.status == 200:
+                        try:
+                            body = response.json()
+                            if not body.get("results"):
+                                return
+                            for item in body.get("results", []):
+                                ref = item.get("reference", "")
+                                if not ref:
+                                    continue
+                                meta = item.get("metadata", {}) or {}
+                                full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
+                                if not full_url:
+                                    continue
+                                _pr.append((ref, full_url, item))
+                        except Exception:
+                            pass
+
+                page.on("response", handle_recovery)
                 try:
-                    resp = requests.get(api_pg_url, headers=headers, cookies=cookies, timeout=20)
-                    if resp.status_code != 200:
+                    page.goto(url2, wait_until="domcontentloaded", timeout=90000)
+                    t0 = time.time()
+                    while len(page_results2) == 0 and time.time() - t0 < 20:
+                        page.wait_for_timeout(500)
+                finally:
+                    page.remove_listener("response", handle_recovery)
+
+                for ref, full_url, item in page_results2:
+                    if ref in seen_urls or full_url in seen_urls:
                         continue
-                    body = resp.json()
-                    for item in body.get("results", []):
-                        ref = item.get("reference", "")
-                        if not ref or ref in seen_refs:
-                            continue
-                        meta = item.get("metadata", {}) or {}
-                        full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
-                        if not full_url:
-                            continue
-                        seen_refs.add(ref)
-                        seen_urls.add(ref)
-                        seen_urls.add(full_url)
-                        prog_id      = _first(meta, "frameworkProgramme", "programme")
-                        action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
-                        cid          = _first(meta, "identifier", "callIdentifier")
-                        title        = _first(meta, "title", "name") or item.get("summary") or ref
-                        opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
-                        deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
-                        cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
-                        rows.append({
-                            "name":          clean(title) or ref,
-                            "call_id":       cid,
-                            "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
-                            "action_raw":    action or None,
-                            "cluster_raw":   cluster_raw,
-                            "opening_raw":   opening_raw or None,
-                            "deadline_raw":  deadline_raw or None,
-                            "url":           full_url,
-                            "_ref":          ref,
-                            "_needs_enrich": False,
-                        })
-                        print(f"  ✚ recuperata: {clean(title) or ref}", flush=True)
-                except Exception as e:
-                    print(f"  [WARN recupero p{pg}] {e}", flush=True)
-            print(f"  Dopo recupero: {len(rows)} call totali", flush=True)
-        elif missing > 0:
-            print(f"\n⚠️  Mancano {missing} call ma URL API non catturato, impossibile recuperare.", flush=True)
+                    seen_urls.add(ref)
+                    seen_urls.add(full_url)
+                    meta         = item.get("metadata", {}) or {}
+                    prog_id      = _first(meta, "frameworkProgramme", "programme")
+                    action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                    cid          = _first(meta, "identifier", "callIdentifier")
+                    title        = _first(meta, "title", "name") or item.get("summary") or ref
+                    opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                    deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                    cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
+                    rows.append({
+                        "name":          clean(title) or ref,
+                        "call_id":       cid,
+                        "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                        "action_raw":    action or None,
+                        "cluster_raw":   cluster_raw,
+                        "opening_raw":   opening_raw or None,
+                        "deadline_raw":  deadline_raw or None,
+                        "url":           full_url,
+                        "_ref":          ref,
+                        "_needs_enrich": False,
+                    })
+                    print(f"  ✚ {clean(title) or ref}", flush=True)
+            print(f"  Dopo recupero: {len(rows)}/{total} call", flush=True)
 
         # ── Passo 2: arricchimento ────────────────────────────────────────────
         print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
@@ -1189,7 +1190,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
