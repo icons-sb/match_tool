@@ -3,7 +3,7 @@ name: Update EU Calls
 on:
   schedule:
     - cron: "0 2 * * *"
-    - cron: "0 3 1 * *"
+    - cron: "0 3 * 1 *"
   workflow_dispatch:
     inputs:
       run_closed_calls:
