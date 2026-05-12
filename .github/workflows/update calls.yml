@@ -27,7 +27,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install playwright playwright-stealth
+          pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
       - name: Scrape open/forthcoming EU calls
         run: xvfb-run python scrape_to_json.py --out calls.json
