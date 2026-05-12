@@ -997,34 +997,34 @@ def main(out_path: Path):
                 if SEARCH_API in response.url and response.status == 200:
                     try:
                         body = response.json()
+                        api_count = len(body.get("results", []))
+                        if api_count < 50 and body.get("pageNumber", 0) not in (body.get("totalResults",9999)//50, 0):
+                            print(f"\n    [DEBUG] API ha restituito solo {api_count} risultati per p{body.get('pageNumber','?')} (totalResults={body.get('totalResults','?')})", flush=True)
                         for item in body.get("results", []):
                             ref = item.get("reference", "")
                             if not ref:
                                 continue
-                            # Determina il tipo di link dal reference
-                            ref_upper = ref.upper()
-                            if "TOPICS" in ref_upper:
-                                full_url = TOPIC_BASE_URL + ref
-                            elif "COMPETITIVE" in ref_upper or "CS" in ref_upper:
-                                full_url = COMPETITIVE_BASE_URL + ref
-                            elif "PROSPECT" in ref_upper:
-                                full_url = PROSPECT_BASE_URL + ref
-                            else:
-                                full_url = TOPIC_BASE_URL + ref
 
-                            # Estrai metadati direttamente dalla risposta API
+                            # URL: usa quello già presente nell'API (sempre corretto)
                             meta = item.get("metadata", {}) or {}
-                            prog_id = _first(meta, "frameworkProgramme", "programme")
-                            action  = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
-                            cid     = _first(meta, "callIdentifier", "identifier")
-                            title   = (item.get("title") or item.get("name") or
-                                       _first(meta, "title", "name") or ref)
+                            full_url = (
+                                item.get("url")
+                                or _first(meta, "url", "esST_URL")
+                                or ""
+                            )
+                            # Fallback euristico solo se proprio manca tutto
+                            if not full_url:
+                                cid_tmp = _first(meta, "identifier", "callIdentifier") or ref
+                                full_url = TOPIC_BASE_URL + cid_tmp
 
-                            # Date
+                            prog_id      = _first(meta, "frameworkProgramme", "programme")
+                            action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                            cid          = _first(meta, "identifier", "callIdentifier")
+                            # title è null a livello root, ma presente in metadata["title"][0]
+                            title        = _first(meta, "title", "name") or item.get("summary") or ref
                             opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
                             deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
-
-                            cluster_raw = pick(RE_CLUSTER, ref) or pick(RE_CLUSTER, cid or "")
+                            cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
 
                             _pr.append({
                                 "name":          clean(title) or ref,
@@ -1035,6 +1035,7 @@ def main(out_path: Path):
                                 "opening_raw":   opening_raw or None,
                                 "deadline_raw":  deadline_raw or None,
                                 "url":           full_url,
+                                "_ref":          ref,
                                 "_needs_enrich": False,
                             })
                     except Exception as e:
@@ -1057,11 +1058,12 @@ def main(out_path: Path):
             finally:
                 page.remove_listener("response", handle_list_response)
 
-            new_items = [r for r in page_results if r["url"] not in seen_urls]
-            print(f" → trovati {len(new_items)} nuovi", flush=True)
+            new_items = [r for r in page_results if r.get("_ref", r["url"]) not in seen_urls]
+            print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
 
             for r in new_items:
-                seen_urls.add(r["url"])
+                seen_urls.add(r.get("_ref", r["url"]))
+                seen_urls.add(r["url"])   # anche l'url reale, per sicurezza
                 rows.append(r)
             time.sleep(0.3)
 
