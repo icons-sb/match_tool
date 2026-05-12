@@ -18,12 +18,13 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 from playwright.sync_api import sync_playwright
 import playwright_stealth
 
 # ── Parametri ─────────────────────────────────────────────────────────────────
 
-PAGE_SIZE = 50
+PAGE_SIZE = 200
 
 LIST_URL = (
     "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
@@ -942,14 +943,16 @@ def main(out_path: Path):
         # ── Passo 1: lista ────────────────────────────────────────────────────
         # Intercettiamo la risposta API PRIMA del goto per catturare totalResults
         total_captured = {}
+        api_url_captured = {}   # cattura l'URL reale dell'API SEDIA per uso diretto
 
-        def handle_first_response(response, _tc=total_captured):
+        def handle_first_response(response, _tc=total_captured, _au=api_url_captured):
             if SEARCH_API in response.url and response.status == 200 and "total" not in _tc:
                 try:
                     body = response.json()
                     t = body.get("totalResults")
                     if t is not None:
                         _tc["total"] = int(t)
+                        _au["url"] = response.url   # salva URL completo per requests
                         print(f" ✅ Totale rilevato dall'API: {t}")
                 except Exception:
                     pass
@@ -993,15 +996,12 @@ def main(out_path: Path):
 
             page_results = []
 
-            def handle_list_response(response, _pr=page_results, _pnum=pnum):
+            def handle_list_response(response, _pr=page_results):
                 if SEARCH_API in response.url and response.status == 200:
                     try:
                         body = response.json()
-                        # Ignora risposte di pagine diverse da quella attesa (cache/preload)
-                        if body.get("pageNumber") != _pnum:
-                            return
                         api_count = len(body.get("results", []))
-                        print(f" [API p{_pnum}: {api_count} risultati]", end="", flush=True)
+                        print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
                         for item in body.get("results", []):
                             ref = item.get("reference", "")
                             if not ref:
@@ -1045,18 +1045,15 @@ def main(out_path: Path):
 
             page.on("response", handle_list_response)
             try:
-                # Aggiungi _cb (cache-bust) per forzare una nuova chiamata API ad ogni pagina
-                cb_url = url + f"&_cb={pnum}"
-                page.goto(cb_url, wait_until="domcontentloaded", timeout=90000)
-                # Aspetta la risposta API con timeout generoso
+                page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                # Aspetta che l'API risponda (max 25s)
                 deadline_t = time.time() + 25
                 while len(page_results) == 0 and time.time() < deadline_t:
                     page.wait_for_timeout(500)
                     accept_cookies(page)
-                # Se ancora vuoto, forza un reload con nuovo cache-bust
+                # Se ancora vuoto, forza reload
                 if len(page_results) == 0:
-                    cb_url2 = url + f"&_cb={pnum}r"
-                    page.goto(cb_url2, wait_until="domcontentloaded", timeout=60000)
+                    page.reload(wait_until="domcontentloaded", timeout=60000)
                     deadline_t2 = time.time() + 20
                     while len(page_results) == 0 and time.time() < deadline_t2:
                         page.wait_for_timeout(500)
@@ -1073,6 +1070,69 @@ def main(out_path: Path):
                 seen_urls.add(r["url"])   # anche l'url reale, per sicurezza
                 rows.append(r)
             time.sleep(0.3)
+
+        # ── Passo 1b: recupero call mancanti via requests diretti ────────────
+        missing = total - len(rows)
+        api_base = api_url_captured.get("url", "")
+        if missing > 0 and api_base:
+            print(f"\n⚠️  Mancano {missing} call (duplicati cross-pagina SEDIA). Recupero in corso...", flush=True)
+            # Ricostruisce l'URL base dell'API sostituendo pageNumber e pageSize
+            import re as _re
+            # Estrae i cookie dal browser per autenticazione
+            cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json",
+                "Referer": "https://ec.europa.eu/",
+            }
+            # Chiama ogni pagina con requests finché non troviamo tutti i ref mancanti
+            seen_refs = {r.get("_ref", r["url"]) for r in rows}
+            for pg in range(1, max_pages + 1):
+                if len(rows) >= total:
+                    break
+                # Sostituisce pageNumber nell'URL catturato
+                api_pg_url = _re.sub(r"pageNumber=\d+", f"pageNumber={pg}", api_base)
+                try:
+                    resp = requests.get(api_pg_url, headers=headers, cookies=cookies, timeout=20)
+                    if resp.status_code != 200:
+                        continue
+                    body = resp.json()
+                    for item in body.get("results", []):
+                        ref = item.get("reference", "")
+                        if not ref or ref in seen_refs:
+                            continue
+                        meta = item.get("metadata", {}) or {}
+                        full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
+                        if not full_url:
+                            continue
+                        seen_refs.add(ref)
+                        seen_urls.add(ref)
+                        seen_urls.add(full_url)
+                        prog_id      = _first(meta, "frameworkProgramme", "programme")
+                        action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                        cid          = _first(meta, "identifier", "callIdentifier")
+                        title        = _first(meta, "title", "name") or item.get("summary") or ref
+                        opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                        deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                        cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
+                        rows.append({
+                            "name":          clean(title) or ref,
+                            "call_id":       cid,
+                            "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                            "action_raw":    action or None,
+                            "cluster_raw":   cluster_raw,
+                            "opening_raw":   opening_raw or None,
+                            "deadline_raw":  deadline_raw or None,
+                            "url":           full_url,
+                            "_ref":          ref,
+                            "_needs_enrich": False,
+                        })
+                        print(f"  ✚ recuperata: {clean(title) or ref}", flush=True)
+                except Exception as e:
+                    print(f"  [WARN recupero p{pg}] {e}", flush=True)
+            print(f"  Dopo recupero: {len(rows)} call totali", flush=True)
+        elif missing > 0:
+            print(f"\n⚠️  Mancano {missing} call ma URL API non catturato, impossibile recuperare.", flush=True)
 
         # ── Passo 2: arricchimento ────────────────────────────────────────────
         print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
