@@ -321,6 +321,12 @@ def normalize_action(v: str) -> str:
     if "innovation action" in s:              return "IA"
     if "coordination and support" in s:       return "CSA"
     if "cofund" in s:                         return "COFUND"
+    # Abbreviazioni dirette (già normalizzate)
+    u = (v or "").strip().upper()
+    if u in ("RIA", "HORIZON-RIA"):  return "RIA"
+    if u in ("IA",  "HORIZON-IA"):   return "IA"
+    if u in ("CSA", "HORIZON-CSA"):  return "CSA"
+    if u in ("COFUND", "HORIZON-COFUND"): return "COFUND"
     return v or ""
 
 def beneficiary_hint(action: str, prog: str, url_benef):
@@ -642,20 +648,57 @@ def _enrich_one(page, row: dict) -> bool:
                 for item in body.get("results", [body]):
                     meta    = item.get("metadata", {}) or {}
                     prog_id = _first(meta, "frameworkProgramme", "programme")
-                    action  = _first(meta, "typesOfAction","typeOfAction","fundingScheme")
                     cid     = _first(meta, "callIdentifier","identifier")
-                    
+
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
-                    if action and not _c.get("action"):
-                        _c["action"] = action
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
 
-                    # ── Deadline dalla pagina di dettaglio (più precisa della lista) ──
-                    deadline_detail = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
-                    if deadline_detail and not _c.get("deadline"):
-                        _c["deadline"] = deadline_detail
+                    # ── Parsing campo `actions` (fonte più affidabile per action type e deadline) ──
+                    # actions è una stringa JSON: [{"types":[{"typeOfAction":"..."}], "deadlineDates":[...], "plannedOpeningDate":"..."}]
+                    raw_actions = meta.get("actions")
+                    if isinstance(raw_actions, list): raw_actions = raw_actions[0] if raw_actions else None
+                    if raw_actions and not _c.get("action_parsed"):
+                        try:
+                            acts = json.loads(raw_actions) if isinstance(raw_actions, str) else raw_actions
+                            if isinstance(acts, list) and acts:
+                                act0 = acts[0]
+                                # Action type: dentro types[0].typeOfAction
+                                types = act0.get("types", [])
+                                if types and not _c.get("action"):
+                                    toa = types[0].get("typeOfAction", "")
+                                    if toa:
+                                        _c["action"] = toa
+                                # Deadline: deadlineDates è lista di stringhe "YYYY-MM-DD"
+                                dl_dates = act0.get("deadlineDates", [])
+                                if dl_dates and not _c.get("deadline"):
+                                    # Prendi la più lontana (ultima scadenza)
+                                    _c["deadline"] = sorted(dl_dates)[-1]
+                                # Opening date
+                                pod = act0.get("plannedOpeningDate", "")
+                                if pod and not _c.get("opening"):
+                                    _c["opening"] = pod
+                            _c["action_parsed"] = True
+                        except Exception:
+                            pass
+
+                    # Fallback action da typesOfAction se actions non l'ha fornita
+                    if not _c.get("action"):
+                        action_fb = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                        if action_fb:
+                            _c["action"] = action_fb
+
+                    # ── Deadline da campi diretti (fallback se actions non disponibile) ──
+                    if not _c.get("deadline"):
+                        deadline_detail = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                        if deadline_detail:
+                            _c["deadline"] = deadline_detail
+                    # Opening da campi diretti
+                    if not _c.get("opening"):
+                        opening_detail = _first(meta, "startDate", "openingDate", "publicationDate")
+                        if opening_detail:
+                            _c["opening"] = opening_detail
 
                     # ── Budget da budgetOverview (fonte primaria e più precisa) ──
                     if not _c.get("budget"):
@@ -744,13 +787,17 @@ def _enrich_one(page, row: dict) -> bool:
     # 4. Assegnazione finale metadati
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
-    if captured.get("action") and not row.get("action_raw"):
+    if captured.get("action"):
+        # Sovrascrive sempre: la pagina di dettaglio ha l'action type preciso
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
-    # Deadline dalla pagina di dettaglio (sovrascrive quella della lista se presente)
+    # Deadline dalla pagina di dettaglio (fonte più affidabile: campo actions.deadlineDates)
     if captured.get("deadline"):
         row["deadline_raw"] = captured["deadline"]
+    # Opening dalla pagina di dettaglio
+    if captured.get("opening") and not row.get("opening_raw"):
+        row["opening_raw"] = captured["opening"]
 
     return bool(captured) or bool(row.get("full_text"))
 
