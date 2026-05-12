@@ -993,13 +993,15 @@ def main(out_path: Path):
 
             page_results = []
 
-            def handle_list_response(response, _pr=page_results):
+            def handle_list_response(response, _pr=page_results, _pnum=pnum):
                 if SEARCH_API in response.url and response.status == 200:
                     try:
                         body = response.json()
+                        # Ignora risposte di pagine diverse da quella attesa (cache/preload)
+                        if body.get("pageNumber") != _pnum:
+                            return
                         api_count = len(body.get("results", []))
-                        if api_count < 50 and body.get("pageNumber", 0) not in (body.get("totalResults",9999)//50, 0):
-                            print(f"\n    [DEBUG] API ha restituito solo {api_count} risultati per p{body.get('pageNumber','?')} (totalResults={body.get('totalResults','?')})", flush=True)
+                        print(f" [API p{_pnum}: {api_count} risultati]", end="", flush=True)
                         for item in body.get("results", []):
                             ref = item.get("reference", "")
                             if not ref:
@@ -1043,18 +1045,23 @@ def main(out_path: Path):
 
             page.on("response", handle_list_response)
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                # Aggiungi _cb (cache-bust) per forzare una nuova chiamata API ad ogni pagina
+                cb_url = url + f"&_cb={pnum}"
+                page.goto(cb_url, wait_until="domcontentloaded", timeout=90000)
                 # Aspetta la risposta API con timeout generoso
-                deadline_t = time.time() + 20
+                deadline_t = time.time() + 25
                 while len(page_results) == 0 and time.time() < deadline_t:
                     page.wait_for_timeout(500)
                     accept_cookies(page)
-                # Se ancora vuoto, forza un reload
+                # Se ancora vuoto, forza un reload con nuovo cache-bust
                 if len(page_results) == 0:
-                    page.reload(wait_until="domcontentloaded", timeout=60000)
-                    deadline_t2 = time.time() + 15
+                    cb_url2 = url + f"&_cb={pnum}r"
+                    page.goto(cb_url2, wait_until="domcontentloaded", timeout=60000)
+                    deadline_t2 = time.time() + 20
                     while len(page_results) == 0 and time.time() < deadline_t2:
                         page.wait_for_timeout(500)
+                if len(page_results) == 0:
+                    print(f" ⚠️ Nessuna risposta API per p{pnum}", flush=True)
             finally:
                 page.remove_listener("response", handle_list_response)
 
@@ -1122,7 +1129,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
