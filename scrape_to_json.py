@@ -652,6 +652,11 @@ def _enrich_one(page, row: dict) -> bool:
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
 
+                    # ── Deadline dalla pagina di dettaglio (più precisa della lista) ──
+                    deadline_detail = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                    if deadline_detail and not _c.get("deadline"):
+                        _c["deadline"] = deadline_detail
+
                     # ── Budget da budgetOverview (fonte primaria e più precisa) ──
                     if not _c.get("budget"):
                         raw_overview = meta.get("budgetOverview")
@@ -736,13 +741,16 @@ def _enrich_one(page, row: dict) -> bool:
     finally:
         page.remove_listener("response", handle)
 
-    # 4. Assegnazione finale metadati (Logica originale intatta)
+    # 4. Assegnazione finale metadati
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
     if captured.get("action") and not row.get("action_raw"):
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
+    # Deadline dalla pagina di dettaglio (sovrascrive quella della lista se presente)
+    if captured.get("deadline"):
+        row["deadline_raw"] = captured["deadline"]
 
     return bool(captured) or bool(row.get("full_text"))
 
@@ -820,18 +828,38 @@ def to_call(row: dict) -> dict:
     full_text = row.get("full_text") or ""
     multi = classify_multitopic(row.get("name") or "", full_text, thematic)
 
+    # ── Arricchimento thematic_cluster ────────────────────────────────────────
+    # Se il primario è generico o mancante, promuovi il primo tematico specifico
+    # trovato nel full_text (multi_thematic), escludendo "Cross-cutting / Other"
+    GENERIC_THEMATICS = {"Cross-cutting / Other", ""}
+    effective_thematic = thematic
+    if effective_thematic in GENERIC_THEMATICS and multi["multi_thematic"]:
+        for candidate in multi["multi_thematic"]:
+            if candidate not in GENERIC_THEMATICS:
+                effective_thematic = candidate
+                break
+
+    # Assicura che il thematic_cluster primario sia sempre in multi_thematic
+    all_thematics = list(multi["multi_thematic"])
+    if effective_thematic and effective_thematic not in all_thematics:
+        all_thematics.insert(0, effective_thematic)
+
+    # deadline_iso dalla raw aggiornata dall'enrich (pagina dettaglio)
+    deadline_raw_final = row.get("deadline_raw") or ""
+    opening_raw_final  = row.get("opening_raw") or ""
+
     return {
         "name":             row.get("name") or "",
         "call_id":          call_id,
         "programme":        prog_raw,
         "cluster_num":      cluster_num,
         "cluster_label":    cluster_label,
-        "thematic_cluster": thematic,
+        "thematic_cluster": effective_thematic,
         "action":           action,
-        "opening":          opening_raw,
-        "opening_iso":      parse_date_iso(opening_raw),
-        "deadline":         deadline_raw,
-        "deadline_iso":     parse_date_iso(deadline_raw),
+        "opening":          opening_raw_final,
+        "opening_iso":      parse_date_iso(opening_raw_final),
+        "deadline":         deadline_raw_final,
+        "deadline_iso":     parse_date_iso(deadline_raw_final),
         "url":              url,
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
@@ -840,7 +868,7 @@ def to_call(row: dict) -> dict:
         "expected_grants":  row.get("expected_grants"),
         "full_text":        multi["full_text"],
         "keyword_hits":     multi["keyword_hits"],
-        "multi_thematic":   multi["multi_thematic"],
+        "multi_thematic":   all_thematics,
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
@@ -1237,7 +1265,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
