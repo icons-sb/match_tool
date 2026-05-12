@@ -1004,6 +1004,51 @@ def _enrich_one(page, row: dict) -> bool:
                                 if val > 0:
                                     _c["budget"] = val
                                     break
+
+                    # ── full_text dall'XHR (fonte primaria, sempre completo) ──
+                    # descriptionByte  → scope + expected outcomes (HTML)
+                    # destinationDetails → contesto destination (HTML)
+                    # topicConditions  → ammissibilità (HTML)
+                    if not _c.get("full_text"):
+                        from html.parser import HTMLParser
+
+                        class _StripHTML(HTMLParser):
+                            def __init__(self):
+                                super().__init__()
+                                self._parts = []
+                            def handle_data(self, data):
+                                self._parts.append(data)
+                            def get_text(self):
+                                return " ".join(self._parts)
+
+                        def strip_html(html_str):
+                            if not html_str:
+                                return ""
+                            p = _StripHTML()
+                            try:
+                                p.feed(html_str)
+                            except Exception:
+                                pass
+                            return re.sub(r"\s+", " ", p.get_text()).strip()
+
+                        parts = []
+                        title_xhr = _first(meta, "title")
+                        if title_xhr:
+                            parts.append(title_xhr)
+                        desc = _first(meta, "descriptionByte")
+                        if desc:
+                            parts.append(strip_html(desc))
+                        dest = _first(meta, "destinationDetails")
+                        if dest:
+                            parts.append(strip_html(dest))
+                        conds = _first(meta, "topicConditions")
+                        if conds:
+                            parts.append(strip_html(conds))
+
+                        combined = " ".join(parts)
+                        if combined:
+                            _c["full_text"] = combined
+
             except Exception:
                 pass
 
@@ -1013,17 +1058,25 @@ def _enrich_one(page, row: dict) -> bool:
         page.goto(url, wait_until="domcontentloaded", timeout=40000)
         page.wait_for_timeout(2500)
         
-        # 2. Estrazione testo completo (fondamentale per le tue 13 aree tematiche)
+        # 2. Testo dal DOM — solo come fallback se l'XHR non ha già fornito il testo
         try:
             body_text = page.locator("body").inner_text(timeout=5000)
         except Exception:
             body_text = ""
-        row["full_text"] = clean(body_text) or ""
 
         # 3. LOGICA "CACCIATORE DI RIGHE" (Espansione Tabella DOM)
         # Questa funzione deve essere definita sopra _enrich_one
         budget_val_dom = extract_budget_per_project_dom(page, topic_id)
-        
+
+        # ── full_text: priorità XHR (sempre completo e senza cookie banner),
+        #               fallback DOM solo se non contiene il testo del cookie.
+        if captured.get("full_text"):
+            row["full_text"] = captured["full_text"]
+        elif body_text and COOKIE_TEXT.lower() not in body_text.lower():
+            row["full_text"] = clean(body_text) or ""
+        else:
+            row["full_text"] = ""
+
         # Priorità budget: 1) budgetOverview XHR (preciso per topic)
         #                   2) DOM tabella  3) regex testo libero
         if captured.get("budget"):
@@ -1034,7 +1087,7 @@ def _enrich_one(page, row: dict) -> bool:
             val_dom = parse_budget(str(budget_val_dom)) if isinstance(budget_val_dom, str) else int(budget_val_dom)
             if val_dom > 0:
                 row["budget_raw"] = val_dom
-        if not row.get("budget_raw") and body_text:
+        if not row.get("budget_raw") and body_text and COOKIE_TEXT.lower() not in body_text.lower():
             val_reg = extract_budget_from_text(body_text)
             if val_reg > 0:
                 row["budget_raw"] = int(val_reg)
@@ -1045,6 +1098,10 @@ def _enrich_one(page, row: dict) -> bool:
         page.remove_listener("response", handle)
 
     # 4. Assegnazione finale metadati
+    # full_text: se l'XHR è arrivato dopo il blocco try (raro ma possibile), aggiorna
+    if captured.get("full_text") and not row.get("full_text"):
+        row["full_text"] = captured["full_text"]
+
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
     if captured.get("action"):
