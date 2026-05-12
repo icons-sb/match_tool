@@ -652,7 +652,37 @@ def _enrich_one(page, row: dict) -> bool:
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
 
-                    # Budget da XHR (mantenuto come primo tentativo/backup)
+                    # ── Budget da budgetOverview (fonte primaria e più precisa) ──
+                    if not _c.get("budget"):
+                        raw_overview = meta.get("budgetOverview")
+                        if isinstance(raw_overview, list):
+                            raw_overview = raw_overview[0] if raw_overview else None
+                        if raw_overview:
+                            try:
+                                overview = json.loads(raw_overview) if isinstance(raw_overview, str) else raw_overview
+                                topic_id_local = row.get("call_id") or row.get("url","").split("/")[-1].split("?")[0]
+                                topic_map = overview.get("budgetTopicActionMap", {})
+                                for entry_list in topic_map.values():
+                                    for entry in (entry_list if isinstance(entry_list, list) else [entry_list]):
+                                        action_str = entry.get("action", "")
+                                        # Controlla se questa entry riguarda il topic corrente
+                                        if topic_id_local and topic_id_local.upper() in action_str.upper():
+                                            # minContribution = budget per singolo progetto
+                                            min_c = entry.get("minContribution")
+                                            if min_c and int(min_c) > 0:
+                                                _c["budget"] = int(min_c)
+                                                _c["budget_total"] = sum(
+                                                    int(v) for v in entry.get("budgetYearMap", {}).values()
+                                                    if str(v).isdigit()
+                                                ) or int(min_c)
+                                                _c["expected_grants"] = entry.get("expectedGrants")
+                                                break
+                                    if _c.get("budget"):
+                                        break
+                            except Exception:
+                                pass
+
+                    # ── Budget da altri campi XHR (fallback) ──
                     if not _c.get("budget"):
                         for key in (
                             "budgetOverviewTotal", "totalBudget", "budget",
@@ -686,14 +716,14 @@ def _enrich_one(page, row: dict) -> bool:
         # Questa funzione deve essere definita sopra _enrich_one
         budget_val_dom = extract_budget_per_project_dom(page, topic_id)
         
-        if budget_val_dom:
-            # Se il cacciatore trova il valore nella tabella, ha la priorità
+        # Budget per progetto: budgetOverview > DOM > regex testo
+        if captured.get("budget"):
+            row["budget_raw"]        = captured["budget"]
+            row["budget_total_raw"]  = captured.get("budget_total", captured["budget"])
+            row["expected_grants"]   = captured.get("expected_grants")
+        elif budget_val_dom:
             row["budget_raw"] = budget_val_dom
-        elif captured.get("budget"):
-            # Altrimenti usiamo il valore numerico trovato via XHR
-            row["budget_raw"] = captured["budget"]
         elif body_text:
-            # Fallback finale: scansione Regex del testo
             val_reg = extract_budget_from_text(body_text)
             if val_reg > 0:
                 row["budget_raw"] = val_reg
@@ -804,6 +834,8 @@ def to_call(row: dict) -> dict:
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
         "budget":           row.get("budget_raw") or 0,
+        "budget_total":     row.get("budget_total_raw") or row.get("budget_raw") or 0,
+        "expected_grants":  row.get("expected_grants"),
         "full_text":        multi["full_text"],
         "keyword_hits":     multi["keyword_hits"],
         "multi_thematic":   multi["multi_thematic"],
