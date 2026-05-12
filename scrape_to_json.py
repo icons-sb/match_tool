@@ -723,11 +723,13 @@ def _enrich_one(page, row: dict) -> bool:
             row["budget_total_raw"] = captured.get("budget_total", captured["budget"])
             row["expected_grants"]  = captured.get("expected_grants")
         if not row.get("budget_raw") and budget_val_dom:
-            row["budget_raw"] = budget_val_dom
+            val_dom = parse_budget(str(budget_val_dom)) if isinstance(budget_val_dom, str) else int(budget_val_dom)
+            if val_dom > 0:
+                row["budget_raw"] = val_dom
         if not row.get("budget_raw") and body_text:
             val_reg = extract_budget_from_text(body_text)
             if val_reg > 0:
-                row["budget_raw"] = val_reg
+                row["budget_raw"] = int(val_reg)
 
     except Exception as e:
         print(f"    [ERR goto] {e}", flush=True)
@@ -746,14 +748,13 @@ def _enrich_one(page, row: dict) -> bool:
 
 
 def enrich(ctx, rows: list):
-    to_fix = [r for r in rows
-              if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id"))
-              and r.get("url")]
+    # Arricchiamo TUTTE le call con URL valido per ottenere full_text e budget
+    to_fix = [r for r in rows if r.get("url")]
     if not to_fix:
-        print("  Tutti i campi già presenti ✓", flush=True)
+        print("  Nessuna call con URL da arricchire.", flush=True)
         return
 
-    print(f"  {len(to_fix)} call da arricchire…", flush=True)
+    print(f"  {len(to_fix)} call da arricchire (full_text + budget)…", flush=True)
     page = ctx.new_page()
     skipped = 0
 
@@ -834,8 +835,8 @@ def to_call(row: dict) -> dict:
         "url":              url,
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
-        "budget":           row.get("budget_raw") or 0,
-        "budget_total":     row.get("budget_total_raw") or row.get("budget_raw") or 0,
+        "budget":           int(row.get("budget_raw") or 0),
+        "budget_total":     int(row.get("budget_total_raw") or row.get("budget_raw") or 0),
         "expected_grants":  row.get("expected_grants"),
         "full_text":        multi["full_text"],
         "keyword_hits":     multi["keyword_hits"],
@@ -1094,12 +1095,11 @@ def main(out_path: Path):
             finally:
                 page.remove_listener("response", handle_list_response)
 
-            new_items = [r for r in page_results if r.get("_ref", r["url"]) not in seen_urls]
+            new_items = [r for r in page_results if r.get("_ref") not in seen_urls]
             print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
 
             for r in new_items:
-                seen_urls.add(r.get("_ref", r["url"]))
-                seen_urls.add(r["url"])   # anche l'url reale, per sicurezza
+                seen_urls.add(r["_ref"])   # _ref è sempre univoco lato SEDIA
                 rows.append(r)
             time.sleep(0.3)
 
@@ -1141,10 +1141,9 @@ def main(out_path: Path):
                     page.remove_listener("response", handle_recovery)
 
                 for ref, full_url, item in page_results2:
-                    if ref in seen_urls or full_url in seen_urls:
+                    if ref in seen_urls:
                         continue
                     seen_urls.add(ref)
-                    seen_urls.add(full_url)
                     meta         = item.get("metadata", {}) or {}
                     prog_id      = _first(meta, "frameworkProgramme", "programme")
                     action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
@@ -1178,12 +1177,24 @@ def main(out_path: Path):
 
     # ── Classificazione e output ──────────────────────────────────────────────
     calls = []
-    seen  = set()
+    seen_refs = set()
+    seen_urls = set()
     for row in rows:
         call = to_call(row)
-        if call["url"] and call["url"] not in seen:
-            seen.add(call["url"])
-            calls.append(call)
+        # Chiave primaria = _ref (reference API, sempre univoco); fallback url
+        ref_key = row.get("_ref") or ""
+        url_key = call.get("url") or ""
+        # Salta solo se ENTRAMBE le chiavi sono già viste (evita falsi duplicati
+        # causati da URL euristici diversi per lo stesso topic)
+        if ref_key and ref_key in seen_refs:
+            continue
+        if not ref_key and url_key and url_key in seen_urls:
+            continue
+        if ref_key:
+            seen_refs.add(ref_key)
+        if url_key:
+            seen_urls.add(url_key)
+        calls.append(call)
 
     tc = {}
     for c in calls:
