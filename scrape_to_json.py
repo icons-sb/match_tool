@@ -1463,13 +1463,21 @@ def main(out_path: Path):
 
             page_results = []
             import threading as _threading
-            api_ready = _threading.Event()
+            # Usiamo un timer di debounce: dopo ogni risposta valida aspettiamo
+            # 2s prima di considerare la pagina completa. Se arriva un'altra
+            # risposta nel frattempo, il timer riparte. Questo gestisce il caso
+            # in cui SEDIA invia più risposte parziali per la stessa pagina.
+            _debounce_timer: list = [None]   # lista per mutabilità nel closure
 
-            def handle_list_response(response, _pr=page_results, _ev=api_ready):
+            def _mark_done(_pr=page_results, _dt=_debounce_timer):
+                # Chiamato 2s dopo l'ultima risposta valida — segnala completamento
+                _dt.append("done")
+
+            def handle_list_response(response, _pr=page_results, _dt=_debounce_timer):
                 if SEARCH_API not in response.url or response.status != 200:
                     return
-                # CRITICO: leggi il body SUBITO nel listener, prima che Playwright
-                # rilasci il buffer della risposta (causa "No resource with given identifier")
+                # CRITICO: leggi il body SUBITO — Playwright rilascia il buffer
+                # appena il listener ritorna ("No resource with given identifier")
                 try:
                     body = response.json()
                 except Exception:
@@ -1514,7 +1522,13 @@ def main(out_path: Path):
                             "_ref":          ref,
                             "_needs_enrich": False,
                         })
-                    _ev.set()
+                    # Cancella timer precedente e ne avvia uno nuovo (debounce 2s)
+                    old = _dt[0]
+                    if old is not None:
+                        old.cancel()
+                    t = _threading.Timer(2.0, _mark_done)
+                    _dt[0] = t
+                    t.start()
                 except Exception as e:
                     print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
 
@@ -1522,18 +1536,16 @@ def main(out_path: Path):
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=90000)
                 accept_cookies(page)
-                # Attende il set() dal listener; max 30s
-                if not api_ready.wait(timeout=30) or len(page_results) == 0:
-                    print(f" [reload]", end="", flush=True)
-                    api_ready.clear()
-                    page.reload(wait_until="domcontentloaded", timeout=60000)
-                    api_ready.wait(timeout=25)
-                if len(page_results) == 0:
-                    print(f" [retry2]", end="", flush=True)
-                    page.wait_for_timeout(3000)
-                    api_ready.clear()
-                    page.reload(wait_until="domcontentloaded", timeout=60000)
-                    api_ready.wait(timeout=25)
+                # Aspetta fino a expected risultati o timeout 35s
+                deadline_t = time.time() + 35
+                while len(page_results) < expected and time.time() < deadline_t:
+                    # Controlla se il debounce timer ha segnalato completamento
+                    if len(_debounce_timer) > 1:
+                        break
+                    page.wait_for_timeout(300)
+                # Annulla timer se ancora attivo
+                if _debounce_timer[0] is not None:
+                    _debounce_timer[0].cancel()
                 if len(page_results) == 0:
                     print(f" ⚠️ Nessuna risposta API per p{pnum}", flush=True)
             finally:
@@ -1556,12 +1568,10 @@ def main(out_path: Path):
                     break
                 url2 = LIST_URL.format(page=pg, ps=PAGE_SIZE)
                 page_results2 = []
-                api_ready2 = _threading.Event()
 
-                def handle_recovery(response, _pr=page_results2, _ev=api_ready2):
+                def handle_recovery(response, _pr=page_results2):
                     if SEARCH_API not in response.url or response.status != 200:
                         return
-                    # Leggi il body SUBITO prima che venga rilasciato
                     try:
                         body = response.json()
                     except Exception:
@@ -1578,18 +1588,20 @@ def main(out_path: Path):
                             if not full_url:
                                 continue
                             _pr.append((ref, full_url, item))
-                        _ev.set()
                     except Exception:
                         pass
 
                 page.on("response", handle_recovery)
                 try:
                     page.goto(url2, wait_until="domcontentloaded", timeout=90000)
-                    if not api_ready2.wait(timeout=25) or len(page_results2) == 0:
-                        page.wait_for_timeout(2000)
-                        api_ready2.clear()
+                    t0 = time.time()
+                    while len(page_results2) == 0 and time.time() - t0 < 25:
+                        page.wait_for_timeout(400)
+                    if len(page_results2) == 0:
                         page.reload(wait_until="domcontentloaded", timeout=60000)
-                        api_ready2.wait(timeout=20)
+                        t1 = time.time()
+                        while len(page_results2) == 0 and time.time() - t1 < 20:
+                            page.wait_for_timeout(400)
                 finally:
                     page.remove_listener("response", handle_recovery)
                 time.sleep(0.8)
