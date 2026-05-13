@@ -1463,71 +1463,75 @@ def main(out_path: Path):
 
             page_results = []
 
-            def handle_list_response(response, _pr=page_results):
-                if SEARCH_API in response.url and response.status == 200:
+            def _parse_api_body(body, pr, pnum):
+                """Parsa il body JSON dell'API SEDIA e aggiunge i risultati a pr."""
+                api_count = len(body.get("results", []))
+                print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
+                for item in body.get("results", []):
+                    ref = item.get("reference", "")
+                    if not ref:
+                        continue
+                    meta = item.get("metadata", {}) or {}
+                    full_url = (
+                        item.get("url")
+                        or _first(meta, "url", "esST_URL")
+                        or ""
+                    )
+                    if not full_url:
+                        cid_tmp = _first(meta, "identifier", "callIdentifier") or ref
+                        full_url = TOPIC_BASE_URL + cid_tmp
+
+                    prog_id      = _first(meta, "frameworkProgramme", "programme")
+                    action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                    cid          = _first(meta, "identifier", "callIdentifier")
+                    title        = _first(meta, "title", "name") or item.get("summary") or ref
+                    opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                    deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                    cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
+
+                    pr.append({
+                        "name":          clean(title) or ref,
+                        "call_id":       cid,
+                        "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                        "action_raw":    action or None,
+                        "cluster_raw":   cluster_raw,
+                        "opening_raw":   opening_raw or None,
+                        "deadline_raw":  deadline_raw or None,
+                        "url":           full_url,
+                        "_ref":          ref,
+                        "_needs_enrich": False,
+                    })
+
+            # FIX: usa expect_response per catturare la risposta PRIMA che il
+            # listener venga registrato troppo tardi (race condition).
+            # Fino a 3 tentativi: goto → reload → reload con pausa extra.
+            loaded = False
+            for attempt in range(1, 4):
+                try:
+                    with page.expect_response(
+                        lambda r: SEARCH_API in r.url and r.status == 200,
+                        timeout=30000,
+                    ) as resp_info:
+                        if attempt == 1:
+                            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                        else:
+                            print(f" [retry {attempt}]", end="", flush=True)
+                            if attempt == 3:
+                                page.wait_for_timeout(3000)
+                            page.reload(wait_until="domcontentloaded", timeout=60000)
+                    body = resp_info.value.json()
+                    accept_cookies(page)
                     try:
-                        body = response.json()
-                        api_count = len(body.get("results", []))
-                        print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
-                        for item in body.get("results", []):
-                            ref = item.get("reference", "")
-                            if not ref:
-                                continue
-
-                            # URL: usa quello già presente nell'API (sempre corretto)
-                            meta = item.get("metadata", {}) or {}
-                            full_url = (
-                                item.get("url")
-                                or _first(meta, "url", "esST_URL")
-                                or ""
-                            )
-                            # Fallback euristico solo se proprio manca tutto
-                            if not full_url:
-                                cid_tmp = _first(meta, "identifier", "callIdentifier") or ref
-                                full_url = TOPIC_BASE_URL + cid_tmp
-
-                            prog_id      = _first(meta, "frameworkProgramme", "programme")
-                            action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
-                            cid          = _first(meta, "identifier", "callIdentifier")
-                            # title è null a livello root, ma presente in metadata["title"][0]
-                            title        = _first(meta, "title", "name") or item.get("summary") or ref
-                            opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
-                            deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
-                            cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
-
-                            _pr.append({
-                                "name":          clean(title) or ref,
-                                "call_id":       cid,
-                                "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
-                                "action_raw":    action or None,
-                                "cluster_raw":   cluster_raw,
-                                "opening_raw":   opening_raw or None,
-                                "deadline_raw":  deadline_raw or None,
-                                "url":           full_url,
-                                "_ref":          ref,
-                                "_needs_enrich": False,
-                            })
+                        _parse_api_body(body, page_results, pnum)
                     except Exception as e:
                         print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
+                    loaded = True
+                    break
+                except Exception:
+                    pass
 
-            page.on("response", handle_list_response)
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=90000)
-                # Aspetta che l'API risponda (max 25s)
-                deadline_t = time.time() + 25
-                while len(page_results) == 0 and time.time() < deadline_t:
-                    page.wait_for_timeout(500)
-                    accept_cookies(page)
-                # Se ancora vuoto, forza reload
-                if len(page_results) == 0:
-                    page.reload(wait_until="domcontentloaded", timeout=60000)
-                    deadline_t2 = time.time() + 20
-                    while len(page_results) == 0 and time.time() < deadline_t2:
-                        page.wait_for_timeout(500)
-                if len(page_results) == 0:
-                    print(f" ⚠️ Nessuna risposta API per p{pnum}", flush=True)
-            finally:
-                page.remove_listener("response", handle_list_response)
+            if not loaded or len(page_results) == 0:
+                print(f" ⚠️ Nessuna risposta API per p{pnum}", flush=True)
 
             new_items = [r for r in page_results if r.get("_ref") not in seen_urls]
             print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
@@ -1535,7 +1539,9 @@ def main(out_path: Path):
             for r in new_items:
                 seen_urls.add(r["_ref"])   # _ref è sempre univoco lato SEDIA
                 rows.append(r)
-            time.sleep(0.3)
+            # FIX: aumentato da 0.3s a 0.8s per ridurre il rischio di throttling
+            # da parte del server SEDIA con molte pagine in sequenza rapida.
+            time.sleep(0.8)
 
         # ── Passo 1b: recupero call mancanti con seconda passata Playwright ──
         missing = total - len(rows)
@@ -1565,14 +1571,46 @@ def main(out_path: Path):
                         except Exception:
                             pass
 
-                page.on("response", handle_recovery)
-                try:
-                    page.goto(url2, wait_until="domcontentloaded", timeout=90000)
-                    t0 = time.time()
-                    while len(page_results2) == 0 and time.time() - t0 < 20:
-                        page.wait_for_timeout(500)
-                finally:
-                    page.remove_listener("response", handle_recovery)
+                # FIX: usa expect_response anche nella seconda passata, con retry.
+                loaded2 = False
+                for attempt2 in range(1, 3):
+                    try:
+                        with page.expect_response(
+                            lambda r: SEARCH_API in r.url and r.status == 200,
+                            timeout=25000,
+                        ) as resp_info2:
+                            if attempt2 == 1:
+                                page.goto(url2, wait_until="domcontentloaded", timeout=90000)
+                            else:
+                                page.wait_for_timeout(2000)
+                                page.reload(wait_until="domcontentloaded", timeout=60000)
+                        body2 = resp_info2.value.json()
+                        handle_recovery_body = lambda b, pr=page_results2: [
+                            pr.append((item.get("reference",""), item.get("url") or _first(item.get("metadata",{}),"url","esST_URL") or "", item))
+                            for item in b.get("results",[])
+                            if item.get("reference","") and (item.get("url") or _first(item.get("metadata",{}),"url","esST_URL"))
+                        ]
+                        handle_recovery_body(body2)
+                        loaded2 = True
+                        break
+                    except Exception:
+                        pass
+
+                if not loaded2:
+                    # Fallback al vecchio metodo listener se expect_response fallisce
+                    page.on("response", handle_recovery)
+                    try:
+                        page.goto(url2, wait_until="domcontentloaded", timeout=90000)
+                        t0 = time.time()
+                        while len(page_results2) == 0 and time.time() - t0 < 20:
+                            page.wait_for_timeout(500)
+                        if len(page_results2) == 0:
+                            page.reload(wait_until="domcontentloaded", timeout=60000)
+                            t1 = time.time()
+                            while len(page_results2) == 0 and time.time() - t1 < 15:
+                                page.wait_for_timeout(500)
+                    finally:
+                        page.remove_listener("response", handle_recovery)
 
                 for ref, full_url, item in page_results2:
                     if ref in seen_urls:
@@ -1599,6 +1637,8 @@ def main(out_path: Path):
                         "_needs_enrich": False,
                     })
                     print(f"  ✚ {clean(title) or ref}", flush=True)
+                # FIX: pausa tra pagine nella seconda passata per evitare throttling
+                time.sleep(0.8)
             still_missing = total - len(rows)
             print(f"  Dopo recupero: {len(rows)}/{total} call (ancora mancanti: {still_missing})", flush=True)
             if still_missing > 0:
@@ -1671,7 +1711,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
