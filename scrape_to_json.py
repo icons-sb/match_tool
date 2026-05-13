@@ -1462,74 +1462,78 @@ def main(out_path: Path):
             print(f"\n[p{pnum}/{max_pages}] attese ~{expected}", end="", flush=True)
 
             page_results = []
-            import threading
-            api_ready = threading.Event()
+            import threading as _threading
+            api_ready = _threading.Event()
 
             def handle_list_response(response, _pr=page_results, _ev=api_ready):
-                if SEARCH_API in response.url and response.status == 200:
-                    try:
-                        body = response.json()
-                        api_count = len(body.get("results", []))
-                        print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
-                        for item in body.get("results", []):
-                            ref = item.get("reference", "")
-                            if not ref:
-                                continue
-                            meta = item.get("metadata", {}) or {}
-                            full_url = (
-                                item.get("url")
-                                or _first(meta, "url", "esST_URL")
-                                or ""
-                            )
-                            if not full_url:
-                                cid_tmp = _first(meta, "identifier", "callIdentifier") or ref
-                                full_url = TOPIC_BASE_URL + cid_tmp
+                if SEARCH_API not in response.url or response.status != 200:
+                    return
+                # CRITICO: leggi il body SUBITO nel listener, prima che Playwright
+                # rilasci il buffer della risposta (causa "No resource with given identifier")
+                try:
+                    body = response.json()
+                except Exception:
+                    return
+                try:
+                    results = body.get("results", [])
+                    if not results:
+                        return
+                    api_count = len(results)
+                    print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
+                    for item in results:
+                        ref = item.get("reference", "")
+                        if not ref:
+                            continue
+                        meta = item.get("metadata", {}) or {}
+                        full_url = (
+                            item.get("url")
+                            or _first(meta, "url", "esST_URL")
+                            or ""
+                        )
+                        if not full_url:
+                            cid_tmp = _first(meta, "identifier", "callIdentifier") or ref
+                            full_url = TOPIC_BASE_URL + cid_tmp
 
-                            prog_id      = _first(meta, "frameworkProgramme", "programme")
-                            action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
-                            cid          = _first(meta, "identifier", "callIdentifier")
-                            title        = _first(meta, "title", "name") or item.get("summary") or ref
-                            opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
-                            deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
-                            cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
+                        prog_id      = _first(meta, "frameworkProgramme", "programme")
+                        action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                        cid          = _first(meta, "identifier", "callIdentifier")
+                        title        = _first(meta, "title", "name") or item.get("summary") or ref
+                        opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                        deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                        cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
 
-                            _pr.append({
-                                "name":          clean(title) or ref,
-                                "call_id":       cid,
-                                "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
-                                "action_raw":    action or None,
-                                "cluster_raw":   cluster_raw,
-                                "opening_raw":   opening_raw or None,
-                                "deadline_raw":  deadline_raw or None,
-                                "url":           full_url,
-                                "_ref":          ref,
-                                "_needs_enrich": False,
-                            })
-                        if body.get("results"):
-                            _ev.set()
-                    except Exception as e:
-                        print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
+                        _pr.append({
+                            "name":          clean(title) or ref,
+                            "call_id":       cid,
+                            "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                            "action_raw":    action or None,
+                            "cluster_raw":   cluster_raw,
+                            "opening_raw":   opening_raw or None,
+                            "deadline_raw":  deadline_raw or None,
+                            "url":           full_url,
+                            "_ref":          ref,
+                            "_needs_enrich": False,
+                        })
+                    _ev.set()
+                except Exception as e:
+                    print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
 
-            # Registra il listener PRIMA del goto (evita race condition)
             page.on("response", handle_list_response)
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=90000)
                 accept_cookies(page)
-                # Aspetta evento threading (non polling): max 30s
-                got_response = api_ready.wait(timeout=30)
-                if not got_response or len(page_results) == 0:
-                    # Primo retry: reload
+                # Attende il set() dal listener; max 30s
+                if not api_ready.wait(timeout=30) or len(page_results) == 0:
                     print(f" [reload]", end="", flush=True)
                     api_ready.clear()
                     page.reload(wait_until="domcontentloaded", timeout=60000)
-                    api_ready.wait(timeout=20)
+                    api_ready.wait(timeout=25)
                 if len(page_results) == 0:
-                    # Secondo retry: pausa + reload
                     print(f" [retry2]", end="", flush=True)
                     page.wait_for_timeout(3000)
                     api_ready.clear()
                     page.reload(wait_until="domcontentloaded", timeout=60000)
-                    api_ready.wait(timeout=20)
+                    api_ready.wait(timeout=25)
                 if len(page_results) == 0:
                     print(f" ⚠️ Nessuna risposta API per p{pnum}", flush=True)
             finally:
@@ -1539,7 +1543,7 @@ def main(out_path: Path):
             print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
 
             for r in new_items:
-                seen_urls.add(r["_ref"])
+                seen_urls.add(r["_ref"])   # _ref è sempre univoco lato SEDIA
                 rows.append(r)
             time.sleep(0.8)
 
@@ -1552,32 +1556,36 @@ def main(out_path: Path):
                     break
                 url2 = LIST_URL.format(page=pg, ps=PAGE_SIZE)
                 page_results2 = []
-                api_ready2 = threading.Event()
+                api_ready2 = _threading.Event()
 
                 def handle_recovery(response, _pr=page_results2, _ev=api_ready2):
-                    if SEARCH_API in response.url and response.status == 200:
-                        try:
-                            body = response.json()
-                            if not body.get("results"):
-                                return
-                            for item in body.get("results", []):
-                                ref = item.get("reference", "")
-                                if not ref:
-                                    continue
-                                meta = item.get("metadata", {}) or {}
-                                full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
-                                if not full_url:
-                                    continue
-                                _pr.append((ref, full_url, item))
-                            _ev.set()
-                        except Exception:
-                            pass
+                    if SEARCH_API not in response.url or response.status != 200:
+                        return
+                    # Leggi il body SUBITO prima che venga rilasciato
+                    try:
+                        body = response.json()
+                    except Exception:
+                        return
+                    try:
+                        if not body.get("results"):
+                            return
+                        for item in body.get("results", []):
+                            ref = item.get("reference", "")
+                            if not ref:
+                                continue
+                            meta = item.get("metadata", {}) or {}
+                            full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
+                            if not full_url:
+                                continue
+                            _pr.append((ref, full_url, item))
+                        _ev.set()
+                    except Exception:
+                        pass
 
                 page.on("response", handle_recovery)
                 try:
                     page.goto(url2, wait_until="domcontentloaded", timeout=90000)
-                    got2 = api_ready2.wait(timeout=25)
-                    if not got2 or len(page_results2) == 0:
+                    if not api_ready2.wait(timeout=25) or len(page_results2) == 0:
                         page.wait_for_timeout(2000)
                         api_ready2.clear()
                         page.reload(wait_until="domcontentloaded", timeout=60000)
@@ -1683,7 +1691,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
