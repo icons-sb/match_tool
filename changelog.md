@@ -1,61 +1,46 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-13 15:54:32.51
+**Ultimo aggiornamento:** 2026-05-14 06:33:18.13
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 790 |
-| Call totali (precedente) | 782 |
-| **Nuove call aggiunte** | **7** |
-| Call rimosse (scadute/chiuse) | 2 |
+| Call totali (nuovo) | 783 |
+| Call totali (precedente) | 790 |
+| **Nuove call aggiunte** | **2** |
+| Call rimosse (scadute/chiuse) | 9 |
 
-## Call aggiunte (7)
+## Call aggiunte (2)
 
-### Clean Aviation (6)
+### Climate-neutral & Smart Cities (2)
 
-- **Demonstration of cabin acoustic optimization technology**
-  Horizon Europe · RIA · Scadenza: 2026-05-19
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-CLEAN-AVIATION-2026-04-FTA-02
+- **Intergenerational neighbourhoods and communities aligned with the New European Bauhaus**
+  Horizon Europe · IA · Scadenza: 2027-12-01
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-NEB-2027-01-PARTICIPATION-02
 
-- **Cryo-cooled power electronics for a fully electric hydrogen fuel cell powered aircraft**
-  Horizon Europe · RIA
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-CLEAN-AVIATION-2026-04-FTA-05
+- **Reducing soil sealing through sustainable urban and territorial design in the New European Bauhaus**
+  Horizon Europe · IA · Scadenza: 2027-09-15
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-NEB-2027-02-NEB-SOIL-01
 
-- **Innovative light weight and reliable liquid hydrogen tank**
-  Horizon Europe · RIA · Scadenza: 2026-05-19
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-CLEAN-AVIATION-2026-04-FTA-07
+## Call rimosse (9)
 
-- **Demonstration of advanced FC propulsion techno-bricks for a fully electric hydrogen fuel cell powered aircraft**
-  Horizon Europe · IA · Scadenza: 2026-05-19
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-CLEAN-AVIATION-2026-04-HPA-01
-
-- **Demonstration of an integrated hydrogen fuel system for a fully electric hydrogen fuel cell powered aircraft**
-  Horizon Europe · IA · Scadenza: 2026-05-19
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-CLEAN-AVIATION-2026-04-HPA-02
-
-- **Demonstration of an Optimized System Platform for Ultra-efficient SMR Aircraft**
-  Horizon Europe · IA · Scadenza: 2026-05-19
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-CLEAN-AVIATION-2026-04-SMR-01
-
-### Digital, Industry & Space (1)
-
-- **Industrial leadership in AI, Data and Robotics boosting competitiveness and the green transition (AI Data and Robotics Partnership) (IA)[[https://www.europarl.europa.eu/RegData/etudes/STUD/2021/662906/IPOL_STU(2021)662906_EN.pdf]]**
-  Horizon Europe
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/45704318
-
-## Call rimosse (2)
-
-- **Intergenerational neighbourhoods and communities aligned with the New European Bauhaus** — Horizon Europe · Scadenza: 2027-12-01
-- **Reducing soil sealing through sustainable urban and territorial design in the New European Bauhaus** — Horizon Europe · Scadenza: 2027-09-15
+- **Preparing demonstration missions for Earth Observation and Satellite telecommunication for Space solutions (Space Partnership)** — Horizon Europe · Scadenza: 2026-09-03
+- **Space critical EEE components for EU non-dependence – Radiation Hard FPGA on 7nm** — Horizon Europe · Scadenza: 2026-09-03
+- **Space critical EEE components for EU non-dependence – GaN MMICs mm-Wave Foundations (Phase A): Development and Industrialization of Semi-insulating SiC Substrate Capabilities** — Horizon Europe
+- **Leveraging functional genomics to reveal novel targets for cancer treatment** — Horizon Europe · Scadenza: 2027-09-21
+- **Clinical research by Comprehensive Cancer Infrastructures for the benefit of patients with common cancers** — Horizon Europe · Scadenza: 2027-09-21
+- **Phase 1 including first-in-human clinical trials to test biomarker-guided medicines or multi-modal treatment interventions for patients with rare or very rare cancers or cancer subtypes** — Horizon Europe · Scadenza: 2027-09-21
+- **Improving equitable health outcomes and added value for and with cancer patients through health-economics research, health systems research and outcomes research** — Horizon Europe · Scadenza: 2027-09-21
+- **Pre-commercial procurement of affordable solutions for healthcare systems in the areas of cancer technologies, cancer medical devices, or cancer medicines** — Horizon Europe · Scadenza: 2027-09-21
+- **Support a Young Cancer Survivor Quality of Life (QoL) research programme by cancer charities and funding agencies** — Horizon Europe · Scadenza: 2027-09-21
 
 ## Distribuzione per area tematica (nuovo dataset)
 
 | Area tematica | Call |
 |---|---|
-| Climate, Energy & Mobility | 172 |
-| Digital, Industry & Space | 151 |
+| Climate, Energy & Mobility | 166 |
+| Digital, Industry & Space | 148 |
 | Food, Bioeconomy & Environment | 110 |
 | Culture, Creativity & Inclusion | 91 |
 | SME, Entrepreneurship & Market Uptake | 51 |
@@ -63,8 +48,8 @@
 | External Action & International Cooperation | 41 |
 | Defence | 38 |
 | Health & Life Sciences | 33 |
+| Climate-neutral & Smart Cities | 19 |
 | Clean Aviation | 18 |
-| Climate-neutral & Smart Cities | 17 |
 | Internships, fellowships & scholarships | 10 |
 | Healthy Oceans, Seas, Coastal & Inland Waters | 7 |
 | (non classificato) | 2 |
