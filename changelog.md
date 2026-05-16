@@ -1,75 +1,56 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-15 06:40:34.49
+**Ultimo aggiornamento:** 2026-05-16 06:11:56.75
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 790 |
-| Call totali (precedente) | 783 |
-| **Nuove call aggiunte** | **9** |
-| Call rimosse (scadute/chiuse) | 2 |
+| Call totali (nuovo) | 782 |
+| Call totali (precedente) | 790 |
+| **Nuove call aggiunte** | **2** |
+| Call rimosse (scadute/chiuse) | 11 |
 
-## Call aggiunte (9)
+## Call aggiunte (2)
 
-### Climate, Energy & Mobility (6)
+### Climate, Energy & Mobility (1)
 
-- **Leveraging functional genomics to reveal novel targets for cancer treatment**
-  Horizon Europe · RIA · Scadenza: 2027-09-21
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MISS-2027-02-CANCER-01
+- **Demonstration for Long-duration Battery Energy Storage Systems (BATT4EU Partnership)**
+  Horizon Europe · IA · Scadenza: 2027-09-15
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL5-2027-05-D2-08
 
-- **Clinical research by Comprehensive Cancer Infrastructures for the benefit of patients with common cancers**
-  Horizon Europe · IA · Scadenza: 2027-09-21
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MISS-2027-02-CANCER-02
+### Security & Resilience (1)
 
-- **Phase 1 including first-in-human clinical trials to test biomarker-guided medicines or multi-modal treatment interventions for patients with rare or very rare cancers or cancer subtypes**
-  Horizon Europe · RIA · Scadenza: 2027-09-21
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MISS-2027-02-CANCER-03
+- **Societal resilience, engagement of the younger generations and digital innovation for disaster resilience**
+  Horizon Europe · RIA · Scadenza: 2027-11-04
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL3-2027-01-DRS-02
 
-- **Improving equitable health outcomes and added value for and with cancer patients through health-economics research, health systems research and outcomes research**
-  Horizon Europe · RIA · Scadenza: 2027-09-21
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MISS-2027-02-CANCER-04
+## Call rimosse (11)
 
-- **Pre-commercial procurement of affordable solutions for healthcare systems in the areas of cancer technologies, cancer medical devices, or cancer medicines**
-  Horizon Europe · HORIZON-PCP HORIZON Pre-commercial Procurement · Scadenza: 2027-09-21
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MISS-2027-02-CANCER-05
-
-- **Support a Young Cancer Survivor Quality of Life (QoL) research programme by cancer charities and funding agencies**
-  Horizon Europe · CSA · Scadenza: 2027-09-21
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MISS-2027-02-CANCER-06
-
-### Digital, Industry & Space (3)
-
-- **Preparing demonstration missions for Earth Observation and Satellite telecommunication for Space solutions (Space Partnership)**
-  Horizon Europe · IA · Scadenza: 2026-09-03
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL4-2026-SPACE-03-32
-
-- **Space critical EEE components for EU non-dependence – Radiation Hard FPGA on 7nm**
-  Horizon Europe · RIA · Scadenza: 2026-09-03
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL4-2026-SPACE-03-81
-
-- **Space critical EEE components for EU non-dependence – GaN MMICs mm-Wave Foundations (Phase A): Development and Industrialization of Semi-insulating SiC Substrate Capabilities**
-  Horizon Europe · RIA · Scadenza: 2026-09-03
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL4-2026-SPACE-03-82
-
-## Call rimosse (2)
-
-- **Societal resilience, engagement of the younger generations and digital innovation for disaster resilience** — Horizon Europe · Scadenza: 2027-11-04
-- **Demonstration for Long-duration Battery Energy Storage Systems (BATT4EU Partnership)** — Horizon Europe · Scadenza: 2027-09-15
+- **Multi-hazard approach and cumulative / cascading impacts** — Horizon Europe · Scadenza: 2026-11-05
+- **Improving capabilities of law enforcement to counter climate-related challenges** — Horizon Europe · Scadenza: 2026-11-05
+- **Enhancing the security of citizens against terrorism and lone-actor violence in confined spaces such as schools** — Horizon Europe · Scadenza: 2026-11-05
+- **Tools and processes to support stress tests of critical infrastructure** — Horizon Europe · Scadenza: 2026-11-05
+- **Security challenges of the green transition in urban und peri urban areas** — Horizon Europe · Scadenza: 2026-11-05
+- **Demand-led innovation in security** — Horizon Europe · Scadenza: 2026-11-05
+- **Public procurement of innovation for security** — Horizon Europe · Scadenza: 2026-11-05
+- **Automated Scientific Discovery (RAISE pilot) (RIA)** — Horizon Europe · Scadenza: 2027-02-02
+- **Thematic Programme on Human Rights and Democracy Montenegro 2025** — EU External Action-Prospect
+- **Support to Civil Society in Kazakhstan** — EU External Action-Prospect
+- **Supporting CSO role in sustainable and inclusive development and in Global Gateway Investments** — EU External Action-Prospect
 
 ## Distribuzione per area tematica (nuovo dataset)
 
 | Area tematica | Call |
 |---|---|
-| Climate, Energy & Mobility | 171 |
+| Climate, Energy & Mobility | 172 |
 | Digital, Industry & Space | 151 |
 | Food, Bioeconomy & Environment | 110 |
 | Culture, Creativity & Inclusion | 91 |
 | SME, Entrepreneurship & Market Uptake | 51 |
-| Security & Resilience | 48 |
-| External Action & International Cooperation | 41 |
+| Security & Resilience | 42 |
 | Defence | 38 |
+| External Action & International Cooperation | 38 |
 | Health & Life Sciences | 33 |
 | Climate-neutral & Smart Cities | 19 |
 | Clean Aviation | 18 |
