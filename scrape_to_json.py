@@ -1056,7 +1056,10 @@ def _enrich_one(page, row: dict) -> bool:
     try:
         # 1. Navigazione
         page.goto(url, wait_until="domcontentloaded", timeout=40000)
-        page.wait_for_timeout(2500)
+        # Attesa attiva: esce appena arriva l'XHR o dopo 8s
+        t0 = time.time()
+        while not captured and time.time() - t0 < 8:
+            page.wait_for_timeout(400)
         
         # 2. Testo dal DOM — solo come fallback se l'XHR non ha già fornito il testo
         try:
@@ -1116,25 +1119,38 @@ def _enrich_one(page, row: dict) -> bool:
     if captured.get("opening") and not row.get("opening_raw"):
         row["opening_raw"] = captured["opening"]
 
-    return bool(captured) or bool(row.get("full_text"))
+    return bool(
+        row.get("full_text") or row.get("call_id") or
+        row.get("deadline_raw") or row.get("budget_raw") or
+        row.get("programme_raw")
+    )
 
 
 def enrich(ctx, rows: list):
-    # Arricchiamo TUTTE le call con URL valido per ottenere full_text e budget
     to_fix = [r for r in rows if r.get("url")]
     if not to_fix:
         print("  Nessuna call con URL da arricchire.", flush=True)
         return
 
     print(f"  {len(to_fix)} call da arricchire (full_text + budget)…", flush=True)
-    page = ctx.new_page()
+
+    def _new_page():
+        p = ctx.new_page()
+        try:
+            if hasattr(playwright_stealth, 'stealth_sync'):
+                playwright_stealth.stealth_sync(p)
+        except Exception:
+            pass
+        return p
+
+    page = _new_page()
     skipped = 0
 
     for idx, row in enumerate(to_fix, 1):
         print(f"  [{idx:>4}/{len(to_fix)}] {(row['name'] or '')[:60]}", flush=True)
 
         ok = False
-        for attempt in range(1, 3):
+        for attempt in range(1, 4):   # 3 tentativi invece di 2
             try:
                 ok = _enrich_one(page, row)
                 break
@@ -1144,15 +1160,15 @@ def enrich(ctx, rows: list):
                     page.close()
                 except Exception:
                     pass
-                page = ctx.new_page()
-                time.sleep(2)
+                page = _new_page()    # ← stealth riapplicato
+                time.sleep(3 * attempt)   # back-off progressivo
 
         if not ok:
             skipped += 1
             print(f"    [SKIP] nessun dato recuperato", flush=True)
 
         if idx % 100 == 0:
-            print(f"  [checkpoint] salvate {idx} call finora…", flush=True)
+            print(f"  [checkpoint] {idx} call processate…", flush=True)
 
         time.sleep(0.3)
 
