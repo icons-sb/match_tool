@@ -1537,7 +1537,7 @@ def main(out_path: Path):
                 page.goto(url, wait_until="domcontentloaded", timeout=90000)
                 accept_cookies(page)
                 # Aspetta fino a expected risultati o timeout 35s
-                deadline_t = time.time() + 35
+                deadline_t = time.time() + 45
                 while len(page_results) < expected and time.time() < deadline_t:
                     # Controlla se il debounce timer ha segnalato completamento
                     if len(_debounce_timer) > 1:
