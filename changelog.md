@@ -1,25 +1,24 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-21 15:52:39.82
+**Ultimo aggiornamento:** 2026-05-22 07:04:00.15
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 745 |
-| Call totali (precedente) | 748 |
+| Call totali (nuovo) | 743 |
+| Call totali (precedente) | 745 |
 | **Nuove call aggiunte** | **0** |
-| Call rimosse (scadute/chiuse) | 3 |
+| Call rimosse (scadute/chiuse) | 2 |
 
 ## Call aggiunte
 
 Nessuna nuova call rispetto alla rilevazione precedente.
 
-## Call rimosse (3)
+## Call rimosse (2)
 
-- **Supporting sustainable competitiveness of tourism SME** — Single Market Programme (SMP) · Scadenza: 2026-05-21
-- **Full Scale Exercises** — UCPM · Scadenza: 2026-05-21
-- **Knowledge for Action in Prevention and Preparedness (KAPP)** — UCPM · Scadenza: 2026-05-21
+- **SMP-CONS-2026-ADR-RAD** — Single Market Programme (SMP) · Scadenza: 2026-05-21
+- **Prévenir les violences basées sur le genre et garantir l’accès à des services de santé intégrés pour les survivantes en RDC** — EU External Action-Prospect
 
 ## Distribuzione per area tematica (nuovo dataset)
 
@@ -30,9 +29,9 @@ Nessuna nuova call rispetto alla rilevazione precedente.
 | Food, Bioeconomy & Environment | 110 |
 | Culture, Creativity & Inclusion | 90 |
 | Security & Resilience | 49 |
-| SME, Entrepreneurship & Market Uptake | 40 |
+| SME, Entrepreneurship & Market Uptake | 39 |
 | Defence | 38 |
-| External Action & International Cooperation | 36 |
+| External Action & International Cooperation | 35 |
 | Health & Life Sciences | 33 |
 | Climate-neutral & Smart Cities | 19 |
 | Internships, fellowships & scholarships | 10 |
