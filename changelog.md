@@ -1,24 +1,29 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-22 07:04:00.15
+**Ultimo aggiornamento:** 2026-05-23 06:27:37.09
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 743 |
-| Call totali (precedente) | 745 |
-| **Nuove call aggiunte** | **0** |
-| Call rimosse (scadute/chiuse) | 2 |
+| Call totali (nuovo) | 745 |
+| Call totali (precedente) | 743 |
+| **Nuove call aggiunte** | **2** |
+| Call rimosse (scadute/chiuse) | 0 |
 
-## Call aggiunte
+## Call aggiunte (2)
 
-Nessuna nuova call rispetto alla rilevazione precedente.
+### Cross-cutting / Other (1)
 
-## Call rimosse (2)
+- **Excellence Hubs**
+  Horizon Europe
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/45640341
 
-- **SMP-CONS-2026-ADR-RAD** — Single Market Programme (SMP) · Scadenza: 2026-05-21
-- **Prévenir les violences basées sur le genre et garantir l’accès à des services de santé intégrés pour les survivantes en RDC** — EU External Action-Prospect
+### External Action & International Cooperation (1)
+
+- **Strengthening civil society and local dynamics for inclusive and sustainable governance in the Central African Republic**
+  EU External Action-Prospect
+  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186560
 
 ## Distribuzione per area tematica (nuovo dataset)
 
@@ -31,9 +36,10 @@ Nessuna nuova call rispetto alla rilevazione precedente.
 | Security & Resilience | 49 |
 | SME, Entrepreneurship & Market Uptake | 39 |
 | Defence | 38 |
-| External Action & International Cooperation | 35 |
+| External Action & International Cooperation | 36 |
 | Health & Life Sciences | 33 |
 | Climate-neutral & Smart Cities | 19 |
 | Internships, fellowships & scholarships | 10 |
 | Healthy Oceans, Seas, Coastal & Inland Waters | 6 |
 | (non classificato) | 2 |
+| Cross-cutting / Other | 1 |
