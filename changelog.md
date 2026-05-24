@@ -1,29 +1,19 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-23 06:27:37.09
+**Ultimo aggiornamento:** 2026-05-24 06:52:53.85
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
 | Call totali (nuovo) | 745 |
-| Call totali (precedente) | 743 |
-| **Nuove call aggiunte** | **2** |
+| Call totali (precedente) | 745 |
+| **Nuove call aggiunte** | **0** |
 | Call rimosse (scadute/chiuse) | 0 |
 
-## Call aggiunte (2)
+## Call aggiunte
 
-### Cross-cutting / Other (1)
-
-- **Excellence Hubs**
-  Horizon Europe
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/45640341
-
-### External Action & International Cooperation (1)
-
-- **Strengthening civil society and local dynamics for inclusive and sustainable governance in the Central African Republic**
-  EU External Action-Prospect
-  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186560
+Nessuna nuova call rispetto alla rilevazione precedente.
 
 ## Distribuzione per area tematica (nuovo dataset)
 
