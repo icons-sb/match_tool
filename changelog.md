@@ -1,19 +1,23 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-24 06:52:53.85
+**Ultimo aggiornamento:** 2026-05-25 07:23:29.00
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 745 |
+| Call totali (nuovo) | 746 |
 | Call totali (precedente) | 745 |
-| **Nuove call aggiunte** | **0** |
+| **Nuove call aggiunte** | **1** |
 | Call rimosse (scadute/chiuse) | 0 |
 
-## Call aggiunte
+## Call aggiunte (1)
 
-Nessuna nuova call rispetto alla rilevazione precedente.
+### External Action & International Cooperation (1)
+
+- **Papua New Guinea (PNG) – Civic Participation and Women’s Political and Decision-making Participation**
+  EU External Action-Prospect
+  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186614
 
 ## Distribuzione per area tematica (nuovo dataset)
 
@@ -26,7 +30,7 @@ Nessuna nuova call rispetto alla rilevazione precedente.
 | Security & Resilience | 49 |
 | SME, Entrepreneurship & Market Uptake | 39 |
 | Defence | 38 |
-| External Action & International Cooperation | 36 |
+| External Action & International Cooperation | 37 |
 | Health & Life Sciences | 33 |
 | Climate-neutral & Smart Cities | 19 |
 | Internships, fellowships & scholarships | 10 |
