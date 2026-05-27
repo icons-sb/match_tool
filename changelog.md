@@ -1,27 +1,63 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-26 06:54:32.87
+**Ultimo aggiornamento:** 2026-05-27 07:09:26.37
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 746 |
+| Call totali (nuovo) | 754 |
 | Call totali (precedente) | 746 |
-| **Nuove call aggiunte** | **1** |
+| **Nuove call aggiunte** | **9** |
 | Call rimosse (scadute/chiuse) | 1 |
 
-## Call aggiunte (1)
+## Call aggiunte (9)
 
-### Digital, Industry & Space (1)
+### External Action & International Cooperation (1)
 
-- **Smart Social Economy Model in Tourism (Long Distance Trails)**
-  PPPA · PPPA-PJG PPPA Project Grants · Scadenza: 2026-08-26
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/PPPA-2026-SOCIAL-ECONOMY-TOURISM
+- **North Macedonia: Human Rights and Democracy Thematic Programme 2025-2026**
+  EU External Action-Prospect
+  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186948
+
+### Food, Bioeconomy & Environment (1)
+
+- **Smart solutions for smart rural communities: empowering rural communities and smart villages to innovate for societal change**
+  Horizon Europe
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/44088443
+
+### Health & Life Sciences (7)
+
+- **HORIZON-JU-EDCTP3-2026-Dr Pascoal Mocumbi Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-DRPASCOALMOCUMBIPRIZE
+
+- **HORIZON-JU-EDCTP3-2026-Outstanding Female Scientist Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-OUTSFEMALESCIENTISTPRIZE
+
+- **HORIZON-JU-EDCTP3-2026-Outstanding Research Team Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-OUTSRESEARCHTEAMPRIZE
+
+- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Man EU Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPMANEUPRIZE
+
+- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Man SSA Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPMANSSAPRIZE
+
+- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Woman EU Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPWOMANEUPRIZE
+
+- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Woman SSA Prize**
+  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPWOMANSSAPRIZE
 
 ## Call rimosse (1)
 
-- **ERC Science Journalism Initiative** — Horizon Europe
+- **EURES Targeted Mobility Scheme (TMS)** — European Social Fund+ (ESF+) · Scadenza: 2026-05-26
 
 ## Distribuzione per area tematica (nuovo dataset)
 
@@ -29,13 +65,13 @@
 |---|---|
 | Climate, Energy & Mobility | 171 |
 | Digital, Industry & Space | 142 |
-| Food, Bioeconomy & Environment | 110 |
-| Culture, Creativity & Inclusion | 90 |
+| Food, Bioeconomy & Environment | 111 |
+| Culture, Creativity & Inclusion | 89 |
 | Security & Resilience | 49 |
+| Health & Life Sciences | 40 |
 | SME, Entrepreneurship & Market Uptake | 39 |
 | Defence | 38 |
-| External Action & International Cooperation | 37 |
-| Health & Life Sciences | 33 |
+| External Action & International Cooperation | 38 |
 | Climate-neutral & Smart Cities | 19 |
 | Internships, fellowships & scholarships | 9 |
 | Healthy Oceans, Seas, Coastal & Inland Waters | 6 |
