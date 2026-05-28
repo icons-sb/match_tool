@@ -1,79 +1,61 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-27 07:09:26.37
+**Ultimo aggiornamento:** 2026-05-28 07:15:48.54
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
 | Call totali (nuovo) | 754 |
-| Call totali (precedente) | 746 |
-| **Nuove call aggiunte** | **9** |
-| Call rimosse (scadute/chiuse) | 1 |
+| Call totali (precedente) | 754 |
+| **Nuove call aggiunte** | **4** |
+| Call rimosse (scadute/chiuse) | 3 |
 
-## Call aggiunte (9)
+## Call aggiunte (4)
 
-### External Action & International Cooperation (1)
+### Climate, Energy & Mobility (1)
 
-- **North Macedonia: Human Rights and Democracy Thematic Programme 2025-2026**
-  EU External Action-Prospect
-  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186948
-
-### Food, Bioeconomy & Environment (1)
-
-- **Smart solutions for smart rural communities: empowering rural communities and smart villages to innovate for societal change**
+- **New forms of cooperation in agriculture and the forest-based sector**
   Horizon Europe
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/44088443
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/46908840
 
-### Health & Life Sciences (7)
+### Digital, Industry & Space (2)
 
-- **HORIZON-JU-EDCTP3-2026-Dr Pascoal Mocumbi Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-DRPASCOALMOCUMBIPRIZE
+- **European Network of Factcheckers**
+  Digital Europe Programme
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/48165818
 
-- **HORIZON-JU-EDCTP3-2026-Outstanding Female Scientist Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-OUTSFEMALESCIENTISTPRIZE
+- **Industrial Readiness for Affordable Ka-band User Terminals**
+  PPPA · PPPA Pilot Projects and Preparatory Actions · Scadenza: 2026-08-26
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/PPPA-2026-IRIS2-UT-IND-READINESS
 
-- **HORIZON-JU-EDCTP3-2026-Outstanding Research Team Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-OUTSRESEARCHTEAMPRIZE
+### Internships, fellowships & scholarships (1)
 
-- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Man EU Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPMANEUPRIZE
+- **ERC ADVANCED GRANTS**
+  Horizon Europe · HORIZON-ERC HORIZON ERC Grants · Scadenza: 2026-08-27
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ERC-2026-ADG
 
-- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Man SSA Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPMANSSAPRIZE
+## Call rimosse (3)
 
-- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Woman EU Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPWOMANEUPRIZE
-
-- **HORIZON-JU-EDCTP3-2026-Scientific Leadership Woman SSA Prize**
-  Horizon Europe · HORIZON-RPr HORIZON Recognition Prize · Scadenza: 2026-09-02
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-EDCTP3-2026-SCILEADERSHIPWOMANSSAPRIZE
-
-## Call rimosse (1)
-
-- **EURES Targeted Mobility Scheme (TMS)** — European Social Fund+ (ESF+) · Scadenza: 2026-05-26
+- **Generic physiologically-based population dynamics model for plant pests** — EUBA · Scadenza: 2026-05-27
+- **Generic correlative and process-based models for climate suitability analysis for plant pests and diseases** — EUBA · Scadenza: 2026-05-27
+- **CEEP** — Internal Security Fund (ISF) · Scadenza: 2026-05-27
 
 ## Distribuzione per area tematica (nuovo dataset)
 
 | Area tematica | Call |
 |---|---|
-| Climate, Energy & Mobility | 171 |
-| Digital, Industry & Space | 142 |
+| Climate, Energy & Mobility | 172 |
+| Digital, Industry & Space | 144 |
 | Food, Bioeconomy & Environment | 111 |
 | Culture, Creativity & Inclusion | 89 |
-| Security & Resilience | 49 |
+| Security & Resilience | 48 |
 | Health & Life Sciences | 40 |
-| SME, Entrepreneurship & Market Uptake | 39 |
+| SME, Entrepreneurship & Market Uptake | 40 |
 | Defence | 38 |
-| External Action & International Cooperation | 38 |
+| External Action & International Cooperation | 36 |
 | Climate-neutral & Smart Cities | 19 |
-| Internships, fellowships & scholarships | 9 |
-| Healthy Oceans, Seas, Coastal & Inland Waters | 6 |
+| Internships, fellowships & scholarships | 10 |
+| Healthy Oceans, Seas, Coastal & Inland Waters | 4 |
 | (non classificato) | 2 |
 | Cross-cutting / Other | 1 |
