@@ -1539,61 +1539,86 @@ def main(out_path: Path):
                 _dt.append("done")
 
             def handle_list_response(response, _pr=page_results, _dt=_debounce_timer):
+                """
+                Playwright response listener fired for every network response on the page.
+                _pr and _dt are captured by default-argument binding so mutations to the
+                outer lists are visible to the calling scope even inside a closure.
+                """
+                # Ignore anything that is not a successful SEDIA API call
                 if SEARCH_API not in response.url or response.status != 200:
                     return
+
                 # CRITICAL: read the body IMMEDIATELY — Playwright releases the buffer
                 # as soon as the listener returns ("No resource with given identifier")
                 try:
                     body = response.json()
                 except Exception:
                     return
+
                 try:
                     results = body.get("results", [])
+                    # If the API returned an empty results list, nothing to do for this response
                     if not results:
                         return
+
                     api_count = len(results)
                     print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
+
                     for item in results:
+                        # "reference" is the unique SEDIA identifier for the call; skip if missing
                         ref = item.get("reference", "")
                         if not ref:
                             continue
+
                         meta = item.get("metadata", {}) or {}
+
+                        # Build the full detail-page URL, trying several fallback sources
                         full_url = (
-                            item.get("url")
-                            or _first(meta, "url", "esST_URL")
+                            item.get("url")           # preferred: explicit URL field
+                            or _first(meta, "url", "esST_URL")  # sometimes nested in metadata
                             or ""
                         )
                         if not full_url:
+                            # Last resort: construct the URL from the call identifier
                             cid_tmp = _first(meta, "identifier", "callIdentifier") or ref
                             full_url = TOPIC_BASE_URL + cid_tmp
 
+                        # Extract all available metadata fields, trying multiple key names
+                        # because the SEDIA API uses inconsistent field names across programme types
                         prog_id      = _first(meta, "frameworkProgramme", "programme")
                         action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
                         cid          = _first(meta, "identifier", "callIdentifier")
                         title        = _first(meta, "title", "name") or item.get("summary") or ref
                         opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
                         deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                        # Try to extract the Horizon Europe cluster number (CL1-6) from URL or call ID
                         cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
 
+                        # Append a raw row to the shared results list; it will be enriched later
                         _pr.append({
                             "name":          clean(title) or ref,
                             "call_id":       cid,
+                            # Map numeric programme ID to a human-readable name, or keep raw if unknown
                             "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
                             "action_raw":    action or None,
                             "cluster_raw":   cluster_raw,
                             "opening_raw":   opening_raw or None,
                             "deadline_raw":  deadline_raw or None,
                             "url":           full_url,
-                            "_ref":          ref,
+                            "_ref":          ref,       # internal deduplication key
                             "_needs_enrich": False,
                         })
-                    # Cancel the previous timer and start a new one (debounce 2s)
+
+                    # Debounce: cancel any pending completion timer and restart it.
+                    # This ensures we keep waiting if SEDIA sends another partial response
+                    # within the next 2 seconds before declaring the page fully loaded.
                     old = _dt[0]
                     if old is not None:
                         old.cancel()
                     t = _threading.Timer(2.0, _mark_done)
                     _dt[0] = t
                     t.start()
+
                 except Exception as e:
                     print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
 
@@ -1770,7 +1795,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Output JSON file path")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
