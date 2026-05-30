@@ -1,35 +1,42 @@
 # Changelog calls.json
 
-**Ultimo aggiornamento:** 2026-05-29 07:02:28.60
+**Ultimo aggiornamento:** 2026-05-30 06:43:06.78
 
 ## Riepilogo
 
 | | Numero |
 |---|---|
-| Call totali (nuovo) | 751 |
-| Call totali (precedente) | 754 |
-| **Nuove call aggiunte** | **2** |
-| Call rimosse (scadute/chiuse) | 5 |
+| Call totali (nuovo) | 745 |
+| Call totali (precedente) | 751 |
+| **Nuove call aggiunte** | **3** |
+| Call rimosse (scadute/chiuse) | 6 |
 
-## Call aggiunte (2)
+## Call aggiunte (3)
 
 ### External Action & International Cooperation (2)
 
-- **Institutional Assistance to the Ministry for Development of Communities and Territories of Ukraine on legal and organisational issues for rail transport reform in Ukraine**
+- **Partnering for impact in pursuit of the green and just energy transition**
   EU External Action-Prospect
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/186770PROSPECTSEN
+  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186091
 
-- **Strengthening Circular Economy in the Philippines (Reference N. PH 23 NDICI EN 01 26)**
+- **Support to Civil Society Organizations in Suriname**
   EU External Action-Prospect
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/187000PROSPECTSEN
+  https://webgate.ec.europa.eu/prospect/external/publishedcalls.htm?callId=186437
 
-## Call rimosse (5)
+### Food, Bioeconomy & Environment (1)
 
-- **Cross-Border Cyber Hubs** — Digital Europe Programme · Scadenza: 2026-05-28
-- **National Cyber Hubs** — Digital Europe Programme · Scadenza: 2026-05-28
-- **Erasmus+ Scholarship** — Erasmus+ · Scadenza: 2026-05-28
-- **Citizen facing European TV and Video News Portal for Streaming, Search and Translation of European TV and video news and political documentaries produced or transmitted by accredited public and private media in Member States** — PPPA · Scadenza: 2026-05-28
-- **The European Union – the media freedom hub** — PPPA · Scadenza: 2026-05-28
+- **Business models that balance the share of power and profit in the bioeconomy**
+  Horizon Europe
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/45651910
+
+## Call rimosse (6)
+
+- **Community-led actions to restore our ocean, seas and waters** — Horizon Europe
+- **Tackling gender-based violence against politically active women and LGBTIQ people** — Horizon Europe · Scadenza: 2026-09-23
+- **The impact of the use of digital tools outside school and for communication on educational outcomes and mental health** — Horizon Europe · Scadenza: 2026-09-23
+- **Rethinking long-term care policy in the face of EU demographic shifts** — Horizon Europe · Scadenza: 2026-09-23
+- **Strengthening the capacity and voice of Civil Society Organizations as actors of accountability and transparency in Malawi** — EU External Action-Prospect
+- **Togo - Appel à propositions 2026 - Programmes thématiques Droits de l’Homme et Société civile** — EU External Action-Prospect
 
 ## Distribuzione per area tematica (nuovo dataset)
 
@@ -37,8 +44,8 @@
 |---|---|
 | Climate, Energy & Mobility | 172 |
 | Digital, Industry & Space | 140 |
-| Food, Bioeconomy & Environment | 111 |
-| Culture, Creativity & Inclusion | 88 |
+| Food, Bioeconomy & Environment | 112 |
+| Culture, Creativity & Inclusion | 85 |
 | Security & Resilience | 48 |
 | Health & Life Sciences | 40 |
 | SME, Entrepreneurship & Market Uptake | 40 |
@@ -46,6 +53,5 @@
 | External Action & International Cooperation | 38 |
 | Climate-neutral & Smart Cities | 19 |
 | Internships, fellowships & scholarships | 10 |
-| Healthy Oceans, Seas, Coastal & Inland Waters | 4 |
 | (non classificato) | 2 |
 | Cross-cutting / Other | 1 |
