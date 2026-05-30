@@ -1,11 +1,11 @@
 """
 scrape_to_json.py
 
-Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json
-direttamente, senza passare per Excel.
-Incorpora tutta la logica di classificazione di make_calls_json.py.
+Scrapes the EU Funding & Tenders portal with Playwright and produces calls.json
+directly, without going through Excel.
+Incorporates all classification logic from make_calls_json.py.
 
-Uso:
+Usage:
     python scrape_to_json.py              # writes calls.json in the current folder
     python scrape_to_json.py --out /path  # custom output path
 """
@@ -23,7 +23,7 @@ import playwright_stealth
 
 # Configuration parameters 
 
-PAGE_SIZE = 50
+PAGE_SIZE = 50  # number of results per API page
 
 LIST_URL = (
     "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
@@ -32,9 +32,12 @@ LIST_URL = (
     "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
 )
 
+# Substring present in every SEDIA API request URL — used to identify XHR calls
 SEARCH_API  = "apiKey=SEDIA"
+# Text that appears in the cookie banner — used to detect unloaded pages
 COOKIE_TEXT = "This site uses cookies"
 
+# CSS selector that matches any call link on the listing page
 LINK_SELECTOR = (
     'a[href*="/topic-details/"], '
     'a[href*="/competitive-calls-cs/"], '
@@ -73,6 +76,7 @@ RE_BUDGET_EXPECTED = re.compile(
     re.IGNORECASE,
 )
 
+# Month name -> number mapping used when parsing written-out dates (e.g. "15 March 2026")
 MONTHS = {
     "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
@@ -80,6 +84,7 @@ MONTHS = {
 
 # Classification tables 
 
+# Maps numeric SEDIA programme IDs to human-readable programme names
 PROGRAMME_MAP = {
     "43108390":"Horizon Europe","43108391":"Horizon Europe",
     "43152860":"Digital Europe Programme","111111":"EU External Action-Prospect",
@@ -111,7 +116,7 @@ HE_CLUSTER_MAP = {
 
 # Horizon Europe: mapping for non-CL sub-programmes (topic ID prefix)
 # Order: from most specific to most generic.
-# (prefisso_nell_url_o_callid, cluster_num, cluster_label, thematic_area)
+# (prefix_in_url_or_callid, cluster_num, cluster_label, thematic_area)
 HE_SUBPROGRAMME_MAP = [
     #  Missions 
     ("MISS-CIT",    "M-CIT",  "Climate-neutral & Smart Cities",                "Climate-neutral & Smart Cities"),
@@ -314,6 +319,8 @@ URL_RULES = [
     ("I3",       None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
 ]
 
+# Keyword rules for calls whose programme ID is purely numeric;
+# match against the call title/name to infer the thematic area
 NUMERIC_ID_NAME_RULES = [
     ("OHAMR",       "Health & Life Sciences"),
     ("ERA4HEALTH",  "Health & Life Sciences"),
@@ -342,14 +349,18 @@ NUMERIC_ID_NAME_RULES = [
     ("FERMENTED",   "Food, Bioeconomy & Environment"),
 ]
 
+# Hard-coded beneficiary type overrides keyed on URL topic-ID prefix
 URL_BENEFICIARY_OVERRIDE = {
     "MSCA":  ["Research organisation"],
     "INFRA": ["Research organisation"],
     "EUBA":  ["Public body"],
 }
 
+# Thematic label used for ERC/MSCA and fellowship-type calls
 SPECIAL_BASIC_RESEARCH_CATEGORY = "Internships, fellowships & scholarships"
+# Keywords in a call title that indicate it is a fellowship or scholarship call
 SPECIAL_TITLE_KEYWORDS = ["internship","internships","fellowship","fellowships","msca","scholarship","scholarships"]
+# Per-thematic keyword lists used for full-text classification of calls
 TOPIC_KEYWORDS = {
     "Health & Life Sciences": ["health","biotech","biotechnology","pharma","pharmaceutical","therapeutic","medical","diagnostic","genomic","genomics","public health","clinical"],
     "Culture, Creativity & Inclusion": ["culture","creative","heritage","museum","archive","inclusion","social inclusion","democracy","education","skills"],
@@ -431,6 +442,7 @@ def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
     if "horizon" in prog_l:
         return True
     tid = _topic_id(url)
+    # All known topic-ID prefixes that belong to Horizon Europe
     he_prefixes = (
         "HORIZON-", "HLTH-", "CL1-", "CL2-", "CL3-", "CL4-", "CL5-", "CL6-",
         "ERC-", "MSCA-", "EIC-", "EIT-", "EIE-", "EITUM-", "EUROHPC-",
@@ -480,16 +492,17 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
     # Solution: normalize tid by removing purely numeric year segments
     # (years like 2026, 2027) before matching.
     import re as _re
-    tid_norm = _re.sub(r"-20\d\d(?=-)", "", tid)          # HORIZON-MISS-2026-CIT → HORIZON-MISS-CIT
-    cid_norm = _re.sub(r"-20\d\d(?=-)", "", cid_up)
+    # Strip 4-digit year segments so "HORIZON-MISS-2026-CIT" becomes "HORIZON-MISS-CIT"
+    tid_norm = _re.sub(r"-20\d\d(?=-)", "", tid)
+    cid_norm = _re.sub(r"-20\d\d(?=-)", "", cid_up)  # same normalisation for the call ID
     for prefix, cnum, clabel, thematic in HE_SUBPROGRAMME_MAP:
-        # a) Corrispondenza diretta sul tid originale
+        # a) Direct match on the original tid
         if tid.startswith(prefix) or cid_up.startswith(prefix):
             return cnum, clabel, thematic
         # b) Match with HORIZON- prefix
         if tid.startswith("HORIZON-" + prefix) or cid_up.startswith("HORIZON-" + prefix):
             return cnum, clabel, thematic
-        # c) Corrispondenza sul tid normalizzato (anno rimosso)
+        # c) Match on the normalised tid (year removed)
         if tid_norm.startswith(prefix) or cid_norm.startswith(prefix):
             return cnum, clabel, thematic
         if tid_norm.startswith("HORIZON-" + prefix) or cid_norm.startswith("HORIZON-" + prefix):
@@ -543,7 +556,7 @@ def url_classify(url: str):
     """
     tid = _topic_id(url)
 
-    # Beneficiary hint basato sul prefisso (invariato)
+    # Beneficiary hint based on the URL prefix (unchanged logic)
     benef = None
     for key, hint in URL_BENEFICIARY_OVERRIDE.items():
         if key in tid:
@@ -596,6 +609,7 @@ def normalize_action(v: str) -> str:
     if u in ("IA",  "HORIZON-IA"):   return "IA"
     if u in ("CSA", "HORIZON-CSA"):  return "CSA"
     if u in ("COFUND", "HORIZON-COFUND"): return "COFUND"
+    # If none of the known patterns matched, return the raw value unchanged
     return v or ""
 
 def beneficiary_hint(action: str, prog: str, url_benef):
@@ -635,6 +649,7 @@ def parse_date_iso(s: str) -> str:
                 return datetime(int(m.group(3)), mo, int(m.group(1))).strftime("%Y-%m-%d")
             except ValueError:
                 pass
+    # Could not parse the date; return empty string so downstream code can detect it
     return ""
 
 def parse_budget(s: str) -> int:
@@ -672,7 +687,7 @@ def parse_budget(s: str) -> int:
     try:
         return int(float(cleaned))
     except ValueError:
-        return 0
+        return 0  # give up and signal "no budget" with 0
 
 def extract_budget_from_text(text: str) -> int:
     """Try multiple regex patterns against page body text.
@@ -687,7 +702,7 @@ def extract_budget_from_text(text: str) -> int:
                 candidates.append(val)
     if not candidates:
         return 0
-    # Prefer the largest single figure (total budget > per-project budget)
+    # The largest figure is most likely the total call budget (not a per-project cap)
     return max(candidates)
 
 #  Utilità Playwright 
@@ -735,18 +750,18 @@ def count_links(page):
 
 def read_total(page, timeout_ms=30000):
     """Read the total number of results from the SEDIA API response; falls back to a CSS selector."""
-    print("  In attesa della risposta dall'API SEDIA...")
+    print("  Waiting for SEDIA API response...")
     try:
-        # Aspettiamo specificamente che l'API risponda
+        # Wait specifically for an API response matching the SEDIA key
         with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
             data = response_info.value.json()
             # The exact field name in the new system is 'totalResults'
             count = data.get("totalResults")
             if count is not None:
-                print(f"  Totale rilevato dall'API: {count}")
+                print(f"  Total detected from API: {count}")
                 return int(count)
     except Exception as e:
-        print(f"  L'API non ha risposto in tempo o ha bloccato la richiesta.")
+        print(f"  API did not respond in time or blocked the request.")
         
     # FALLBACK: if the API fails, try reading the new CSS selector
     try:
@@ -792,7 +807,7 @@ def scroll_until(page, expected, max_ms=50000):
             return c
         if c != last:
             last = c
-            stable_since = time.time()
+            stable_since = time.time()  # reset stability timer whenever count changes
         try:
             if container:
                 page.evaluate("(el)=>{ el.scrollTop = el.scrollTop + el.clientHeight*0.9; }", container)
@@ -822,7 +837,7 @@ def extract_links(page):
     for h in hrefs or []:
         if not h:
             continue
-        full = "https://ec.europa.eu" + h if h.startswith("/") else h
+        full = "https://ec.europa.eu" + h if h.startswith("/") else h  # make relative URLs absolute
         if full not in seen:
             seen.add(full)
             out.append(full)
@@ -918,6 +933,7 @@ def _enrich_one(page, row: dict) -> bool:
     and integrates the new DOM logic for precise budget extraction.
     """
     url      = row["url"]
+    # dict that accumulates data from XHR responses intercepted during page load
     captured = {}
     # Extract topic_id from the URL for the row-hunter logic
     topic_id = url.split('/')[-1].split('?')[0]
@@ -937,7 +953,7 @@ def _enrich_one(page, row: dict) -> bool:
                         _c["call_id"] = cid
 
                     # Parse the `actions` field (most reliable source for action type and deadline) 
-                    # actions è una stringa JSON: [{"types":[{"typeOfAction":"..."}], "deadlineDates":[...], "plannedOpeningDate":"..."}]
+                    # "actions" is a JSON string: [{"types":[{"typeOfAction":"..."}], "deadlineDates":[...], "plannedOpeningDate":"..."}]
                     raw_actions = meta.get("actions")
                     if isinstance(raw_actions, list): raw_actions = raw_actions[0] if raw_actions else None
                     if raw_actions and not _c.get("action_parsed"):
@@ -1075,7 +1091,7 @@ def _enrich_one(page, row: dict) -> bool:
 
     page.on("response", handle)
     try:
-        # 1. Navigazione
+        # 1. Navigate to the detail page
         page.goto(url, wait_until="domcontentloaded", timeout=40000)
         # Active wait: exits as soon as the XHR arrives or after 8s
         t0 = time.time()
@@ -1140,6 +1156,7 @@ def _enrich_one(page, row: dict) -> bool:
     if captured.get("opening") and not row.get("opening_raw"):
         row["opening_raw"] = captured["opening"]
 
+    # Return True if at least one useful field was successfully populated
     return bool(
         row.get("full_text") or row.get("call_id") or
         row.get("deadline_raw") or row.get("budget_raw") or
@@ -1151,11 +1168,12 @@ def enrich(ctx, rows: list):
     """Visit each call's detail page and enrich the row with full text, budget, and metadata."""
     to_fix = [r for r in rows if r.get("url")]
     if not to_fix:
-        print("  Nessuna call con URL da arricchire.", flush=True)
+        print("  No calls with a URL to enrich.", flush=True)
         return
 
-    print(f"  {len(to_fix)} call da arricchire (full_text + budget)…", flush=True)
+    print(f"  {len(to_fix)} calls to enrich (full_text + budget)...", flush=True)
 
+    # Helper to open a fresh page with stealth applied (avoids bot detection)
     def _new_page():
         p = ctx.new_page()
         try:
@@ -1177,20 +1195,20 @@ def enrich(ctx, rows: list):
                 ok = _enrich_one(page, row)
                 break
             except Exception as e:
-                print(f"    [tentativo {attempt} fallito] {e}", flush=True)
+                print(f"    [attempt {attempt} failed] {e}", flush=True)
                 try:
                     page.close()
                 except Exception:
                     pass
-                page = _new_page()    # ← stealth riapplicato
-                time.sleep(3 * attempt)   # back-off progressivo
+                page = _new_page()    # re-apply stealth on fresh page
+                time.sleep(3 * attempt)   # progressive back-off
 
         if not ok:
             skipped += 1
-            print(f"    [SKIP] nessun dato recuperato", flush=True)
+            print(f"    [SKIP] no data retrieved", flush=True)
 
         if idx % 100 == 0:
-            print(f"  [checkpoint] {idx} call processate…", flush=True)
+            print(f"  [checkpoint] {idx} calls processed...", flush=True)
 
         time.sleep(0.3)
 
@@ -1198,7 +1216,7 @@ def enrich(ctx, rows: list):
         page.close()
     except Exception:
         pass
-    print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
+    print(f"  Enrichment complete. Skipped: {skipped}/{len(to_fix)}", flush=True)
 
 # Transform a raw scraped row into a classified call object 
 
@@ -1209,6 +1227,7 @@ def to_call(row: dict) -> dict:
     call_id    = row.get("call_id") or ""
     action_raw = row.get("action_raw") or ""
 
+    # Try to extract a cluster number (1-6) from the call_id, raw cluster field, or URL
     cluster_num = ""
     for src in [call_id, row.get("cluster_raw",""), url]:
         m = RE_CLUSTER.search(src or "")
@@ -1226,7 +1245,7 @@ def to_call(row: dict) -> dict:
     thematic = ""
 
     if he_flag:
-        #  L1: Horizon Europe 
+        # L1: Horizon Europe
         cnum, clabel, th = classify_horizon_europe(url, call_id)
         if cnum:
             cluster_num = cnum
@@ -1238,7 +1257,7 @@ def to_call(row: dict) -> dict:
         if not thematic and cluster_num:
             thematic = HE_CLUSTER_MAP.get(cluster_num, "")
     else:
-        #  L2: Altri programmi 
+        # L2: Other (non-HE) programmes
         # 2a. Topic ID prefix in URL (more precise: catches sub-programmes like PPPA-CHIPS, CEF-T, etc.)
         thematic = classify_non_he_by_url(url)
         # 2b. Programme name (programme_raw field)
@@ -1257,13 +1276,14 @@ def to_call(row: dict) -> dict:
         _inv = {v: k for k, v in THEMATIC_MAP.items()}
         cluster_num = _inv.get(cluster_label, "")
 
-    #  Beneficiary hint (invariato) 
+    # Beneficiary hint (from URL prefix override table)
     u_cnum, u_clabel, u_thematic, u_benef = url_classify(url)
     # url_classify may refine cluster_label if not yet set
     if not cluster_label and u_clabel:
         cluster_label = u_clabel
 
     action     = normalize_action(action_raw)
+    # Flag calls that belong to one of the five Horizon Europe Missions
     is_mission = bool("/HORIZON-MISS" in url.upper())
 
     opening_raw  = row.get("opening_raw") or ""
@@ -1330,10 +1350,11 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     added   = [new_by_url[u] for u in sorted(new_urls - old_urls)]
     removed = [old_by_url[u] for u in sorted(old_urls - new_urls)]
 
+    # Count calls per thematic area for the summary table
     def thematic_counts(calls):
         tc = {}
         for c in calls:
-            k = c.get("thematic_cluster") or "(non classificato)"
+            k = c.get("thematic_cluster") or "(unclassified)"
             tc[k] = tc.get(k, 0) + 1
         return tc
 
@@ -1342,35 +1363,35 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     lines = []
     lines.append(f"# Changelog calls.json")
     lines.append(f"")
-    lines.append(f"**Ultimo aggiornamento:** {generated.replace('T',' ').replace('+00:00',' UTC')[:22]}")
+    lines.append(f"**Last updated:** {generated.replace('T',' ').replace('+00:00',' UTC')[:22]}")
     lines.append(f"")
-    lines.append(f"## Riepilogo")
+    lines.append(f"## Summary")
     lines.append(f"")
-    lines.append(f"| | Numero |")
+    lines.append(f"| | Count |")
     lines.append(f"|---|---|")
-    lines.append(f"| Call totali (nuovo) | {len(new_calls)} |")
-    lines.append(f"| Call totali (precedente) | {len(old_calls)} |")
-    lines.append(f"| **Nuove call aggiunte** | **{len(added)}** |")
-    lines.append(f"| Call rimosse (scadute/chiuse) | {len(removed)} |")
+    lines.append(f"| Total calls (new) | {len(new_calls)} |")
+    lines.append(f"| Total calls (previous) | {len(old_calls)} |")
+    lines.append(f"| **New calls added** | **{len(added)}** |")
+    lines.append(f"| Calls removed (expired/closed) | {len(removed)} |")
     lines.append(f"")
 
     if added:
-        lines.append(f"## Call aggiunte ({len(added)})")
+        lines.append(f"## Calls added ({len(added)})")
         lines.append(f"")
         by_thematic = {}
         for c in added:
-            t = c.get("thematic_cluster") or "(non classificato)"
+            t = c.get("thematic_cluster") or "(unclassified)"
             by_thematic.setdefault(t, []).append(c)
         for thematic, calls in sorted(by_thematic.items()):
             lines.append(f"### {thematic} ({len(calls)})")
             lines.append(f"")
             for c in calls:
-                name    = c.get("name") or "(senza nome)"
+                name    = c.get("name") or "(unnamed)"
                 prog    = c.get("programme") or ""
                 action  = c.get("action") or ""
                 dead    = c.get("deadline") or ""
                 url     = c.get("url") or ""
-                meta = " · ".join(filter(None, [prog, action, f"Scadenza: {dead}" if dead else ""]))
+                meta = " · ".join(filter(None, [prog, action, f"Deadline: {dead}" if dead else ""]))
                 lines.append(f"- **{name}**")
                 if meta:
                     lines.append(f"  {meta}")
@@ -1378,32 +1399,32 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
                     lines.append(f"  {url}")
                 lines.append(f"")
     else:
-        lines.append(f"## Call aggiunte")
+        lines.append(f"## Calls added")
         lines.append(f"")
-        lines.append(f"Nessuna nuova call rispetto alla rilevazione precedente.")
+        lines.append(f"No new calls compared to the previous snapshot.")
         lines.append(f"")
 
     if removed:
-        lines.append(f"## Call rimosse ({len(removed)})")
+        lines.append(f"## Calls removed ({len(removed)})")
         lines.append(f"")
         for c in removed:
-            name = c.get("name") or "(senza nome)"
+            name = c.get("name") or "(unnamed)"
             prog = c.get("programme") or ""
             dead = c.get("deadline") or ""
-            meta = " · ".join(filter(None, [prog, f"Scadenza: {dead}" if dead else ""]))
+            meta = " · ".join(filter(None, [prog, f"Deadline: {dead}" if dead else ""]))
             lines.append(f"- **{name}**{(' — ' + meta) if meta else ''}")
         lines.append(f"")
 
-    lines.append(f"## Distribuzione per area tematica (nuovo dataset)")
+    lines.append(f"## Distribution by thematic area (new dataset)")
     lines.append(f"")
-    lines.append(f"| Area tematica | Call |")
+    lines.append(f"| Thematic area | Calls |")
     lines.append(f"|---|---|")
     for k, v in sorted(thematic_counts(new_calls).items(), key=lambda x: -x[1]):
         lines.append(f"| {k} | {v} |")
     lines.append(f"")
 
     changelog_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\n Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
+    print(f"\n  Changelog written: {changelog_path} (+{len(added)} added, -{len(removed)} removed)")
 
     history_path = changelog_path.parent / "changelog_history.md"
     history_line = (
@@ -1411,18 +1432,19 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     )
     if history_path.exists():
         hist = history_path.read_text(encoding="utf-8")
+        # Only append if this exact line is not already recorded (idempotent)
         if history_line not in hist:
             hist = hist.rstrip() + "\n" + history_line + "\n"
             history_path.write_text(hist, encoding="utf-8")
     else:
         header = (
-            "# Storico aggiornamenti calls.json\n\n"
-            "| Data | Call totali | Aggiunte | Rimosse |\n"
+            "# calls.json update history\n\n"
+            "| Date | Total calls | Added | Removed |\n"
             "|---|---|---|---|\n"
             + history_line + "\n"
         )
         history_path.write_text(header, encoding="utf-8")
-    print(f" History aggiornata: {history_path}")
+    print(f"  History updated: {history_path}")
 
 # Main 
 
@@ -1432,6 +1454,7 @@ def main(out_path: Path):
     seen_urls = set()
 
     with sync_playwright() as p:
+        # Launch Chromium in headless mode; disable the AutomationControlled flag to reduce bot detection
         browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
         ctx = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -1444,9 +1467,9 @@ def main(out_path: Path):
                 from playwright_stealth.stealth import stealth as _st
                 _st(page)
             else:
-                print(" Impossibile applicare stealth, procedo comunque...")
+                print("  Could not apply stealth, continuing anyway...")
         except Exception as e:
-            print(f" Errore stealth ignorato: {e}")
+            print(f"  Stealth error ignored: {e}")
 
         # Step 1: listing 
         # Intercept the API response BEFORE goto to capture totalResults
@@ -1461,7 +1484,7 @@ def main(out_path: Path):
                     if t is not None:
                         _tc["total"] = int(t)
                         _au["url"] = response.url   # save full URL for requests
-                        print(f"  Totale rilevato dall'API: {t}")
+                        print(f"  Total detected from API: {t}")
                 except Exception:
                     pass
 
@@ -1474,33 +1497,34 @@ def main(out_path: Path):
             cookie_button = page.get_by_role("button", name="Accept all cookies")
             if cookie_button.is_visible():
                 cookie_button.click()
-                print(" Cookie accettati")
+                print("  Cookies accepted")
                 page.wait_for_timeout(4000)
         except:
             pass
 
         # Wait for the API to respond (max 30s)
-        print("  In attesa della risposta dall'API SEDIA...")
+        print("  Waiting for SEDIA API response...")
         deadline_init = time.time() + 30
         while "total" not in total_captured and time.time() < deadline_init:
             page.wait_for_timeout(500)
 
         page.remove_listener("response", handle_first_response)
 
+        # Use the captured total if the response handler caught it, otherwise fall back to DOM scraping
         total = total_captured.get("total") or read_total(page)
 
         if total is None:
-            print(" Non riesco a leggere il contatore delle call.")
+            print(f"  Could not read the call counter.")
             browser.close()
             return
         max_pages = math.ceil(total / PAGE_SIZE)
-        print(f" Totale: {total} call | pagine: {max_pages}")
+        print(f"  Total: {total} calls | pages: {max_pages}")
 
         for pnum in range(1, max_pages + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
             expected  = min(PAGE_SIZE, remaining)
             url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
-            print(f"\n[p{pnum}/{max_pages}] attese ~{expected}", end="", flush=True)
+            print(f"\n[p{pnum}/{max_pages}] expected ~{expected}", end="", flush=True)
 
             page_results = []
             import threading as _threading
@@ -1588,12 +1612,12 @@ def main(out_path: Path):
                 if _debounce_timer[0] is not None:
                     _debounce_timer[0].cancel()
                 if len(page_results) == 0:
-                    print(f"  Nessuna risposta API per p{pnum}", flush=True)
+                    print(f"  No API response for page {pnum}", flush=True)
             finally:
                 page.remove_listener("response", handle_list_response)
 
             new_items = [r for r in page_results if r.get("_ref") not in seen_urls]
-            print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
+            print(f" -> found {len(new_items)} new (API total: {len(page_results)})", flush=True)
 
             for r in new_items:
                 seen_urls.add(r["_ref"])   # _ref is always unique on the SEDIA side
@@ -1603,7 +1627,7 @@ def main(out_path: Path):
         # Step 1b: recover missing calls with a second Playwright pass 
         missing = total - len(rows)
         if missing > 0:
-            print(f"\n  {missing} call mancanti (duplicati cross-pagina SEDIA). Seconda passata...", flush=True)
+            print(f"\n  {missing} calls missing (SEDIA cross-page duplicates). Second pass...", flush=True)
             for pg in range(1, max_pages + 1):
                 if len(rows) >= total:
                     break
@@ -1673,17 +1697,18 @@ def main(out_path: Path):
                     })
                     print(f"   {clean(title) or ref}", flush=True)
             still_missing = total - len(rows)
-            print(f"  Dopo recupero: {len(rows)}/{total} call (ancora mancanti: {still_missing})", flush=True)
+            print(f"  After recovery: {len(rows)}/{total} calls (still missing: {still_missing})", flush=True)
             if still_missing > 0:
-                print(f"    {still_missing} call irreperibili dopo doppia passata — potrebbero essere duplicati lato server SEDIA o call ritirate nel frattempo.", flush=True)
+                print(f"    {still_missing} calls unreachable after double pass — may be server-side SEDIA duplicates or calls withdrawn in the meantime.", flush=True)
 
-        #  Passo 2: arricchimento 
-        print(f"\n Passo 2: arricchimento {len(rows)} call totali ", flush=True)
+        # Step 2: open each call detail page and enrich with full text, budget and metadata
+        print(f"\n=== Step 2: enriching {len(rows)} calls in total ===", flush=True)
         enrich(ctx, rows)
         browser.close()
 
     # Classification and output 
     calls = []
+    # Deduplicate rows: prefer _ref as primary key, fall back to URL
     seen_refs = set()
     seen_urls = set()
     for row in rows:
@@ -1705,12 +1730,12 @@ def main(out_path: Path):
 
     tc = {}
     for c in calls:
-        k = c["thematic_cluster"] or "(non classificato)"
+        k = c["thematic_cluster"] or "(unclassified)"
         tc[k] = tc.get(k, 0) + 1
-    print(f"\nClassificazione ({len(calls)} call totali):")
+    print(f"\nClassification ({len(calls)} calls total):")
     for k, v in sorted(tc.items(), key=lambda x: -x[1]):
         print(f"  {v:5d}  {k}")
-    print(f"\nNon classificati: {tc.get('(non classificato)', 0)}")
+    print(f"\nUnclassified: {tc.get('(unclassified)', 0)}")
 
     generated = datetime.now(timezone.utc).isoformat()
 
@@ -1720,14 +1745,15 @@ def main(out_path: Path):
         try:
             old_data = json.loads(out_path.read_text(encoding="utf-8"))
             old_calls = old_data.get("calls", [])
-            print(f"\nDataset precedente: {len(old_calls)} call")
+            print(f"\nPrevious dataset: {len(old_calls)} calls")
         except Exception:
-            print("\nNessun dataset precedente trovato.")
+            print("\nNo previous dataset found.")
 
     changelog_path = out_path.parent / "changelog.md"
     write_changelog(old_calls, calls, changelog_path, generated)
 
     # Save 
+    # Build the final JSON payload with a generation timestamp and the full call list
     payload = {
         "generated": generated,
         "calls": calls,
@@ -1736,15 +1762,14 @@ def main(out_path: Path):
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"\n Scritto {out_path} con {len(calls)} call")
+    print(f"\n  Written {out_path} with {len(calls)} calls")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
+    parser.add_argument("--out", default="calls.json", help="Output JSON file path")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
