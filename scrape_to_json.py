@@ -1,13 +1,13 @@
 """
 scrape_to_json.py
-─────────────────
+
 Scrapa il portale EU Funding & Tenders con Playwright e produce calls.json
 direttamente, senza passare per Excel.
 Incorpora tutta la logica di classificazione di make_calls_json.py.
 
 Uso:
-    python scrape_to_json.py              # scrive calls.json nella cartella corrente
-    python scrape_to_json.py --out /path  # percorso custom
+    python scrape_to_json.py              # writes calls.json in the current folder
+    python scrape_to_json.py --out /path  # custom output path
 """
 
 import re
@@ -21,7 +21,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 import playwright_stealth
 
-# ── Parametri ─────────────────────────────────────────────────────────────────
+# Configuration parameters 
 
 PAGE_SIZE = 50
 
@@ -41,7 +41,7 @@ LINK_SELECTOR = (
     'a[href*="/prospect-details/"]'
 )
 
-# URL base per i link delle call, costruiti dal campo 'reference' dell'API
+# Base URLs for call links, built from the API 'reference' field
 TOPIC_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/"
 COMPETITIVE_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/"
 PROSPECT_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/prospect-details/"
@@ -78,7 +78,7 @@ MONTHS = {
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
 }
 
-# ── Tabelle di classificazione ────────────────────────────────────────────────
+# Classification tables 
 
 PROGRAMME_MAP = {
     "43108390":"Horizon Europe","43108391":"Horizon Europe",
@@ -98,8 +98,8 @@ PROGRAMME_MAP = {
     "43392145":"EMFAF",
 }
 
-# ── Horizon Europe: mappatura strutturale per cluster CL1-6 ───────────────────
-# Fonte: struttura ufficiale Horizon Europe Work Programme
+# Horizon Europe: structural mapping for clusters CL1-6 
+# Source: official Horizon Europe Work Programme structure
 HE_CLUSTER_MAP = {
     "1": "Health & Life Sciences",
     "2": "Culture, Creativity & Inclusion",
@@ -109,11 +109,11 @@ HE_CLUSTER_MAP = {
     "6": "Food, Bioeconomy & Environment",
 }
 
-# Horizon Europe: mappatura per sottoprogrammi NON-CL (prefisso del topic ID)
-# Ordine: dal più specifico al più generico.
+# Horizon Europe: mapping for non-CL sub-programmes (topic ID prefix)
+# Order: from most specific to most generic.
 # (prefisso_nell_url_o_callid, cluster_num, cluster_label, thematic_area)
 HE_SUBPROGRAMME_MAP = [
-    # ── Missions ──────────────────────────────────────────────────────────────
+    #  Missions 
     ("MISS-CIT",    "M-CIT",  "Climate-neutral & Smart Cities",                "Climate-neutral & Smart Cities"),
     ("MISS-OCEAN",  "M-OCEAN","Healthy Oceans, Seas, Coastal & Inland Waters", "Healthy Oceans, Seas, Coastal & Inland Waters"),
     ("MISS-CLIMA",  "5",      "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
@@ -122,17 +122,17 @@ HE_SUBPROGRAMME_MAP = [
     ("MISS-CROSS",  "",       "",                                              "Climate, Energy & Mobility"),   # Adaptation Mission cross-cutting → CL5
     ("MISS",        "",       "",                                              "Climate, Energy & Mobility"),   # generic MISS fallback
 
-    # ── Health cluster (explicit prefix) ──────────────────────────────────────
+    #  Health cluster (explicit prefix) 
     ("HLTH",        "1",      "Health",                                        "Health & Life Sciences"),
 
-    # ── EIC / EIT / EIE ───────────────────────────────────────────────────────
+    #  EIC / EIT / EIE 
     ("EITUM-BP",    "M-CIT",  "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
     ("EITUM",       "M-CIT",  "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
     ("EIC",         "",       "European Innovation Council",                  "SME, Entrepreneurship & Market Uptake"),
     ("EIE",         "",       "European Innovation Ecosystems",               "SME, Entrepreneurship & Market Uptake"),
     ("EIT",         "",       "European Institute of Innovation & Technology","SME, Entrepreneurship & Market Uptake"),
 
-    # ── JU – Joint Undertakings ───────────────────────────────────────────────
+    #  JU – Joint Undertakings 
     ("JU-CLEAN-AVIATION", "", "Clean Aviation",                               "Clean Aviation"),
     ("JU-CBIO",     "6",      "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
     ("JU-GH",       "1",      "Health",                                       "Health & Life Sciences"),
@@ -147,15 +147,15 @@ HE_SUBPROGRAMME_MAP = [
     ("JU-CHIPS",    "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
     ("JU-",         "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),   # generic JU fallback → CL5 (most JUs are clean energy/transport)
 
-    # ── ERC ───────────────────────────────────────────────────────────────────
+    #  ERC 
     # ERC is frontier research — classified by scientific domain from title/text;
     # without domain info we use "Internships, fellowships & scholarships"
     ("ERC",         "",       "European Research Council",                    "Internships, fellowships & scholarships"),
 
-    # ── MSCA ──────────────────────────────────────────────────────────────────
+    #  MSCA 
     ("MSCA",        "",       "Marie Skłodowska-Curie Actions",               "Internships, fellowships & scholarships"),
 
-    # ── Research Infrastructures ──────────────────────────────────────────────
+    #  Research Infrastructures 
     ("CL3-INFRA",   "3",      "Civil Security for Society",                   "Security & Resilience"),
     ("INFRA-TECH",  "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
     ("INFRA-SERV",  "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
@@ -163,24 +163,24 @@ HE_SUBPROGRAMME_MAP = [
     ("INFRA-DEV",   "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
     ("INFRA",       "4",      "Research Infrastructures",                     "Digital, Industry & Space"),   # generic INFRA → CL4 (INFRA is mainly digital/data)
 
-    # ── Euratom / Nuclear ─────────────────────────────────────────────────────
+    #  Euratom / Nuclear 
     ("EURATOM",     "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
     ("CID",         "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
 
-    # ── EUROHPC ───────────────────────────────────────────────────────────────
+    #  EUROHPC 
     ("EUROHPC",     "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
 
-    # ── Widening / NEB ────────────────────────────────────────────────────────
+    #  Widening / NEB 
     ("WIDERA",      "",       "Widening Participation & ERA",                 "Cross-cutting / Other"),   # genuine cross-cutting support programme
     ("NEB",         "M-CIT",  "New European Bauhaus",                         "Climate-neutral & Smart Cities"),
 
-    # ── RAISE ─────────────────────────────────────────────────────────────────
+    #  RAISE 
     ("RAISE",       "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
 ]
 
-# ── Non-Horizon: mappatura per programma (stringa nome o ID numerico) ─────────
-# Ordine: dal più specifico al più generico.
-# (sottostringa_nel_nome_programma, thematic_area)
+# Non-Horizon: mapping by programme name string or numeric ID 
+# Order: from most specific to most generic.
+# (substring_in_programme_name, thematic_area)
 PROGRAMME_THEMATIC_MAP = [
     # Defence
     ("European Defence Fund",           "Defence"),
@@ -366,15 +366,18 @@ TOPIC_KEYWORDS = {
     "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
 }
 
-# ── Helpers di classificazione ────────────────────────────────────────────────
+# Classification helpers 
 
 def escape_rx(s: str) -> str:
+    """Escape a string for use in a regular expression."""
     return re.escape(s or "")
 
 def text_has_keyword(text: str, keyword: str) -> bool:
+    """Return True if the keyword appears as a whole word in text (case-insensitive)."""
     return bool(re.search(rf"(?<![A-Za-z]){escape_rx(keyword.lower())}(?![A-Za-z])", (text or "").lower()))
 
 def keyword_hits_for_thematic(text: str, thematic: str):
+    """Return the list of topic keywords for a thematic area that appear in text."""
     hits = []
     for kw in TOPIC_KEYWORDS.get(thematic, []):
         if text_has_keyword(text, kw):
@@ -382,10 +385,12 @@ def keyword_hits_for_thematic(text: str, thematic: str):
     return list(dict.fromkeys(hits))
 
 def title_is_special_basic_research(title: str) -> bool:
+    """Return True if the title contains keywords typical of fellowships or scholarship calls."""
     tl = (title or "").lower()
     return any(text_has_keyword(tl, kw) for kw in SPECIAL_TITLE_KEYWORDS)
 
 def classify_multitopic(name: str, full_text: str, thematic: str):
+    """Scan full_text for keywords across all thematic areas and return a dict with hits and matched themes."""
     text = re.sub(r"\s+", " ", (full_text or "")).strip().lower()
     keyword_hits = {}
     multi_thematic = []
@@ -408,10 +413,10 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
         "is_special_basic_research": special,
     }
 
-# ── Classificazione strutturale ───────────────────────────────────────────────
+# Structural classification functions 
 
 def _topic_id(url: str) -> str:
-    """Estrae il topic-ID dall'URL (tutto dopo /topic-details/ o /competitive-calls-cs/)."""
+    """Extract the topic ID from a URL (everything after /topic-details/ or /competitive-calls-cs/)."""
     s = (url or "").upper().split("?")[0]
     for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/", "/PROSPECT-DETAILS/"]:
         i = s.find(m)
@@ -421,7 +426,7 @@ def _topic_id(url: str) -> str:
 
 
 def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
-    """True se la call appartiene a Horizon Europe (inclusi JU, ERC, MSCA, ecc.)."""
+    """Return True if the call belongs to Horizon Europe (including JU, ERC, MSCA, etc.)."""
     prog_l = (prog or "").lower()
     if "horizon" in prog_l:
         return True
@@ -440,25 +445,25 @@ def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
 
 def classify_horizon_europe(url: str, call_id: str) -> tuple:
     """
-    Classificazione strutturale per Horizon Europe.
+    Structural classification for Horizon Europe calls.
 
-    Logica a cascata:
-      1. Cluster CL1-6 esplicito nel call_id o URL  → usa HE_CLUSTER_MAP
-      2. Sottoprogramma noto (HE_SUBPROGRAMME_MAP)  → usa quella entry
-      3. Fallback URL_RULES legacy                   → usa quella entry
-      4. Non classificato                            → ("", "", "")
+    Cascade logic:
+      1. Explicit CL1-6 cluster in call_id or URL  -> use HE_CLUSTER_MAP
+      2. Known sub-programme (HE_SUBPROGRAMME_MAP) -> use that entry
+      3. Legacy URL_RULES fallback                  -> use that entry
+      4. Unclassified                               -> ("", "", "")
 
-    Ritorna (cluster_num, cluster_label, thematic)
+    Returns (cluster_num, cluster_label, thematic)
     """
     tid = _topic_id(url)
     cid_up = (call_id or "").upper()
 
-    # ── 1. CL1-6 strutturale: cerca HORIZON-CL<N> o CL<N>- nel call_id/URL ──
+    # 1. Structural CL1-6: search for HORIZON-CL<N> or CL<N>- in call_id/URL 
     m = RE_CLUSTER.search(cid_up) or RE_CLUSTER.search(tid)
     if m:
         cnum = m.group(1)
         thematic = HE_CLUSTER_MAP.get(cnum, "")
-        # Affina il cluster_label dal nome completo THEMATIC_MAP
+        # Refine cluster_label using the full name from THEMATIC_MAP
         clabel_map = {
             "1":"Health","2":"Culture, Creativity and Inclusion",
             "3":"Civil Security for Society","4":"Digital, Industry and Space",
@@ -467,13 +472,13 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
         }
         return cnum, clabel_map.get(cnum, ""), thematic
 
-    # ── 2. Sottoprogramma HE_SUBPROGRAMME_MAP ──────────────────────────────────
-    # Ordine importante: voci più specifiche (MISS-CIT, MISS-OCEAN, …) stanno
-    # prima di quelle generiche (MISS) nella tabella.
-    # Problema: per le MISS il formato reale è HORIZON-MISS-{YEAR}-{SUBCODE}-…
-    # quindi "MISS-CIT" non appare mai come sottostringa continua.
-    # Soluzione: normalizziamo il tid rimuovendo segmenti puramente numerici
-    # (anni come 2026, 2027) prima del matching.
+    # 2. Sub-programme via HE_SUBPROGRAMME_MAP 
+    # Important order: more specific entries (MISS-CIT, MISS-OCEAN, ...) come
+    # before generic ones (MISS) in the table.
+    # Problem: for MISS topics the actual format is HORIZON-MISS-{YEAR}-{SUBCODE}-...
+    # so "MISS-CIT" never appears as a contiguous substring.
+    # Solution: normalize tid by removing purely numeric year segments
+    # (years like 2026, 2027) before matching.
     import re as _re
     tid_norm = _re.sub(r"-20\d\d(?=-)", "", tid)          # HORIZON-MISS-2026-CIT → HORIZON-MISS-CIT
     cid_norm = _re.sub(r"-20\d\d(?=-)", "", cid_up)
@@ -481,7 +486,7 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
         # a) Corrispondenza diretta sul tid originale
         if tid.startswith(prefix) or cid_up.startswith(prefix):
             return cnum, clabel, thematic
-        # b) Corrispondenza con HORIZON- davanti
+        # b) Match with HORIZON- prefix
         if tid.startswith("HORIZON-" + prefix) or cid_up.startswith("HORIZON-" + prefix):
             return cnum, clabel, thematic
         # c) Corrispondenza sul tid normalizzato (anno rimosso)
@@ -493,7 +498,7 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
         if ("-" + prefix + "-") in tid or ("-" + prefix + "-") in cid_up:
             return cnum, clabel, thematic
 
-    # ── 3. Fallback: URL_RULES legacy ─────────────────────────────────────────
+    #  3. Fallback: URL_RULES legacy 
     for prefix, subcode, c_num, c_label, thematic in URL_RULES:
         if prefix not in tid:
             continue
@@ -506,8 +511,8 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
 
 def classify_non_he_by_programme(prog: str) -> str:
     """
-    Per programmi non-HE: ricava il thematic_cluster dal nome del programma
-    usando PROGRAMME_THEMATIC_MAP (ordinato dal più specifico al più generico).
+    For non-HE programmes: derive the thematic_cluster from the programme name
+    using PROGRAMME_THEMATIC_MAP (ordered from most to least specific).
     """
     pl = (prog or "").lower()
     for key, label in PROGRAMME_THEMATIC_MAP:
@@ -520,8 +525,8 @@ def classify_non_he_by_programme(prog: str) -> str:
 
 def classify_non_he_by_url(url: str) -> str:
     """
-    Per programmi non-HE: ricava il thematic_cluster dal prefisso del topic ID
-    nell'URL, usando NON_HE_URL_PREFIX_MAP.
+    For non-HE programmes: derive the thematic_cluster from the topic ID prefix
+    in the URL, using NON_HE_URL_PREFIX_MAP.
     """
     tid = _topic_id(url)
     for prefix, thematic in NON_HE_URL_PREFIX_MAP:
@@ -532,9 +537,9 @@ def classify_non_he_by_url(url: str) -> str:
 
 def url_classify(url: str):
     """
-    Wrapper legacy: usa la nuova logica strutturale per Horizon Europe,
-    e la nuova logica per non-HE; cade sul vecchio URL_RULES come safety-net.
-    Ritorna (cluster_num, cluster_label, thematic, beneficiary_hint_or_None).
+    Legacy wrapper: applies the new structural logic for Horizon Europe and
+    non-HE programmes; falls back to old URL_RULES as a safety net.
+    Returns (cluster_num, cluster_label, thematic, beneficiary_hint_or_None).
     """
     tid = _topic_id(url)
 
@@ -545,12 +550,12 @@ def url_classify(url: str):
             benef = hint
             break
 
-    # Prova la classificazione HE strutturale
+    # Try structural HE classification
     cnum, clabel, thematic = classify_horizon_europe(url, "")
     if thematic:
         return cnum, clabel, thematic, benef
 
-    # Prova NON-HE by URL prefix
+    # Try non-HE classification by URL prefix
     thematic_non_he = classify_non_he_by_url(url)
     if thematic_non_he:
         return "", "", thematic_non_he, benef
@@ -559,6 +564,7 @@ def url_classify(url: str):
 
 
 def name_classify(name: str) -> str:
+    """Derive a thematic area from the call name using NUMERIC_ID_NAME_RULES keyword matching."""
     name_up = (name or "").upper()
     for keyword, thematic in NUMERIC_ID_NAME_RULES:
         if keyword.upper() in name_up:
@@ -567,21 +573,24 @@ def name_classify(name: str) -> str:
 
 
 def prog_thematic(prog: str) -> str:
+    """Return the thematic area for a given programme name string."""
     return classify_non_he_by_programme(prog)
 
 
 def resolve_thematic(cluster_num: str, prog: str) -> str:
+    """Return the thematic area from a cluster number if available, otherwise from the programme name."""
     if cluster_num and THEMATIC_MAP.get(cluster_num):
         return THEMATIC_MAP[cluster_num]
     return prog_thematic(prog)
 
 def normalize_action(v: str) -> str:
+    """Normalise a raw action type string to a standard short code (RIA, IA, CSA, COFUND, etc.)."""
     s = (v or "").lower()
     if "research and innovation action" in s: return "RIA"
     if "innovation action" in s:              return "IA"
     if "coordination and support" in s:       return "CSA"
     if "cofund" in s:                         return "COFUND"
-    # Abbreviazioni dirette (già normalizzate)
+    # Direct abbreviations (already normalised)
     u = (v or "").strip().upper()
     if u in ("RIA", "HORIZON-RIA"):  return "RIA"
     if u in ("IA",  "HORIZON-IA"):   return "IA"
@@ -590,6 +599,7 @@ def normalize_action(v: str) -> str:
     return v or ""
 
 def beneficiary_hint(action: str, prog: str, url_benef):
+    """Return a list of likely beneficiary types based on the action type and programme name."""
     if url_benef is not None:
         return url_benef
     a = (action or "").upper()
@@ -601,9 +611,10 @@ def beneficiary_hint(action: str, prog: str, url_benef):
     if "external action" in p: hints.extend(["NGO","Public body","Research organisation"])
     return list(dict.fromkeys(hints))
 
-# ── Parsing date e budget ─────────────────────────────────────────────────────
+# Date and budget parsing 
 
 def parse_date_iso(s: str) -> str:
+    """Parse a date string in various formats and return it as an ISO 8601 string (YYYY-MM-DD)."""
     s = re.sub(r"\s+", " ", str(s or "")).strip()
     if not s:
         return ""
@@ -679,19 +690,22 @@ def extract_budget_from_text(text: str) -> int:
     # Prefer the largest single figure (total budget > per-project budget)
     return max(candidates)
 
-# ── Utilità Playwright ────────────────────────────────────────────────────────
+#  Utilità Playwright 
 
 def clean(s):
+    """Strip and collapse whitespace in a string; return None if the result is empty."""
     if not s:
         return None
     s = re.sub(r"\s+", " ", str(s)).strip()
     return s or None
 
 def pick(rx, text):
+    """Apply a regex to text and return the first capture group (cleaned), or None if no match."""
     m = rx.search(text or "")
     return clean(m.group(1)) if m else None
 
 def accept_cookies(page):
+    """Click the cookie acceptance button on the page if it is visible."""
     for label in ["Accept all","Accept All","Accept","I accept","Agree","OK"]:
         for scope in [page] + list(page.frames):
             try:
@@ -704,6 +718,7 @@ def accept_cookies(page):
                 pass
 
 def wait_cookie_gone(page, max_ms=12000):
+    """Poll the page until the cookie banner text disappears or the timeout is reached."""
     t0 = time.time()
     while (time.time() - t0) * 1000 < max_ms:
         try:
@@ -715,25 +730,27 @@ def wait_cookie_gone(page, max_ms=12000):
         page.wait_for_timeout(600)
 
 def count_links(page):
+    """Return the number of call links currently visible on the page."""
     return page.locator(LINK_SELECTOR).count()
 
 def read_total(page, timeout_ms=30000):
-    print(" ⏳ In attesa della risposta dall'API SEDIA...")
+    """Read the total number of results from the SEDIA API response; falls back to a CSS selector."""
+    print("  In attesa della risposta dall'API SEDIA...")
     try:
         # Aspettiamo specificamente che l'API risponda
         with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
             data = response_info.value.json()
-            # Il campo esatto nel nuovo sistema è 'totalResults'
+            # The exact field name in the new system is 'totalResults'
             count = data.get("totalResults")
             if count is not None:
-                print(f" ✅ Totale rilevato dall'API: {count}")
+                print(f"  Totale rilevato dall'API: {count}")
                 return int(count)
     except Exception as e:
-        print(f" ⚠️ L'API non ha risposto in tempo o ha bloccato la richiesta.")
+        print(f"  L'API non ha risposto in tempo o ha bloccato la richiesta.")
         
-    # FALLBACK: Se l'API fallisce, proviamo a leggere il nuovo selettore CSS
+    # FALLBACK: if the API fails, try reading the new CSS selector
     try:
-        # Nella v1.0.15 il numero è spesso dentro una classe 'wt-count' o simile
+        # In v1.0.15 the count is often inside a class like 'wt-count'
         page.wait_for_selector(".ecl-u-type-bold", timeout=5000) 
         txt = page.locator("body").inner_text()
         m = re.search(r"(\d[\d,\.]*)\s*(?:results?|items?|found)", txt, re.I)
@@ -745,6 +762,7 @@ def read_total(page, timeout_ms=30000):
         
         
 def scroll_until(page, expected, max_ms=50000):
+    """Scroll the page until the expected number of call links are loaded or the timeout expires."""
     start = time.time()
     last = -1
     stable_since = time.time()
@@ -795,6 +813,7 @@ def scroll_until(page, expected, max_ms=50000):
     return count_links(page)
 
 def extract_links(page):
+    """Extract all unique call URLs from the links currently on the page."""
     hrefs = page.evaluate(f"""
         () => Array.from(document.querySelectorAll('{LINK_SELECTOR}'))
                   .map(a => a.getAttribute('href'))
@@ -809,9 +828,10 @@ def extract_links(page):
             out.append(full)
     return out
 
-# ── Parsing card dalla lista ──────────────────────────────────────────────────
+# Parse a call card from the listing page 
 
 def parse_card(page, full_url: str) -> dict:
+    """Extract basic metadata (title, dates, programme, action) from a call card on the listing page."""
     path = full_url.replace("https://ec.europa.eu","").split("?")[0]
     a = page.locator(f'a[href*="{path}"]').first
     title = clean(a.inner_text()) if a.count() else path.split("/")[-1]
@@ -839,9 +859,10 @@ def parse_card(page, full_url: str) -> dict:
         "_needs_enrich":  False,
     }
 
-# ── Arricchimento via XHR ─────────────────────────────────────────────────────
+# Enrichment via XHR 
 
 def _first(meta, *keys):
+    """Return the first non-empty value from a metadata dict for the given list of keys."""
     for k in keys:
         v = meta.get(k)
         if isinstance(v, list) and v:
@@ -851,11 +872,11 @@ def _first(meta, *keys):
     return ""
 
 def extract_budget_per_project_dom(page, topic_id):
-    """Logica Cacciatore: espande la tabella e preleva il budget semantico"""
+    """Row-hunter logic: expand the topic conditions table in the DOM and extract the per-project budget."""
     parts = topic_id.split('?')[0].split('-')
     target_match = "-".join(parts[-2:]) if len(parts) > 1 else parts[-1]
     try:
-        # Espande la sezione 'Topic conditions'
+        # Expand the 'Topic conditions' section
         btn = page.locator("button:has-text('Topic conditions and documents')").first
         if btn.count() > 0:
             btn.scroll_into_view_if_needed()
@@ -863,13 +884,13 @@ def extract_budget_per_project_dom(page, topic_id):
                 btn.click(force=True)
                 page.wait_for_timeout(3500)
         
-        # Scrolla sulla riga specifica dell'ID
+        # Scroll to the specific row for the ID
         row_locator = page.locator(f"tr:has-text('{target_match}')").first
         if row_locator.count() > 0:
             row_locator.scroll_into_view_if_needed()
             page.wait_for_timeout(1000)
             
-        # Estrae il valore tramite JavaScript
+        # Extract the value via JavaScript
         return page.evaluate(f"""
             (shortId) => {{
                 const allRows = Array.from(document.querySelectorAll('tr, .wt-table-row'));
@@ -893,12 +914,12 @@ def extract_budget_per_project_dom(page, topic_id):
         
 def _enrich_one(page, row: dict) -> bool:
     """
-    Apre una pagina di dettaglio, cattura i campi mancanti via XHR (handle)
-    e integra la nuova logica DOM per l'estrazione precisa del budget.
+    Opens a detail page, captures missing fields via XHR (response handler)
+    and integrates the new DOM logic for precise budget extraction.
     """
     url      = row["url"]
     captured = {}
-    # Estraiamo il topic_id dall'URL per il Cacciatore di Righe
+    # Extract topic_id from the URL for the row-hunter logic
     topic_id = url.split('/')[-1].split('?')[0]
 
     def handle(response, _c=captured):
@@ -915,7 +936,7 @@ def _enrich_one(page, row: dict) -> bool:
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
 
-                    # ── Parsing campo `actions` (fonte più affidabile per action type e deadline) ──
+                    # Parse the `actions` field (most reliable source for action type and deadline) 
                     # actions è una stringa JSON: [{"types":[{"typeOfAction":"..."}], "deadlineDates":[...], "plannedOpeningDate":"..."}]
                     raw_actions = meta.get("actions")
                     if isinstance(raw_actions, list): raw_actions = raw_actions[0] if raw_actions else None
@@ -924,16 +945,16 @@ def _enrich_one(page, row: dict) -> bool:
                             acts = json.loads(raw_actions) if isinstance(raw_actions, str) else raw_actions
                             if isinstance(acts, list) and acts:
                                 act0 = acts[0]
-                                # Action type: dentro types[0].typeOfAction
+                                # Action type: inside types[0].typeOfAction
                                 types = act0.get("types", [])
                                 if types and not _c.get("action"):
                                     toa = types[0].get("typeOfAction", "")
                                     if toa:
                                         _c["action"] = toa
-                                # Deadline: deadlineDates è lista di stringhe "YYYY-MM-DD"
+                                # Deadline: deadlineDates is a list of "YYYY-MM-DD" strings
                                 dl_dates = act0.get("deadlineDates", [])
                                 if dl_dates and not _c.get("deadline"):
-                                    # Prendi la più lontana (ultima scadenza)
+                                    # Take the furthest one (last deadline)
                                     _c["deadline"] = sorted(dl_dates)[-1]
                                 # Opening date
                                 pod = act0.get("plannedOpeningDate", "")
@@ -943,24 +964,24 @@ def _enrich_one(page, row: dict) -> bool:
                         except Exception:
                             pass
 
-                    # Fallback action da typesOfAction se actions non l'ha fornita
+                    # Fallback action from typesOfAction if actions field didn't provide it
                     if not _c.get("action"):
                         action_fb = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
                         if action_fb:
                             _c["action"] = action_fb
 
-                    # ── Deadline da campi diretti (fallback se actions non disponibile) ──
+                    # Deadline from direct fields (fallback if actions not available) 
                     if not _c.get("deadline"):
                         deadline_detail = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
                         if deadline_detail:
                             _c["deadline"] = deadline_detail
-                    # Opening da campi diretti
+                    # Opening date from direct fields
                     if not _c.get("opening"):
                         opening_detail = _first(meta, "startDate", "openingDate", "publicationDate")
                         if opening_detail:
                             _c["opening"] = opening_detail
 
-                    # ── Budget da budgetOverview (fonte primaria e più precisa) ──
+                    # Budget from budgetOverview (primary and most precise source) 
                     if not _c.get("budget"):
                         raw_overview = meta.get("budgetOverview")
                         if isinstance(raw_overview, list):
@@ -968,8 +989,8 @@ def _enrich_one(page, row: dict) -> bool:
                         if raw_overview:
                             try:
                                 overview = json.loads(raw_overview) if isinstance(raw_overview, str) else raw_overview
-                                # Identifier del topic dall'URL (es. HORIZON-CL6-2027-02-FARM2FORK-06)
-                                # NON il callIdentifier (es. HORIZON-CL6-2027-02) che è troppo generico
+                                # Topic identifier from the URL (e.g. HORIZON-CL6-2027-02-FARM2FORK-06)
+                                # NOT the callIdentifier (e.g. HORIZON-CL6-2027-02) which is too generic
                                 tid_local = row.get("url","").split("/")[-1].split("?")[0].upper()
                                 topic_map = overview.get("budgetTopicActionMap", {})
                                 for entry_list in topic_map.values():
@@ -990,7 +1011,7 @@ def _enrich_one(page, row: dict) -> bool:
                             except Exception:
                                 pass
 
-                    # ── Budget da altri campi XHR (fallback) ──
+                    # Budget from other XHR fields (fallback) 
                     if not _c.get("budget"):
                         for key in (
                             "budgetOverviewTotal", "totalBudget", "budget",
@@ -1005,10 +1026,10 @@ def _enrich_one(page, row: dict) -> bool:
                                     _c["budget"] = val
                                     break
 
-                    # ── full_text dall'XHR (fonte primaria, sempre completo) ──
-                    # descriptionByte  → scope + expected outcomes (HTML)
-                    # destinationDetails → contesto destination (HTML)
-                    # topicConditions  → ammissibilità (HTML)
+                    # full_text from XHR (primary source, always complete) 
+                    # descriptionByte -> scope + expected outcomes (HTML)
+                    # destinationDetails -> destination context (HTML)
+                    # topicConditions -> eligibility conditions (HTML)
                     if not _c.get("full_text"):
                         from html.parser import HTMLParser
 
@@ -1056,23 +1077,23 @@ def _enrich_one(page, row: dict) -> bool:
     try:
         # 1. Navigazione
         page.goto(url, wait_until="domcontentloaded", timeout=40000)
-        # Attesa attiva: esce appena arriva l'XHR o dopo 8s
+        # Active wait: exits as soon as the XHR arrives or after 8s
         t0 = time.time()
         while not captured and time.time() - t0 < 8:
             page.wait_for_timeout(400)
         
-        # 2. Testo dal DOM — solo come fallback se l'XHR non ha già fornito il testo
+        # 2. DOM text — only as fallback if XHR hasn't already provided the text
         try:
             body_text = page.locator("body").inner_text(timeout=5000)
         except Exception:
             body_text = ""
 
-        # 3. LOGICA "CACCIATORE DI RIGHE" (Espansione Tabella DOM)
-        # Questa funzione deve essere definita sopra _enrich_one
+        # 3. ROW-HUNTER LOGIC (DOM table expansion)
+        # This function must be defined above _enrich_one
         budget_val_dom = extract_budget_per_project_dom(page, topic_id)
 
-        # ── full_text: priorità XHR (sempre completo e senza cookie banner),
-        #               fallback DOM solo se non contiene il testo del cookie.
+        # full_text: XHR takes priority (always complete and without cookie banner),
+        #              fallback to DOM only if it doesn't contain cookie banner text.
         if captured.get("full_text"):
             row["full_text"] = captured["full_text"]
         elif body_text and COOKIE_TEXT.lower() not in body_text.lower():
@@ -1080,8 +1101,8 @@ def _enrich_one(page, row: dict) -> bool:
         else:
             row["full_text"] = ""
 
-        # Priorità budget: 1) budgetOverview XHR (preciso per topic)
-        #                   2) DOM tabella  3) regex testo libero
+        # Budget priority: 1) budgetOverview XHR (precise per topic)
+        #                  2) DOM table  3) free-text regex
         if captured.get("budget"):
             row["budget_raw"]       = captured["budget"]
             row["budget_total_raw"] = captured.get("budget_total", captured["budget"])
@@ -1100,22 +1121,22 @@ def _enrich_one(page, row: dict) -> bool:
     finally:
         page.remove_listener("response", handle)
 
-    # 4. Assegnazione finale metadati
-    # full_text: se l'XHR è arrivato dopo il blocco try (raro ma possibile), aggiorna
+    # 4. Final metadata assignment
+    # full_text: if XHR arrived after the try block (rare but possible), update
     if captured.get("full_text") and not row.get("full_text"):
         row["full_text"] = captured["full_text"]
 
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
     if captured.get("action"):
-        # Sovrascrive sempre: la pagina di dettaglio ha l'action type preciso
+        # Always overwrite: the detail page has the precise action type
         row["action_raw"] = captured["action"]
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
-    # Deadline dalla pagina di dettaglio (fonte più affidabile: campo actions.deadlineDates)
+    # Deadline from the detail page (most reliable source: actions.deadlineDates field)
     if captured.get("deadline"):
         row["deadline_raw"] = captured["deadline"]
-    # Opening dalla pagina di dettaglio
+    # Opening date from the detail page
     if captured.get("opening") and not row.get("opening_raw"):
         row["opening_raw"] = captured["opening"]
 
@@ -1127,6 +1148,7 @@ def _enrich_one(page, row: dict) -> bool:
 
 
 def enrich(ctx, rows: list):
+    """Visit each call's detail page and enrich the row with full text, budget, and metadata."""
     to_fix = [r for r in rows if r.get("url")]
     if not to_fix:
         print("  Nessuna call con URL da arricchire.", flush=True)
@@ -1150,7 +1172,7 @@ def enrich(ctx, rows: list):
         print(f"  [{idx:>4}/{len(to_fix)}] {(row['name'] or '')[:60]}", flush=True)
 
         ok = False
-        for attempt in range(1, 4):   # 3 tentativi invece di 2
+        for attempt in range(1, 4):   # 3 attempts instead of 2
             try:
                 ok = _enrich_one(page, row)
                 break
@@ -1178,9 +1200,10 @@ def enrich(ctx, rows: list):
         pass
     print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
 
-# ── Trasforma riga grezza → oggetto call classificato ─────────────────────────
+# Transform a raw scraped row into a classified call object 
 
 def to_call(row: dict) -> dict:
+    """Convert a raw scraped row into a fully classified and structured call object ready for output."""
     url        = row.get("url", "")
     prog_raw   = row.get("programme_raw") or ""
     call_id    = row.get("call_id") or ""
@@ -1193,17 +1216,17 @@ def to_call(row: dict) -> dict:
             cluster_num = m.group(1)
             break
 
-    # ── Classificazione tematica strutturale a due livelli ────────────────────
+    # Structural thematic classification at two levels 
     #
-    # LIVELLO 1 – Horizon Europe: classificazione strutturale per CL1-6 + sottoprogrammi
-    # LIVELLO 2 – Altri programmi: codice programma dall'URL o dal campo programme
+    # LEVEL 1 - Horizon Europe: structural classification by CL1-6 + sub-programmes
+    # LEVEL 2 - Other programmes: programme code from the URL or the programme field
     #
     he_flag = _is_horizon_europe(prog_raw, url, call_id)
     cluster_label = ""
     thematic = ""
 
     if he_flag:
-        # ── L1: Horizon Europe ────────────────────────────────────────────────
+        #  L1: Horizon Europe 
         cnum, clabel, th = classify_horizon_europe(url, call_id)
         if cnum:
             cluster_num = cnum
@@ -1211,32 +1234,32 @@ def to_call(row: dict) -> dict:
             cluster_label = clabel
         if th:
             thematic = th
-        # Fallback: se CL trovato ma non mappato
+        # Fallback: if CL found but not mapped
         if not thematic and cluster_num:
             thematic = HE_CLUSTER_MAP.get(cluster_num, "")
     else:
-        # ── L2: Altri programmi ───────────────────────────────────────────────
-        # 2a. Prefisso topic ID nell'URL (più preciso: cattura sottoprogrammi come PPPA-CHIPS, CEF-T, ecc.)
+        #  L2: Altri programmi 
+        # 2a. Topic ID prefix in URL (more precise: catches sub-programmes like PPPA-CHIPS, CEF-T, etc.)
         thematic = classify_non_he_by_url(url)
-        # 2b. Nome del programma (campo programme_raw)
+        # 2b. Programme name (programme_raw field)
         if not thematic:
             thematic = classify_non_he_by_programme(prog_raw)
-        # 2c. cluster_label da THEMATIC_MAP se abbiamo un cluster numerico
+        # 2c. cluster_label from THEMATIC_MAP if we have a numeric cluster
         if not cluster_label and cluster_num:
             cluster_label = THEMATIC_MAP.get(cluster_num, "")
 
-    # ── Fallback comune: name_classify (NUMERIC_ID_NAME_RULES) ───────────────
+    # Common fallback: name_classify (NUMERIC_ID_NAME_RULES) 
     if not thematic:
         thematic = name_classify(row.get("name", ""))
 
-    # Allinea cluster_num con il thematic se ricavato dal THEMATIC_MAP inverso
+    # Align cluster_num with thematic if derived from inverted THEMATIC_MAP
     if not cluster_num and cluster_label:
         _inv = {v: k for k, v in THEMATIC_MAP.items()}
         cluster_num = _inv.get(cluster_label, "")
 
-    # ── Beneficiary hint (invariato) ──────────────────────────────────────────
+    #  Beneficiary hint (invariato) 
     u_cnum, u_clabel, u_thematic, u_benef = url_classify(url)
-    # url_classify può raffinare cluster_label se non ancora impostato
+    # url_classify may refine cluster_label if not yet set
     if not cluster_label and u_clabel:
         cluster_label = u_clabel
 
@@ -1249,13 +1272,13 @@ def to_call(row: dict) -> dict:
     full_text = row.get("full_text") or ""
     multi = classify_multitopic(row.get("name") or "", full_text, thematic)
 
-    # ── Promozione tematica: se ancora generico, usa keyword dal full_text ────
-    # "Cross-cutting / Other" è accettabile SOLO per WIDERA e call genuinamente
-    # interdisciplinari; tutto il resto deve avere un'area specifica.
+    # Thematic promotion: if still generic, use keywords from full_text 
+    # "Cross-cutting / Other" is acceptable ONLY for WIDERA and genuinely
+    # interdisciplinary calls; everything else must have a specific area.
     GENERIC_THEMATICS = {"Cross-cutting / Other", ""}
-    # Aree che NON devono essere promosse tramite keyword (sono già specifiche)
+    # Areas that must NOT be promoted via keywords (they are already specific)
     PROMOTION_EXEMPT = {
-        "Internships, fellowships & scholarships",  # ERC/MSCA: dipende dal dominio, non promuovere casualmente
+        "Internships, fellowships & scholarships",  # ERC/MSCA: domain-dependent, do not promote randomly
     }
     effective_thematic = thematic
     if effective_thematic in GENERIC_THEMATICS and multi["multi_thematic"]:
@@ -1264,7 +1287,7 @@ def to_call(row: dict) -> dict:
                 effective_thematic = candidate
                 break
 
-    # Assicura che il thematic primario sia in multi_thematic
+    # Ensure the primary thematic is included in multi_thematic
     all_thematics = list(multi["multi_thematic"])
     if effective_thematic and effective_thematic not in all_thematics:
         all_thematics.insert(0, effective_thematic)
@@ -1294,9 +1317,10 @@ def to_call(row: dict) -> dict:
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
-# ── Changelog ─────────────────────────────────────────────────────────────────
+# Changelog 
 
 def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, generated: str):
+    """Compare old and new call lists and write a markdown changelog file with added/removed entries."""
     old_by_url = {c["url"]: c for c in old_calls}
     new_by_url = {c["url"]: c for c in new_calls}
 
@@ -1379,7 +1403,7 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
     lines.append(f"")
 
     changelog_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\n📋 Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
+    print(f"\n Changelog scritto: {changelog_path} (+{len(added)} aggiunte, -{len(removed)} rimosse)")
 
     history_path = changelog_path.parent / "changelog_history.md"
     history_line = (
@@ -1398,11 +1422,12 @@ def write_changelog(old_calls: list, new_calls: list, changelog_path: Path, gene
             + history_line + "\n"
         )
         history_path.write_text(header, encoding="utf-8")
-    print(f"📋 History aggiornata: {history_path}")
+    print(f" History aggiornata: {history_path}")
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# Main 
 
 def main(out_path: Path):
+    """Main entry point: scrape all calls from the EU portal, enrich them, classify them, and write calls.json."""
     rows      = []
     seen_urls = set()
 
@@ -1419,14 +1444,14 @@ def main(out_path: Path):
                 from playwright_stealth.stealth import stealth as _st
                 _st(page)
             else:
-                print("⚠️ Impossibile applicare stealth, procedo comunque...")
+                print(" Impossibile applicare stealth, procedo comunque...")
         except Exception as e:
-            print(f"⚠️ Errore stealth ignorato: {e}")
+            print(f" Errore stealth ignorato: {e}")
 
-        # ── Passo 1: lista ────────────────────────────────────────────────────
-        # Intercettiamo la risposta API PRIMA del goto per catturare totalResults
+        # Step 1: listing 
+        # Intercept the API response BEFORE goto to capture totalResults
         total_captured = {}
-        api_url_captured = {}   # cattura l'URL reale dell'API SEDIA per uso diretto
+        api_url_captured = {}   # captures the real SEDIA API URL for direct use
 
         def handle_first_response(response, _tc=total_captured, _au=api_url_captured):
             if SEARCH_API in response.url and response.status == 200 and "total" not in _tc:
@@ -1435,8 +1460,8 @@ def main(out_path: Path):
                     t = body.get("totalResults")
                     if t is not None:
                         _tc["total"] = int(t)
-                        _au["url"] = response.url   # salva URL completo per requests
-                        print(f" ✅ Totale rilevato dall'API: {t}")
+                        _au["url"] = response.url   # save full URL for requests
+                        print(f"  Totale rilevato dall'API: {t}")
                 except Exception:
                     pass
 
@@ -1444,18 +1469,18 @@ def main(out_path: Path):
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
                   wait_until="domcontentloaded", timeout=90000)
 
-        # Forza l'accettazione dei cookie
+        # Force cookie acceptance
         try:
             cookie_button = page.get_by_role("button", name="Accept all cookies")
             if cookie_button.is_visible():
                 cookie_button.click()
-                print("✅ Cookie accettati")
+                print(" Cookie accettati")
                 page.wait_for_timeout(4000)
         except:
             pass
 
-        # Aspetta che l'API risponda (max 30s)
-        print(" ⏳ In attesa della risposta dall'API SEDIA...")
+        # Wait for the API to respond (max 30s)
+        print("  In attesa della risposta dall'API SEDIA...")
         deadline_init = time.time() + 30
         while "total" not in total_captured and time.time() < deadline_init:
             page.wait_for_timeout(500)
@@ -1465,11 +1490,11 @@ def main(out_path: Path):
         total = total_captured.get("total") or read_total(page)
 
         if total is None:
-            print("❌ Non riesco a leggere il contatore delle call.")
+            print(" Non riesco a leggere il contatore delle call.")
             browser.close()
             return
         max_pages = math.ceil(total / PAGE_SIZE)
-        print(f"✅ Totale: {total} call | pagine: {max_pages}")
+        print(f" Totale: {total} call | pagine: {max_pages}")
 
         for pnum in range(1, max_pages + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
@@ -1479,21 +1504,21 @@ def main(out_path: Path):
 
             page_results = []
             import threading as _threading
-            # Usiamo un timer di debounce: dopo ogni risposta valida aspettiamo
-            # 2s prima di considerare la pagina completa. Se arriva un'altra
-            # risposta nel frattempo, il timer riparte. Questo gestisce il caso
-            # in cui SEDIA invia più risposte parziali per la stessa pagina.
-            _debounce_timer: list = [None]   # lista per mutabilità nel closure
+            # Use a debounce timer: after each valid response we wait
+            # 2s before considering the page complete. If another response
+            # arrives in the meantime, the timer resets. This handles the case
+            # where SEDIA sends multiple partial responses for the same page.
+            _debounce_timer: list = [None]   # list for mutability inside closure
 
             def _mark_done(_pr=page_results, _dt=_debounce_timer):
-                # Chiamato 2s dopo l'ultima risposta valida — segnala completamento
+                # Called 2s after the last valid response — signals completion
                 _dt.append("done")
 
             def handle_list_response(response, _pr=page_results, _dt=_debounce_timer):
                 if SEARCH_API not in response.url or response.status != 200:
                     return
-                # CRITICO: leggi il body SUBITO — Playwright rilascia il buffer
-                # appena il listener ritorna ("No resource with given identifier")
+                # CRITICAL: read the body IMMEDIATELY — Playwright releases the buffer
+                # as soon as the listener returns ("No resource with given identifier")
                 try:
                     body = response.json()
                 except Exception:
@@ -1538,7 +1563,7 @@ def main(out_path: Path):
                             "_ref":          ref,
                             "_needs_enrich": False,
                         })
-                    # Cancella timer precedente e ne avvia uno nuovo (debounce 2s)
+                    # Cancel the previous timer and start a new one (debounce 2s)
                     old = _dt[0]
                     if old is not None:
                         old.cancel()
@@ -1552,18 +1577,18 @@ def main(out_path: Path):
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=90000)
                 accept_cookies(page)
-                # Aspetta fino a expected risultati o timeout 35s
+                # Wait up to expected results or 45s timeout
                 deadline_t = time.time() + 45
                 while len(page_results) < expected and time.time() < deadline_t:
-                    # Controlla se il debounce timer ha segnalato completamento
+                    # Check if the debounce timer has signalled completion
                     if len(_debounce_timer) > 1:
                         break
                     page.wait_for_timeout(300)
-                # Annulla timer se ancora attivo
+                # Cancel timer if still active
                 if _debounce_timer[0] is not None:
                     _debounce_timer[0].cancel()
                 if len(page_results) == 0:
-                    print(f" ⚠️ Nessuna risposta API per p{pnum}", flush=True)
+                    print(f"  Nessuna risposta API per p{pnum}", flush=True)
             finally:
                 page.remove_listener("response", handle_list_response)
 
@@ -1571,14 +1596,14 @@ def main(out_path: Path):
             print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
 
             for r in new_items:
-                seen_urls.add(r["_ref"])   # _ref è sempre univoco lato SEDIA
+                seen_urls.add(r["_ref"])   # _ref is always unique on the SEDIA side
                 rows.append(r)
             time.sleep(0.8)
 
-        # ── Passo 1b: recupero call mancanti con seconda passata Playwright ──
+        # Step 1b: recover missing calls with a second Playwright pass 
         missing = total - len(rows)
         if missing > 0:
-            print(f"\n⚠️  {missing} call mancanti (duplicati cross-pagina SEDIA). Seconda passata...", flush=True)
+            print(f"\n  {missing} call mancanti (duplicati cross-pagina SEDIA). Seconda passata...", flush=True)
             for pg in range(1, max_pages + 1):
                 if len(rows) >= total:
                     break
@@ -1646,28 +1671,28 @@ def main(out_path: Path):
                         "_ref":          ref,
                         "_needs_enrich": False,
                     })
-                    print(f"  ✚ {clean(title) or ref}", flush=True)
+                    print(f"   {clean(title) or ref}", flush=True)
             still_missing = total - len(rows)
             print(f"  Dopo recupero: {len(rows)}/{total} call (ancora mancanti: {still_missing})", flush=True)
             if still_missing > 0:
-                print(f"  ⚠️  {still_missing} call irreperibili dopo doppia passata — potrebbero essere duplicati lato server SEDIA o call ritirate nel frattempo.", flush=True)
+                print(f"    {still_missing} call irreperibili dopo doppia passata — potrebbero essere duplicati lato server SEDIA o call ritirate nel frattempo.", flush=True)
 
-        # ── Passo 2: arricchimento ────────────────────────────────────────────
-        print(f"\n═══ Passo 2: arricchimento {len(rows)} call totali ═══", flush=True)
+        #  Passo 2: arricchimento 
+        print(f"\n Passo 2: arricchimento {len(rows)} call totali ", flush=True)
         enrich(ctx, rows)
         browser.close()
 
-    # ── Classificazione e output ──────────────────────────────────────────────
+    # Classification and output 
     calls = []
     seen_refs = set()
     seen_urls = set()
     for row in rows:
         call = to_call(row)
-        # Chiave primaria = _ref (reference API, sempre univoco); fallback url
+        # Primary key = _ref (API reference, always unique); fallback to url
         ref_key = row.get("_ref") or ""
         url_key = call.get("url") or ""
-        # Salta solo se ENTRAMBE le chiavi sono già viste (evita falsi duplicati
-        # causati da URL euristici diversi per lo stesso topic)
+        # Skip only if BOTH keys have already been seen (avoids false duplicates
+        # caused by different heuristic URLs for the same topic)
         if ref_key and ref_key in seen_refs:
             continue
         if not ref_key and url_key and url_key in seen_urls:
@@ -1689,7 +1714,7 @@ def main(out_path: Path):
 
     generated = datetime.now(timezone.utc).isoformat()
 
-    # ── Changelog ────────────────────────────────────────────────────────────
+    # Changelog 
     old_calls = []
     if out_path.exists():
         try:
@@ -1702,7 +1727,7 @@ def main(out_path: Path):
     changelog_path = out_path.parent / "changelog.md"
     write_changelog(old_calls, calls, changelog_path, generated)
 
-    # ── Salva ─────────────────────────────────────────────────────────────────
+    # Save 
     payload = {
         "generated": generated,
         "calls": calls,
@@ -1711,7 +1736,7 @@ def main(out_path: Path):
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"\n✅ Scritto {out_path} con {len(calls)} call")
+    print(f"\n Scritto {out_path} con {len(calls)} call")
 
 
 if __name__ == "__main__":
@@ -1719,7 +1744,6 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Percorso output JSON")
     args = parser.parse_args()
     main(Path(args.out))
-
 
 
 
