@@ -1,38 +1,34 @@
 # Changelog calls.json
 
-**Last updated:** 2026-05-31 07:13:27.94
+**Last updated:** 2026-05-31 11:37:00.97
 
 ## Summary
 
 | | Count |
 |---|---|
-| Total calls (new) | 748 |
-| Total calls (previous) | 745 |
-| **New calls added** | **3** |
-| Calls removed (expired/closed) | 0 |
+| Total calls (new) | 743 |
+| Total calls (previous) | 748 |
+| **New calls added** | **0** |
+| Calls removed (expired/closed) | 5 |
 
-## Calls added (3)
+## Calls added
 
-### Culture, Creativity & Inclusion (3)
+No new calls compared to the previous snapshot.
 
-- **Tackling gender-based violence against politically active women and LGBTIQ people**
-  Horizon Europe · RIA · Deadline: 2026-09-23
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL2-2026-01-DEMOCRACY-01
+## Calls removed (5)
 
-- **The impact of the use of digital tools outside school and for communication on educational outcomes and mental health**
-  Horizon Europe · RIA · Deadline: 2026-09-23
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL2-2026-01-TRANSFO-04
-
-- **Rethinking long-term care policy in the face of EU demographic shifts**
-  Horizon Europe · RIA · Deadline: 2026-09-23
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL2-2026-01-TRANSFO-09
+- **Reinforcing EU autonomous access to space through EU-based spaceports** — Horizon Europe · Deadline: 2026-09-03
+- **Strengthening the international dimension of ESFRI and/or ERIC research infrastructures** — Horizon Europe · Deadline: 2026-06-16
+- **Risk management, mitigation and contingency for ESFRI/ERIC and other world-class research infrastructures** — Horizon Europe · Deadline: 2026-06-16
+- **Implementing digital services to empower neuroscience research for health and brain inspired technology via EBRAINS** — Horizon Europe · Deadline: 2026-06-16
+- **Digital twins and/or their major components for environment, climate and security** — Horizon Europe · Deadline: 2026-06-16
 
 ## Distribution by thematic area (new dataset)
 
 | Thematic area | Calls |
 |---|---|
 | Climate, Energy & Mobility | 172 |
-| Digital, Industry & Space | 140 |
+| Digital, Industry & Space | 135 |
 | Food, Bioeconomy & Environment | 112 |
 | Culture, Creativity & Inclusion | 88 |
 | Security & Resilience | 48 |
