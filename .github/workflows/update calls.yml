@@ -3,7 +3,7 @@ name: Update EU Calls
 on:
   schedule:
     - cron: "0 2 * * *"
-    - cron: "0 3 1 1 *"
+    - cron: "0 3 1 * *"
   workflow_dispatch:
     inputs:
       run_closed_calls:
@@ -37,8 +37,14 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add calls.json changelog.md changelog_history.md
-          git diff --staged --quiet || git commit -m "chore: update open calls [$(date -u +%Y-%m-%d)]"
-          git push
+          git diff --staged --quiet && echo "Nessuna modifica, skip." && exit 0
+          git commit -m "chore: update open calls [$(date -u +%Y-%m-%d)]"
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase origin main && git push origin main && break || {
+              echo "Push fallito (tentativo $attempt/5), retry in 15s..."
+              sleep 15
+            }
+          done
 
   scrape-closed-batch-1:
     if: >
@@ -46,6 +52,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.run_closed_calls == 'true')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -199,10 +207,11 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add closed_calls.json closed_calls_autofill_index.json
-          if git diff --staged --quiet; then
-            echo "Nessuna modifica da committare"
-          else
-            git commit -m "chore: update closed calls [$(date -u +%Y-%m-%d)]"
-            git pull --rebase origin main
-            git push
-          fi
+          git diff --staged --quiet && echo "Nessuna modifica da committare" && exit 0
+          git commit -m "chore: update closed calls [$(date -u +%Y-%m-%d)]"
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase origin main && git push origin main && break || {
+              echo "Push fallito (tentativo $attempt/5), retry in 15s..."
+              sleep 15
+            }
+          done
