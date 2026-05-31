@@ -1000,23 +1000,41 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
         try:
             if hasattr(playwright_stealth, 'stealth_sync'):
                 playwright_stealth.stealth_sync(page)
-            elif hasattr(playwright_stealth, 'stealth'):
-                from playwright_stealth.stealth import stealth as _st
-                _st(page)
+            elif hasattr(playwright_stealth, 'Stealth'):
+                playwright_stealth.Stealth()(page)
             else:
                 print("  Impossibile applicare stealth, procedo comunque...")
         except Exception as e:
             print(f"  Errore stealth ignorato: {e}")
 
-        # ── Step 1: leggi il totale dalla pagina 1 ────────────────────────────
+        # ── Step 1: leggi il totale dalla pagina 1 via listener API SEDIA ─────
         print(f"[batch {batch}/{total_batches}] Lettura totale call…", flush=True)
+        total_captured = {}
+
+        def handle_first_response(response, _tc=total_captured):
+            if SEARCH_API in response.url and response.status == 200 and "total" not in _tc:
+                try:
+                    body = response.json()
+                    t = body.get("totalResults")
+                    if t is not None:
+                        _tc["total"] = int(t)
+                        print(f"  Totale rilevato dall'API: {t}", flush=True)
+                except Exception:
+                    pass
+
+        page.on("response", handle_first_response)
         page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
                   wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(3000)
         accept_cookies(page)
         wait_cookie_gone(page)
 
-        total = read_total(page)
+        print("  In attesa della risposta dall'API SEDIA...", flush=True)
+        deadline_init = time.time() + 30
+        while "total" not in total_captured and time.time() < deadline_init:
+            page.wait_for_timeout(500)
+        page.remove_listener("response", handle_first_response)
+
+        total = total_captured.get("total") or read_total(page)
         if total is None:
             print("❌ Non riesco a leggere il contatore delle call.")
             browser.close()
