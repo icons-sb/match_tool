@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+import playwright_stealth
 
 # ── Parametri ─────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ LIST_URL = (
     "&isExactMatch=true&status=31094503&programmePeriod=2021%20-%202027"
 )
 
-SEARCH_API  = "search-api/prod/rest/search"
+SEARCH_API  = "apiKey=SEDIA"
 COOKIE_TEXT = "This site uses cookies"
 
 LINK_SELECTOR = (
@@ -101,33 +102,144 @@ THEMATIC_MAP = {
     "M-OCEAN":"Healthy Oceans, Seas, Coastal & Inland Waters",
 }
 
+# Horizon Europe: structural mapping for clusters CL1-6
+HE_CLUSTER_MAP = {
+    "1": "Health & Life Sciences",
+    "2": "Culture, Creativity & Inclusion",
+    "3": "Security & Resilience",
+    "4": "Digital, Industry & Space",
+    "5": "Climate, Energy & Mobility",
+    "6": "Food, Bioeconomy & Environment",
+}
+
+# Horizon Europe: mapping for non-CL sub-programmes (topic ID prefix)
+HE_SUBPROGRAMME_MAP = [
+    #  Missions
+    ("MISS-CIT",    "M-CIT",  "Climate-neutral & Smart Cities",                "Climate-neutral & Smart Cities"),
+    ("MISS-OCEAN",  "M-OCEAN","Healthy Oceans, Seas, Coastal & Inland Waters", "Healthy Oceans, Seas, Coastal & Inland Waters"),
+    ("MISS-CLIMA",  "5",      "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
+    ("MISS-CANCER", "1",      "Health",                                        "Health & Life Sciences"),
+    ("MISS-SOIL",   "6",      "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
+    ("MISS-CROSS",  "",       "",                                              "Climate, Energy & Mobility"),
+    ("MISS",        "",       "",                                              "Climate, Energy & Mobility"),
+    #  Health cluster
+    ("HLTH",        "1",      "Health",                                        "Health & Life Sciences"),
+    #  EIC / EIT / EIE
+    ("EITUM-BP",    "M-CIT",  "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
+    ("EITUM",       "M-CIT",  "Climate-neutral & Smart Cities",               "Climate-neutral & Smart Cities"),
+    ("EIC",         "",       "European Innovation Council",                  "SME, Entrepreneurship & Market Uptake"),
+    ("EIE",         "",       "European Innovation Ecosystems",               "SME, Entrepreneurship & Market Uptake"),
+    ("EIT",         "",       "European Institute of Innovation & Technology","SME, Entrepreneurship & Market Uptake"),
+    #  JU – Joint Undertakings
+    ("JU-CLEAN-AVIATION", "", "Clean Aviation",                               "Clean Aviation"),
+    ("JU-CBIO",     "6",      "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
+    ("JU-GH",       "1",      "Health",                                       "Health & Life Sciences"),
+    ("JU-IHI",      "1",      "Health",                                       "Health & Life Sciences"),
+    ("JU-EDCTP",    "1",      "Health",                                       "Health & Life Sciences"),
+    ("JU-H2",       "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
+    ("JU-SESAR",    "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
+    ("JU-S2R",      "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
+    ("JU-ECS",      "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("JU-KDT",      "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("JU-SNS",      "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("JU-CHIPS",    "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("JU-",         "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
+    #  ERC
+    ("ERC",         "",       "European Research Council",                    "Internships, fellowships & scholarships"),
+    #  MSCA
+    ("MSCA",        "",       "Marie Skłodowska-Curie Actions",               "Internships, fellowships & scholarships"),
+    #  Research Infrastructures
+    ("CL3-INFRA",   "3",      "Civil Security for Society",                   "Security & Resilience"),
+    ("INFRA-TECH",  "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("INFRA-SERV",  "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("INFRA-EOSC",  "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("INFRA-DEV",   "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    ("INFRA",       "4",      "Research Infrastructures",                     "Digital, Industry & Space"),
+    #  Euratom / Nuclear
+    ("EURATOM",     "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
+    ("CID",         "5",      "Climate, Energy and Mobility",                 "Climate, Energy & Mobility"),
+    #  EUROHPC
+    ("EUROHPC",     "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+    #  Widening / NEB
+    ("WIDERA",      "",       "Widening Participation & ERA",                 "Cross-cutting / Other"),
+    ("NEB",         "M-CIT",  "New European Bauhaus",                         "Climate-neutral & Smart Cities"),
+    #  RAISE
+    ("RAISE",       "4",      "Digital, Industry and Space",                  "Digital, Industry & Space"),
+]
+
 PROGRAMME_THEMATIC_MAP = [
+    # Defence
     ("European Defence Fund",           "Defence"),
     ("EDF",                             "Defence"),
+    # External Action
     ("EU External Action",              "External Action & International Cooperation"),
     ("EU External Action-Prospect",     "External Action & International Cooperation"),
-    ("Single Market Programme",         "SME, Entrepreneurship & Market Uptake"),
+    ("EUBA",                            "External Action & International Cooperation"),
+    # Digital
+    ("Digital Europe",                  "Digital, Industry & Space"),
+    ("EUAF",                            "Digital, Industry & Space"),
+    ("PPPA",                            "Digital, Industry & Space"),   # PPPA default → digital (CHIPS)
+    # Climate / Energy / Transport
+    ("Just Transition",                 "Climate, Energy & Mobility"),
+    ("Innovation Fund",                 "Climate, Energy & Mobility"),
+    ("Euratom",                         "Climate, Energy & Mobility"),
+    ("Connecting Europe",               "Climate, Energy & Mobility"),
+    ("RENEWFM",                         "Climate, Energy & Mobility"),
+    ("RFCS",                            "Climate, Energy & Mobility"),
+    # Food / Environment
+    ("EMFAF",                           "Food, Bioeconomy & Environment"),
+    ("LIFE",                            "Food, Bioeconomy & Environment"),
+    ("AGRIP",                           "Food, Bioeconomy & Environment"),
+    # Security
+    ("Internal Security Fund",          "Security & Resilience"),
+    ("ISF",                             "Security & Resilience"),
+    ("UCPM",                            "Security & Resilience"),   # Union Civil Protection Mechanism
+    # Culture / Social
     ("CERV",                            "Culture, Creativity & Inclusion"),
     ("Creative Europe",                 "Culture, Creativity & Inclusion"),
     ("Erasmus+",                        "Culture, Creativity & Inclusion"),
     ("European Social Fund+",           "Culture, Creativity & Inclusion"),
-    ("Just Transition",                 "Climate, Energy & Mobility"),
-    ("Innovation Fund",                 "Climate, Energy & Mobility"),
-    ("EMFAF",                           "Food, Bioeconomy & Environment"),
-    ("LIFE",                            "Food, Bioeconomy & Environment"),
-    ("Euratom",                         "Climate, Energy & Mobility"),
-    ("Connecting Europe",               "Climate, Energy & Mobility"),
-    ("Internal Security Fund",          "Security & Resilience"),
     ("European Solidarity Corps",       "Culture, Creativity & Inclusion"),
-    ("Digital Europe",                  "Digital, Industry & Space"),
-    ("RENEWFM",                         "Climate, Energy & Mobility"),
     ("SOCPL",                           "Culture, Creativity & Inclusion"),
     ("JUST",                            "Culture, Creativity & Inclusion"),
     ("Pericles IV",                     "Culture, Creativity & Inclusion"),
+    # SME / Market
+    ("Single Market Programme",         "SME, Entrepreneurship & Market Uptake"),
     ("I3",                              "SME, Entrepreneurship & Market Uptake"),
-    ("ERC",                             "Cross-cutting / Other"),
-    ("43392145",                        "Food, Bioeconomy & Environment"),
-    ("Horizon Europe",                  "Cross-cutting / Other"),
+    # Horizon Europe last (uses HE-specific logic, not this map)
+    ("Horizon Europe",                  None),   # handled by HE logic; None = skip
+]
+
+# URL-level overrides for non-HE programmes that embed the programme code in the URL path
+NON_HE_URL_PREFIX_MAP = [
+    ("AGRIP",       "Food, Bioeconomy & Environment"),
+    ("EUAF",        "Digital, Industry & Space"),
+    ("DIGITAL",     "Digital, Industry & Space"),
+    ("UCPM",        "Security & Resilience"),
+    ("RFCS",        "Climate, Energy & Mobility"),
+    ("EUBA",        "External Action & International Cooperation"),
+    ("PPPA-CHIPS",  "Digital, Industry & Space"),
+    ("PPPA-MEDIA",  "Culture, Creativity & Inclusion"),
+    ("PPPA",        "Digital, Industry & Space"),
+    ("RENEWFM",     "Climate, Energy & Mobility"),
+    ("SOCPL",       "Culture, Creativity & Inclusion"),
+    ("JUST",        "Culture, Creativity & Inclusion"),
+    ("I3",          "SME, Entrepreneurship & Market Uptake"),
+    ("EMFAF",       "Food, Bioeconomy & Environment"),
+    ("EDF",         "Defence"),
+    ("ISF",         "Security & Resilience"),
+    ("CEF",         "Climate, Energy & Mobility"),
+    ("INEA",        "Climate, Energy & Mobility"),
+    ("CINEA",       "Climate, Energy & Mobility"),
+    ("INNOVFUND",   "Climate, Energy & Mobility"),
+    ("LIFE",        "Food, Bioeconomy & Environment"),
+    ("ERASMUS",     "Culture, Creativity & Inclusion"),
+    ("CERV",        "Culture, Creativity & Inclusion"),
+    ("CREA",        "Culture, Creativity & Inclusion"),
+    ("ESC",         "Culture, Creativity & Inclusion"),
+    ("ESF",         "Culture, Creativity & Inclusion"),
+    ("JTM",         "Climate, Energy & Mobility"),
+    ("SMP",         "SME, Entrepreneurship & Market Uptake"),
 ]
 
 URL_RULES = [
@@ -136,7 +248,7 @@ URL_RULES = [
     ("MISS","CLIMA",    "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
     ("MISS","CANCER",   "1",     "Health",                                        "Health & Life Sciences"),
     ("MISS","SOIL",     "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
-    ("MISS","CROSS",    "",      "",                                              "Cross-cutting / Other"),
+    ("MISS","CROSS",    "",      "",                                              "Climate, Energy & Mobility"),
     ("HLTH",     None,  "1",     "Health",                                        "Health & Life Sciences"),
     ("EIC",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
     ("EIE",      None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
@@ -147,20 +259,20 @@ URL_RULES = [
     ("EUROHPC",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("JU-CLEAN-AVIATION",None,"","",                                              "Clean Aviation"),
     ("JU-",      None,  "",      "",                                              "Climate, Energy & Mobility"),
-    ("MSCA",     None,  "",      "",                                              "Cross-cutting / Other"),
+    ("MSCA",     None,  "",      "",                                              "Internships, fellowships & scholarships"),
     ("NEB",      None,  "",      "",                                              "Climate-neutral & Smart Cities"),
     ("RAISE",    None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("WIDERA",   None,  "",      "",                                              "Cross-cutting / Other"),
     ("CL3","INFRA",     "3",     "Civil Security for Society",                    "Security & Resilience"),
     ("INFRA","TECH",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("INFRA","SERV",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("INFRA","DEV",     "",      "",                                              "Cross-cutting / Other"),
-    ("INFRA","EOSC",    "",      "",                                              "Cross-cutting / Other"),
-    ("INFRA",    None,  "",      "",                                              "Cross-cutting / Other"),
+    ("INFRA","DEV",     "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
+    ("INFRA","EOSC",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
+    ("INFRA",    None,  "4",     "Research Infrastructures",                      "Digital, Industry & Space"),
     ("AGRIP",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
     ("EUAF",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("DIGITAL",  None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
-    ("UCPM",     None,  "",      "",                                              "Cross-cutting / Other"),
+    ("UCPM",     None,  "3",     "Civil Security for Society",                    "Security & Resilience"),
     ("RFCS",     None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
     ("EUBA",     None,  "",      "",                                              "External Action & International Cooperation"),
     ("PPPA","CHIPS",    "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
@@ -168,7 +280,7 @@ URL_RULES = [
     ("PPPA",     None,  "4",     "Digital, Industry and Space",                   "Digital, Industry & Space"),
     ("RENEWFM",  None,  "5",     "Climate, Energy and Mobility",                  "Climate, Energy & Mobility"),
     ("SOCPL",    None,  "",      "",                                              "Culture, Creativity & Inclusion"),
-    ("ERC",      None,  "",      "",                                              "Cross-cutting / Other"),
+    ("ERC",      None,  "",      "",                                              "Internships, fellowships & scholarships"),
     ("EMFAF",    None,  "6",     "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
     ("JUST",     None,  "",      "",                                              "Culture, Creativity & Inclusion"),
     ("I3",       None,  "",      "",                                              "SME, Entrepreneurship & Market Uptake"),
@@ -177,13 +289,29 @@ URL_RULES = [
 NUMERIC_ID_NAME_RULES = [
     ("OHAMR",       "Health & Life Sciences"),
     ("ERA4HEALTH",  "Health & Life Sciences"),
+    ("ERA4 HEALTH", "Health & Life Sciences"),
     ("BRAINHEALTH", "Health & Life Sciences"),
+    ("EP BRAINHEALTH","Health & Life Sciences"),
     ("ERDERA",      "Health & Life Sciences"),
+    ("BE READY",    "Health & Life Sciences"),
+    ("OVERWEIGHT",  "Health & Life Sciences"),
+    ("OBESITY",     "Health & Life Sciences"),
+    ("CARDIOVASC",  "Health & Life Sciences"),
+    ("CLINICAL TRIAL","Health & Life Sciences"),
+    ("NEUROSCI",    "Health & Life Sciences"),
+    ("RARE DISEASE","Health & Life Sciences"),
     ("EITUM",       "Climate-neutral & Smart Cities"),
+    ("URBAN MOBILITY","Climate-neutral & Smart Cities"),
+    ("DRIVING URBAN","Climate-neutral & Smart Cities"),
     ("EIC AWARDEE", "SME, Entrepreneurship & Market Uptake"),
     ("INNOMATCH",   "SME, Entrepreneurship & Market Uptake"),
+    ("STARTUP",     "SME, Entrepreneurship & Market Uptake"),
+    ("FOOD SUSTAINABILITY","Food, Bioeconomy & Environment"),
+    ("MARINE BIODIVERSITY","Food, Bioeconomy & Environment"),
     ("BLUEACTION",  "Food, Bioeconomy & Environment"),
+    ("TASC-RESTOREMED","Food, Bioeconomy & Environment"),
     ("RESTORE",     "Food, Bioeconomy & Environment"),
+    ("FERMENTED",   "Food, Bioeconomy & Environment"),
 ]
 
 URL_BENEFICIARY_OVERRIDE = {
@@ -250,41 +378,158 @@ def classify_multitopic(name, full_text, thematic):
         "is_special_basic_research": special,
     }
 
-def _topic_id(url):
+def _topic_id(url: str) -> str:
+    """Extract the topic ID from a URL (everything after /topic-details/, /competitive-calls-cs/, /prospect-details/)."""
     s = (url or "").upper().split("?")[0]
-    for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/"]:
+    for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/", "/PROSPECT-DETAILS/"]:
         i = s.find(m)
         if i >= 0:
             return s[i + len(m):]
     return s
 
-def url_classify(url):
+
+def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
+    """Return True if the call belongs to Horizon Europe (including JU, ERC, MSCA, etc.)."""
+    prog_l = (prog or "").lower()
+    if "horizon" in prog_l:
+        return True
     tid = _topic_id(url)
+    he_prefixes = (
+        "HORIZON-", "HLTH-", "CL1-", "CL2-", "CL3-", "CL4-", "CL5-", "CL6-",
+        "ERC-", "MSCA-", "EIC-", "EIT-", "EIE-", "EITUM-", "EUROHPC-",
+        "MISS-", "NEB-", "WIDERA-", "RAISE-", "INFRA-", "CID-", "EURATOM-",
+        "JU-",
+    )
+    for p in he_prefixes:
+        if tid.startswith(p) or (call_id or "").upper().startswith(p):
+            return True
+    return False
+
+
+def classify_horizon_europe(url: str, call_id: str) -> tuple:
+    """
+    Structural classification for Horizon Europe calls.
+
+    Cascade logic:
+      1. Explicit CL1-6 cluster in call_id or URL  -> use HE_CLUSTER_MAP
+      2. Known sub-programme (HE_SUBPROGRAMME_MAP) -> use that entry
+      3. Legacy URL_RULES fallback                  -> use that entry
+      4. Unclassified                               -> ("", "", "")
+
+    Returns (cluster_num, cluster_label, thematic)
+    """
+    tid = _topic_id(url)
+    cid_up = (call_id or "").upper()
+
+    # 1. Structural CL1-6
+    m = RE_CLUSTER.search(cid_up) or RE_CLUSTER.search(tid)
+    if m:
+        cnum = m.group(1)
+        thematic = HE_CLUSTER_MAP.get(cnum, "")
+        clabel_map = {
+            "1":"Health","2":"Culture, Creativity and Inclusion",
+            "3":"Civil Security for Society","4":"Digital, Industry and Space",
+            "5":"Climate, Energy and Mobility",
+            "6":"Food, Bioeconomy, Natural Resources, Agriculture and Environment",
+        }
+        return cnum, clabel_map.get(cnum, ""), thematic
+
+    # 2. Sub-programme via HE_SUBPROGRAMME_MAP
+    import re as _re
+    tid_norm = _re.sub(r"-20\d\d(?=-)", "", tid)
+    cid_norm = _re.sub(r"-20\d\d(?=-)", "", cid_up)
+    for prefix, cnum, clabel, thematic in HE_SUBPROGRAMME_MAP:
+        if tid.startswith(prefix) or cid_up.startswith(prefix):
+            return cnum, clabel, thematic
+        if tid.startswith("HORIZON-" + prefix) or cid_up.startswith("HORIZON-" + prefix):
+            return cnum, clabel, thematic
+        if tid_norm.startswith(prefix) or cid_norm.startswith(prefix):
+            return cnum, clabel, thematic
+        if tid_norm.startswith("HORIZON-" + prefix) or cid_norm.startswith("HORIZON-" + prefix):
+            return cnum, clabel, thematic
+        if ("-" + prefix + "-") in tid or ("-" + prefix + "-") in cid_up:
+            return cnum, clabel, thematic
+
+    # 3. Fallback: URL_RULES legacy
     for prefix, subcode, c_num, c_label, thematic in URL_RULES:
         if prefix not in tid:
             continue
-        if subcode is not None:
-            if subcode not in tid:
-                continue
-        benef = URL_BENEFICIARY_OVERRIDE.get(prefix, None)
-        return c_num, c_label, thematic, benef
-    return "", "", "", None
+        if subcode is not None and subcode not in tid:
+            continue
+        return c_num, c_label, thematic
 
-def name_classify(name):
+    return "", "", ""
+
+
+def classify_non_he_by_programme(prog: str) -> str:
+    """Derive thematic_cluster from programme name using PROGRAMME_THEMATIC_MAP."""
+    pl = (prog or "").lower()
+    for key, label in PROGRAMME_THEMATIC_MAP:
+        if label is None:
+            continue
+        if key.lower() in pl:
+            return label
+    return ""
+
+
+def classify_non_he_by_url(url: str) -> str:
+    """Derive thematic_cluster from topic ID prefix using NON_HE_URL_PREFIX_MAP."""
+    tid = _topic_id(url)
+    for prefix, thematic in NON_HE_URL_PREFIX_MAP:
+        if tid.startswith(prefix):
+            return thematic
+    return ""
+
+
+def url_classify(url: str, prog: str = "", call_id: str = "") -> tuple:
+    """
+    Full classification cascade.  Returns (cluster_num, cluster_label, thematic, beneficiary).
+
+    For HE calls: uses classify_horizon_europe().
+    For non-HE calls: uses classify_non_he_by_programme() then classify_non_he_by_url().
+    Falls back to URL_RULES for legacy compatibility.
+    """
+    tid = _topic_id(url)
+
+    if _is_horizon_europe(prog, url, call_id):
+        cnum, clabel, thematic = classify_horizon_europe(url, call_id)
+        benef = URL_BENEFICIARY_OVERRIDE.get(tid.split("-")[0], None)
+        return cnum, clabel, thematic, benef
+
+    # Non-HE: programme name first, then URL prefix
+    thematic = classify_non_he_by_programme(prog) or classify_non_he_by_url(url)
+
+    # Fallback to legacy URL_RULES
+    if not thematic:
+        for prefix, subcode, c_num, c_label, t in URL_RULES:
+            if prefix not in tid:
+                continue
+            if subcode is not None and subcode not in tid:
+                continue
+            benef = URL_BENEFICIARY_OVERRIDE.get(prefix, None)
+            return c_num, c_label, t, benef
+
+    benef = None
+    for key in URL_BENEFICIARY_OVERRIDE:
+        if tid.startswith(key):
+            benef = URL_BENEFICIARY_OVERRIDE[key]
+            break
+    return "", "", thematic, benef
+
+
+def name_classify(name: str) -> str:
     name_up = (name or "").upper()
     for keyword, thematic in NUMERIC_ID_NAME_RULES:
         if keyword.upper() in name_up:
             return thematic
     return ""
 
-def prog_thematic(prog):
-    pl = (prog or "").lower()
-    for key, label in PROGRAMME_THEMATIC_MAP:
-        if key.lower() in pl:
-            return label
-    return ""
+def prog_thematic(prog: str) -> str:
+    """Return the thematic area for a given programme name string."""
+    return classify_non_he_by_programme(prog)
 
-def resolve_thematic(cluster_num, prog):
+def resolve_thematic(cluster_num: str, prog: str) -> str:
+    """Return the thematic area from a cluster number if available, otherwise from the programme name."""
     if cluster_num and THEMATIC_MAP.get(cluster_num):
         return THEMATIC_MAP[cluster_num]
     return prog_thematic(prog)
@@ -392,6 +637,19 @@ def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
 def read_total(page, timeout_ms=30000):
+    """Read the total number of results from the SEDIA API response; falls back to CSS/text patterns."""
+    print("  In attesa della risposta dall'API SEDIA...")
+    try:
+        with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
+            data = response_info.value.json()
+            count = data.get("totalResults")
+            if count is not None:
+                print(f"  Totale rilevato dall'API: {count}")
+                return int(count)
+    except Exception:
+        print("  L'API non ha risposto in tempo o ha bloccato la richiesta.")
+
+    # Fallback: pattern regex sul testo DOM
     PATTERNS = [
         re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
         re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
@@ -401,22 +659,17 @@ def read_total(page, timeout_ms=30000):
         re.compile(r"Total[:\s]+(\d[\d,\.]*)",                     re.IGNORECASE),
         re.compile(r"(\d[\d,\.]*)\s*result",                       re.IGNORECASE),
     ]
-    start = time.time()
-    while (time.time() - start) * 1000 < timeout_ms:
-        try: txt = page.locator("body").inner_text()
-        except Exception: txt = ""
+    try:
+        page.wait_for_selector(".ecl-u-type-bold", timeout=5000)
+        txt = page.locator("body").inner_text()
         for pat in PATTERNS:
             m = pat.search(txt or "")
             if m:
                 raw = m.group(1).replace(",", "").replace(".", "")
-                print(f" Contatore trovato: {raw}")
+                print(f"  Contatore trovato (DOM): {raw}")
                 return int(raw)
-        page.wait_for_timeout(1000)
-    try:
-        snippet = page.locator("body").inner_text()[:2000]
-        print(f" Testo body (primi 2000 char):\n{snippet}")
-    except Exception as e:
-        print(f"Impossibile leggere il body: {e}")
+    except Exception:
+        pass
     return None
 
 def scroll_until(page, expected, max_ms=50000):
@@ -673,7 +926,7 @@ def to_call(row):
             cluster_num = m.group(1)
             break
 
-    u_cnum, u_clabel, u_thematic, u_benef = url_classify(url)
+    u_cnum, u_clabel, u_thematic, u_benef = url_classify(url, prog_raw, call_id)
     if u_cnum: cluster_num = u_cnum
 
     cluster_label = u_clabel or THEMATIC_MAP.get(cluster_num, "")
@@ -743,6 +996,7 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
                 "Chrome/122.0.0.0 Safari/537.36"
             ),
         )
+        playwright_stealth.stealth_sync(ctx.new_page())  # applica stealth al contesto
         page = ctx.new_page()
 
         # ── Step 1: leggi il totale dalla pagina 1 ────────────────────────────
