@@ -996,8 +996,17 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
                 "Chrome/122.0.0.0 Safari/537.36"
             ),
         )
-        playwright_stealth.stealth_sync(ctx.new_page())  # applica stealth al contesto
         page = ctx.new_page()
+        try:
+            if hasattr(playwright_stealth, 'stealth_sync'):
+                playwright_stealth.stealth_sync(page)
+            elif hasattr(playwright_stealth, 'stealth'):
+                from playwright_stealth.stealth import stealth as _st
+                _st(page)
+            else:
+                print("  Impossibile applicare stealth, procedo comunque...")
+        except Exception as e:
+            print(f"  Errore stealth ignorato: {e}")
 
         # ── Step 1: leggi il totale dalla pagina 1 ────────────────────────────
         print(f"[batch {batch}/{total_batches}] Lettura totale call…", flush=True)
