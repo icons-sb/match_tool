@@ -37,6 +37,8 @@ LIST_URL = (
 SEARCH_API  = "apiKey=SEDIA"
 COOKIE_TEXT = "This site uses cookies"
 
+TOPIC_BASE_URL = "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/"
+
 LINK_SELECTOR = (
     'a[href*="/topic-details/"], '
     'a[href*="/competitive-calls-cs/"], '
@@ -1061,26 +1063,160 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
             browser.close()
             return
 
-        # ── Step 2: scrapa le pagine del batch ───────────────────────────────
+        # ── Step 2: scrapa le pagine del batch via API SEDIA ────────────────
+        import threading as _threading
+
         for pnum in range(page_from, page_to + 1):
             remaining = total - (pnum - 1) * PAGE_SIZE
             expected  = min(PAGE_SIZE, max(0, remaining))
             url = LIST_URL.format(page=pnum, ps=PAGE_SIZE)
             print(f"\n[p{pnum}/{global_max}] attese ~{expected}", end="", flush=True)
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            page.wait_for_timeout(1200)
-            accept_cookies(page)
-            wait_cookie_gone(page)
 
-            scroll_until(page, expected=expected)
-            links     = extract_links(page)
-            new_links = [u for u in links if u not in seen_urls]
-            print(f" → trovati {len(new_links)} nuovi", flush=True)
+            page_results   = []
+            _debounce_timer: list = [None]
 
-            for u in new_links:
-                seen_urls.add(u)
-                rows.append(parse_card(page, u))
-            time.sleep(0.1)
+            def _mark_done(_pr=page_results, _dt=_debounce_timer):
+                _dt.append("done")
+
+            def handle_list_response(response, _pr=page_results, _dt=_debounce_timer):
+                if SEARCH_API not in response.url or response.status != 200:
+                    return
+                try:
+                    body = response.json()
+                except Exception:
+                    return
+                try:
+                    results = body.get("results", [])
+                    if not results:
+                        return
+                    api_count = len(results)
+                    print(f" [API p{body.get('pageNumber','?')}: {api_count}]", end="", flush=True)
+                    for item in results:
+                        ref = item.get("reference", "")
+                        if not ref:
+                            continue
+                        meta     = item.get("metadata", {}) or {}
+                        full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
+                        if not full_url:
+                            cid_tmp  = _first(meta, "identifier", "callIdentifier") or ref
+                            full_url = TOPIC_BASE_URL + cid_tmp
+                        prog_id      = _first(meta, "frameworkProgramme", "programme")
+                        action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                        cid          = _first(meta, "identifier", "callIdentifier")
+                        title        = _first(meta, "title", "name") or item.get("summary") or ref
+                        opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                        deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                        cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
+                        _pr.append({
+                            "name":          clean(title) or ref,
+                            "call_id":       cid,
+                            "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                            "action_raw":    action or None,
+                            "cluster_raw":   cluster_raw,
+                            "opening_raw":   opening_raw or None,
+                            "deadline_raw":  deadline_raw or None,
+                            "url":           full_url,
+                            "_ref":          ref,
+                        })
+                    old = _dt[0]
+                    if old is not None:
+                        old.cancel()
+                    t = _threading.Timer(2.0, _mark_done)
+                    _dt[0] = t
+                    t.start()
+                except Exception as e:
+                    print(f"\n    [WARN parse API p{pnum}] {e}", flush=True)
+
+            page.on("response", handle_list_response)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                accept_cookies(page)
+                deadline_t = time.time() + 45
+                while len(page_results) < expected and time.time() < deadline_t:
+                    if len(_debounce_timer) > 1:
+                        break
+                    page.wait_for_timeout(300)
+                if _debounce_timer[0] is not None:
+                    _debounce_timer[0].cancel()
+                if len(page_results) == 0:
+                    print(f"  Nessuna risposta API per p{pnum}", flush=True)
+            finally:
+                page.remove_listener("response", handle_list_response)
+
+            new_items = [r for r in page_results if r.get("_ref") not in seen_urls]
+            print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
+            for r in new_items:
+                seen_urls.add(r["_ref"])
+                rows.append(r)
+            time.sleep(0.8)
+
+        # ── Step 2b: recovery pass per call mancanti ─────────────────────────
+        missing = total - len(rows)
+        if missing > 0:
+            print(f"\n  {missing} call mancanti. Seconda passata recovery...", flush=True)
+            for pg in range(page_from, page_to + 1):
+                if len(rows) >= total:
+                    break
+                url2 = LIST_URL.format(page=pg, ps=PAGE_SIZE)
+                page_results2 = []
+
+                def handle_recovery(response, _pr=page_results2):
+                    if SEARCH_API not in response.url or response.status != 200:
+                        return
+                    try:
+                        body = response.json()
+                    except Exception:
+                        return
+                    try:
+                        if not body.get("results"):
+                            return
+                        for item in body.get("results", []):
+                            ref = item.get("reference", "")
+                            if not ref:
+                                continue
+                            meta     = item.get("metadata", {}) or {}
+                            full_url = item.get("url") or _first(meta, "url", "esST_URL") or ""
+                            if not full_url:
+                                continue
+                            _pr.append((ref, full_url, item))
+                    except Exception:
+                        pass
+
+                page.on("response", handle_recovery)
+                try:
+                    page.goto(url2, wait_until="domcontentloaded", timeout=90000)
+                    t0 = time.time()
+                    while len(page_results2) == 0 and time.time() - t0 < 25:
+                        page.wait_for_timeout(400)
+                finally:
+                    page.remove_listener("response", handle_recovery)
+
+                for ref, full_url, item in page_results2:
+                    if ref in seen_urls:
+                        continue
+                    seen_urls.add(ref)
+                    meta         = item.get("metadata", {}) or {}
+                    prog_id      = _first(meta, "frameworkProgramme", "programme")
+                    action       = _first(meta, "typesOfAction", "typeOfAction", "fundingScheme")
+                    cid          = _first(meta, "identifier", "callIdentifier")
+                    title        = _first(meta, "title", "name") or item.get("summary") or ref
+                    opening_raw  = _first(meta, "startDate", "openingDate", "publicationDate")
+                    deadline_raw = _first(meta, "deadlineDate", "nextDeadline", "closingDate")
+                    cluster_raw  = pick(RE_CLUSTER, full_url) or pick(RE_CLUSTER, cid or "")
+                    rows.append({
+                        "name":          clean(title) or ref,
+                        "call_id":       cid,
+                        "programme_raw": PROGRAMME_MAP.get(prog_id, prog_id) if prog_id else None,
+                        "action_raw":    action or None,
+                        "cluster_raw":   cluster_raw,
+                        "opening_raw":   opening_raw or None,
+                        "deadline_raw":  deadline_raw or None,
+                        "url":           full_url,
+                        "_ref":          ref,
+                    })
+                    print(f"   {clean(title) or ref}", flush=True)
+                time.sleep(0.8)
+            print(f"  Dopo recovery: {len(rows)} call nel batch.", flush=True)
 
         # ── Step 3: enrichment ────────────────────────────────────────────────
         print(f"\n═══ Passo 3: arricchimento {len(rows)} call (batch {batch}) ═══", flush=True)
@@ -1089,12 +1225,21 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
 
     # ── Classification and output ─────────────────────────────────────────────
     calls = []
-    seen  = set()
+    seen_refs = set()
+    seen_urls_out = set()
     for row in rows:
         call = to_call(row)
-        if call["url"] and call["url"] not in seen:
-            seen.add(call["url"])
-            calls.append(call)
+        ref_key = row.get("_ref") or ""
+        url_key = call.get("url") or ""
+        if ref_key and ref_key in seen_refs:
+            continue
+        if not ref_key and url_key and url_key in seen_urls_out:
+            continue
+        if ref_key:
+            seen_refs.add(ref_key)
+        if url_key:
+            seen_urls_out.add(url_key)
+        calls.append(call)
 
     tc = {}
     for c in calls:
