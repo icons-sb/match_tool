@@ -878,14 +878,12 @@ def _enrich_one(page, row):
 
 
 def enrich(ctx, rows):
-    to_fix = [r for r in rows
-              if (not r.get("programme_raw") or not r.get("action_raw") or not r.get("call_id"))
-              and r.get("url")]
+    to_fix = [r for r in rows if r.get("url")]
     if not to_fix:
-        print("  Tutti i campi già presenti ✓", flush=True)
+        print("  Nessuna call da arricchire ✓", flush=True)
         return
 
-    print(f"  {len(to_fix)} call da arricchire…", flush=True)
+    print(f"  {len(to_fix)} call da arricchire (full_text + budget + metadata)…", flush=True)
     page = ctx.new_page()
     skipped = 0
 
