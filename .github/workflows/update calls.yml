@@ -17,7 +17,7 @@ on:
     # to also run the (much slower) closed-calls scraping.
     inputs:
       run_closed_calls:
-        description: "Esegui scraping call chiuse (5 batch paralleli)"
+        description: "Runs scraping closed calls (5 batches in parallel)"
         required: false
         default: "false"
         type: choice
