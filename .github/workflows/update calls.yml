@@ -1,10 +1,20 @@
+# GitHub Actions workflow that keeps EU funding calls data up to date.
+# It runs two main operations:
+#   1. Daily: scrape open/forthcoming calls and commit the result.
+#   2. Monthly (or on demand): scrape closed calls in 5 parallel batches,
+#      then merge them into a single file and commit.
+
 name: Update EU Calls
 
 on:
   schedule:
+    # Run the open-calls scraper every day at 02:00 UTC
     - cron: "0 2 * * *"
+    # Run the closed-calls scraper on the 1st of every month at 03:00 UTC
     - cron: "0 3 1 * *"
   workflow_dispatch:
+    # Allow manual triggering from the GitHub UI, with an optional flag
+    # to also run the (much slower) closed-calls scraping.
     inputs:
       run_closed_calls:
         description: "Esegui scraping call chiuse (5 batch paralleli)"
@@ -16,35 +26,62 @@ on:
           - "true"
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 1 — Scrape open and forthcoming EU calls (runs every day)
+  # ─────────────────────────────────────────────────────────────────────────────
   scrape-open:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # Needed to push the updated JSON back to the repo
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4  # Check out the repository
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Install the scraping dependencies:
+      # - requests: HTTP client
+      # - playwright: headless browser automation
+      # - playwright-stealth: makes the browser harder to detect as a bot
       - name: Install dependencies
         run: |
           pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
+
+      # Run the scraper inside a virtual display (xvfb-run) because
+      # Playwright needs a display even in headless mode on some runners.
+      # The result is written to calls.json.
       - name: Scrape open/forthcoming EU calls
         run: xvfb-run python scrape_to_json.py --out calls.json
-        timeout-minutes: 90
+        timeout-minutes: 90  # Kill the job if it exceeds 90 minutes
+
+      # Commit calls.json (and the changelog files) only if they changed.
+      # A retry loop handles transient push conflicts (e.g. concurrent runs).
       - name: Commit calls.json
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add calls.json changelog.md changelog_history.md
+          # Exit early with a friendly message if nothing actually changed
           git diff --staged --quiet && echo "Nessuna modifica, skip." && exit 0
           git commit -m "chore: update open calls [$(date -u +%Y-%m-%d)]"
+          # Retry push up to 5 times in case of rebase conflicts
           for attempt in 1 2 3 4 5; do
             git pull --rebase origin main && git push origin main && break || {
               echo "Push fallito (tentativo $attempt/5), retry in 15s..."
               sleep 15
             }
           done
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOBS 2–6 — Scrape closed calls in 5 parallel batches
+  #
+  # These jobs only run on the monthly schedule or when explicitly requested
+  # via workflow_dispatch. Splitting the work into batches keeps each job
+  # within GitHub's per-job time limit and speeds up the overall process.
+  # Each batch uploads its output as a temporary artifact (kept for 1 day)
+  # so the merge job can download and combine them all.
+  # ─────────────────────────────────────────────────────────────────────────────
 
   scrape-closed-batch-1:
     if: >
@@ -63,9 +100,11 @@ jobs:
         run: |
           pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
+      # Process the 1st fifth of all closed calls
       - name: Scrape batch 1/5
         run: python scrape_closed_calls.py --batch 1 --total-batches 5 --out closed_calls_batch_1.json
         timeout-minutes: 340
+      # Upload the batch result as an artifact for the merge job
       - uses: actions/upload-artifact@v4
         with:
           name: closed-batch-1
@@ -87,6 +126,7 @@ jobs:
         run: |
           pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
+      # Process the 2nd fifth of all closed calls
       - name: Scrape batch 2/5
         run: python scrape_closed_calls.py --batch 2 --total-batches 5 --out closed_calls_batch_2.json
         timeout-minutes: 340
@@ -111,6 +151,7 @@ jobs:
         run: |
           pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
+      # Process the 3rd fifth of all closed calls
       - name: Scrape batch 3/5
         run: python scrape_closed_calls.py --batch 3 --total-batches 5 --out closed_calls_batch_3.json
         timeout-minutes: 340
@@ -135,6 +176,7 @@ jobs:
         run: |
           pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
+      # Process the 4th fifth of all closed calls
       - name: Scrape batch 4/5
         run: python scrape_closed_calls.py --batch 4 --total-batches 5 --out closed_calls_batch_4.json
         timeout-minutes: 340
@@ -159,6 +201,7 @@ jobs:
         run: |
           pip install requests playwright playwright-stealth
           playwright install chromium --with-deps
+      # Process the 5th (last) fifth of all closed calls
       - name: Scrape batch 5/5
         run: python scrape_closed_calls.py --batch 5 --total-batches 5 --out closed_calls_batch_5.json
         timeout-minutes: 340
@@ -168,6 +211,12 @@ jobs:
           path: closed_calls_batch_5.json
           retention-days: 1
 
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 7 — Merge all batch artifacts and commit the final closed_calls.json
+  #
+  # Waits for all 5 batch jobs to finish. Runs as long as no job failed or
+  # was cancelled, and at least one batch completed successfully.
+  # ─────────────────────────────────────────────────────────────────────────────
   merge-and-commit:
     needs:
       - scrape-closed-batch-1
@@ -194,14 +243,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Download all five batch artifact files into the working directory
       - name: Download all batch artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: closed-batch-*
           merge-multiple: true
           path: .
+
+      # Combine the individual batch JSON files into a single closed_calls.json
       - name: Merge batch files into closed_calls.json
         run: python merge_closed_calls.py --dir . --out closed_calls.json
+
+      # Commit the merged file (and the autofill index) only if they changed,
+      # with the same retry logic used in the open-calls job.
       - name: Commit
         run: |
           git config user.name  "github-actions[bot]"
@@ -209,6 +265,7 @@ jobs:
           git add closed_calls.json closed_calls_autofill_index.json
           git diff --staged --quiet && echo "Nessuna modifica da committare" && exit 0
           git commit -m "chore: update closed calls [$(date -u +%Y-%m-%d)]"
+          # Retry push up to 5 times in case of rebase conflicts
           for attempt in 1 2 3 4 5; do
             git pull --rebase origin main && git push origin main && break || {
               echo "Push fallito (tentativo $attempt/5), retry in 15s..."
