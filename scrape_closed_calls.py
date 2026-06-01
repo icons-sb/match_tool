@@ -2,8 +2,8 @@
 scrape_closed_calls.py
 ──────────────────────
 Scrapa il portale EU Funding & Tenders con Playwright e produce
-closed_calls_batch_N.json — chiamate con status CLOSED (31094503),
-divise in batch di pagine per rispettare il limite di 6 ore di GitHub Actions.
+closed_calls_batch_N.json - calls with status CLOSED (31094503),
+split into page batches to stay within the 6-hour GitHub Actions limit.
 
 Uso:
     python scrape_closed_calls.py --batch 1 --total-batches 5
@@ -132,7 +132,7 @@ HE_SUBPROGRAMME_MAP = [
     ("EIC",         "",       "European Innovation Council",                  "SME, Entrepreneurship & Market Uptake"),
     ("EIE",         "",       "European Innovation Ecosystems",               "SME, Entrepreneurship & Market Uptake"),
     ("EIT",         "",       "European Institute of Innovation & Technology","SME, Entrepreneurship & Market Uptake"),
-    #  JU – Joint Undertakings
+    #  JU - Joint Undertakings
     ("JU-CLEAN-AVIATION", "", "Clean Aviation",                               "Clean Aviation"),
     ("JU-CBIO",     "6",      "Food, Bioeconomy, Natural Resources, Agriculture and Environment","Food, Bioeconomy & Environment"),
     ("JU-GH",       "1",      "Health",                                       "Health & Life Sciences"),
@@ -180,7 +180,7 @@ PROGRAMME_THEMATIC_MAP = [
     # Digital
     ("Digital Europe",                  "Digital, Industry & Space"),
     ("EUAF",                            "Digital, Industry & Space"),
-    ("PPPA",                            "Digital, Industry & Space"),   # PPPA default → digital (CHIPS)
+    ("PPPA",                            "Digital, Industry & Space"),   # PPPA default -> digital (CHIPS)
     # Climate / Energy / Transport
     ("Just Transition",                 "Climate, Energy & Mobility"),
     ("Innovation Fund",                 "Climate, Energy & Mobility"),
@@ -640,16 +640,16 @@ def count_links(page):
 
 def read_total(page, timeout_ms=30000):
     """Read the total number of results from the SEDIA API response; falls back to CSS/text patterns."""
-    print("  In attesa della risposta dall'API SEDIA...")
+    print("  Waiting for SEDIA API response...")
     try:
         with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
             data = response_info.value.json()
             count = data.get("totalResults")
             if count is not None:
-                print(f"  Totale rilevato dall'API: {count}")
+                print(f"  Total from API: {count}")
                 return int(count)
     except Exception:
-        print("  L'API non ha risposto in tempo o ha bloccato la richiesta.")
+        print("  API did not respond in time or blocked the request.")
 
     # Fallback: pattern regex sul testo DOM
     PATTERNS = [
@@ -668,7 +668,7 @@ def read_total(page, timeout_ms=30000):
             m = pat.search(txt or "")
             if m:
                 raw = m.group(1).replace(",", "").replace(".", "")
-                print(f"  Contatore trovato (DOM): {raw}")
+                print(f"  Counter found (DOM): {raw}")
                 return int(raw)
     except Exception:
         pass
@@ -880,10 +880,10 @@ def _enrich_one(page, row):
 def enrich(ctx, rows):
     to_fix = [r for r in rows if r.get("url")]
     if not to_fix:
-        print("  Nessuna call da arricchire ✓", flush=True)
+        print("  All fields already present.", flush=True)
         return
 
-    print(f"  {len(to_fix)} call da arricchire (full_text + budget + metadata)…", flush=True)
+    print(f"  {len(to_fix)} calls to enrich (full_text + budget + metadata)...", flush=True)
     page = ctx.new_page()
     skipped = 0
 
@@ -895,23 +895,23 @@ def enrich(ctx, rows):
                 ok = _enrich_one(page, row)
                 break
             except Exception as e:
-                print(f"    [tentativo {attempt} fallito] {e}", flush=True)
+                print(f"    [attempt {attempt} failed] {e}", flush=True)
                 try: page.close()
                 except Exception: pass
                 page = ctx.new_page()
                 time.sleep(2)
         if not ok:
             skipped += 1
-            print(f"    [SKIP] nessun dato recuperato", flush=True)
+            print(f"    [SKIP] no data retrieved", flush=True)
         if idx % 100 == 0:
-            print(f"  [checkpoint] processate {idx} call…", flush=True)
+            print(f"  [checkpoint] processed {idx} calls...", flush=True)
         time.sleep(0.3)
 
     try: page.close()
     except Exception: pass
-    print(f"  Arricchimento completato. Saltate: {skipped}/{len(to_fix)}", flush=True)
+    print(f"  Enrichment complete. Skipped: {skipped}/{len(to_fix)}", flush=True)
 
-# ── Transform row → call object ───────────────────────────────────────────────
+# ── Transform row -> call object ────────────────────────────────────────────────
 
 def to_call(row):
     url        = row.get("url", "")
@@ -955,7 +955,7 @@ def to_call(row):
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
         "budget":           row.get("budget_raw") or 0,
         # full_text sintetico: solo le keyword trovate nel testo (non il testo grezzo).
-        # Il frontend lo usa per la ricerca testuale — le keyword matchate sono sufficienti
+        # Used by the frontend for text search - matched keywords are sufficient
         # e riducono il file da ~120 MB a ~5-8 MB.
         "full_text":        " ".join(
             kw
@@ -971,16 +971,16 @@ def to_call(row):
 
 def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
     """
-    Scrapa solo le pagine assegnate a questo batch.
+    Scrapes only the pages assigned to this batch.
 
-    Esempio con 5 batch e 100 pagine totali:
-      batch 1 → pagine  1-20
-      batch 2 → pagine 21-40
+    Example with 5 batches and 100 total pages:
+      batch 1 -> pages  1-20
+      batch 2 -> pages 21-40
       ...
-      batch 5 → pagine 81-100
+      batch 5 -> pages 81-100
 
-    Il totale viene letto dalla pagina 1 (sempre disponibile) e poi
-    ogni job salta direttamente alle proprie pagine.
+    The total is read from page 1 (always available), then
+    each job jumps directly to its own pages.
     """
     rows      = []
     seen_urls = set()
@@ -1003,12 +1003,12 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
             elif hasattr(playwright_stealth, 'Stealth'):
                 playwright_stealth.Stealth()(page)
             else:
-                print("  Impossibile applicare stealth, procedo comunque...")
+                print("  Could not apply stealth, proceeding anyway...")
         except Exception as e:
-            print(f"  Errore stealth ignorato: {e}")
+            print(f"  Stealth error ignored: {e}")
 
-        # ── Step 1: leggi il totale dalla pagina 1 via listener API SEDIA ─────
-        print(f"[batch {batch}/{total_batches}] Lettura totale call…", flush=True)
+        # ── Step 1: read total count from page 1 via SEDIA API listener ─────────
+        print(f"[batch {batch}/{total_batches}] Reading total call count...", flush=True)
         total_captured = {}
 
         def handle_first_response(response, _tc=total_captured):
@@ -1018,7 +1018,7 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
                     t = body.get("totalResults")
                     if t is not None:
                         _tc["total"] = int(t)
-                        print(f"  Totale rilevato dall'API: {t}", flush=True)
+                        print(f"  Total from API: {t}", flush=True)
                 except Exception:
                     pass
 
@@ -1028,7 +1028,7 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
         accept_cookies(page)
         wait_cookie_gone(page)
 
-        print("  In attesa della risposta dall'API SEDIA...", flush=True)
+        print("  Waiting for SEDIA API response...", flush=True)
         deadline_init = time.time() + 30
         while "total" not in total_captured and time.time() < deadline_init:
             page.wait_for_timeout(500)
@@ -1036,32 +1036,32 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
 
         total = total_captured.get("total") or read_total(page)
         if total is None:
-            print("❌ Non riesco a leggere il contatore delle call.")
+            print("ERROR: Could not read call counter.")
             browser.close()
             return
 
         real_max_pages = math.ceil(total / PAGE_SIZE)
-        # Se --max-pages è impostato lo usiamo come tetto globale (utile per test)
+        # If --max-pages is set, use it as a global page cap (useful for tests)
         global_max = min(real_max_pages, max_pages) if max_pages else real_max_pages
 
-        # Calcola il range di pagine per questo batch
+        # Compute the page range for this batch
         pages_per_batch = math.ceil(global_max / total_batches)
         page_from = (batch - 1) * pages_per_batch + 1
         page_to   = min(batch * pages_per_batch, global_max)
 
         print(
-            f"✅ Totale call: {total} | pagine totali: {real_max_pages} "
-            f"| questo batch: pagine {page_from}–{page_to} "
-            f"(~{page_to - page_from + 1} pagine, ~{(page_to - page_from + 1) * PAGE_SIZE} call)",
+            f"Total calls: {total} | total pages: {real_max_pages} "
+            f"| this batch: pages {page_from}-{page_to} "
+            f"(~{page_to - page_from + 1} pages, ~{(page_to - page_from + 1) * PAGE_SIZE} calls)",
             flush=True,
         )
 
         if page_from > global_max:
-            print(f"ℹ️  Nessuna pagina da scrapare per il batch {batch} (totale pagine: {global_max})")
+            print(f"INFO: No pages to scrape for batch {batch} (total pages: {global_max})")
             browser.close()
             return
 
-        # ── Step 2: scrapa le pagine del batch via API SEDIA ────────────────
+        # ── Step 2: scrape batch pages via SEDIA API ────────────────────────────
         import threading as _threading
 
         for pnum in range(page_from, page_to + 1):
@@ -1137,21 +1137,21 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
                 if _debounce_timer[0] is not None:
                     _debounce_timer[0].cancel()
                 if len(page_results) == 0:
-                    print(f"  Nessuna risposta API per p{pnum}", flush=True)
+                    print(f"  No API response for p{pnum}", flush=True)
             finally:
                 page.remove_listener("response", handle_list_response)
 
             new_items = [r for r in page_results if r.get("_ref") not in seen_urls]
-            print(f" → trovati {len(new_items)} nuovi (API totale: {len(page_results)})", flush=True)
+            print(f" -> found {len(new_items)} new (API total: {len(page_results)})", flush=True)
             for r in new_items:
                 seen_urls.add(r["_ref"])
                 rows.append(r)
             time.sleep(0.8)
 
-        # ── Step 2b: recovery pass per call mancanti ─────────────────────────
+        # ── Step 2b: recovery pass for missing calls ────────────────────────────
         missing = total - len(rows)
         if missing > 0:
-            print(f"\n  {missing} call mancanti. Seconda passata recovery...", flush=True)
+            print(f"\n  {missing} missing calls. Starting recovery pass...", flush=True)
             for pg in range(page_from, page_to + 1):
                 if len(rows) >= total:
                     break
@@ -1214,10 +1214,10 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
                     })
                     print(f"   {clean(title) or ref}", flush=True)
                 time.sleep(0.8)
-            print(f"  Dopo recovery: {len(rows)} call nel batch.", flush=True)
+            print(f"  After recovery: {len(rows)} calls in batch.", flush=True)
 
-        # ── Step 3: enrichment ────────────────────────────────────────────────
-        print(f"\n═══ Passo 3: arricchimento {len(rows)} call (batch {batch}) ═══", flush=True)
+        # ── Step 3: enrichment ──────────────────────────────────────────────────
+        print(f"\n--- Step 3: enriching {len(rows)} calls (batch {batch}) ---", flush=True)
         enrich(ctx, rows)
         browser.close()
 
@@ -1276,7 +1276,7 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
                     "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
                 }
 
-    # ── Salva output per-batch ────────────────────────────────────────────────
+    # ── Save per-batch output ────────────────────────────────────────────────
     payload = {
         "generated":      generated,
         "status":         "closed",
@@ -1292,21 +1292,21 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"\n✅ Scritto {out_path} con {len(calls)} call (batch {batch}/{total_batches})")
+    print(f"\nWrote {out_path} with {len(calls)} calls (batch {batch}/{total_batches})")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Scrapa le call CHIUSE dal portale EU F&T in batch di pagine"
+        description="Scrape CLOSED calls from the EU F&T portal in page batches"
     )
     parser.add_argument("--batch",         type=int, required=True,
                         help="Numero del batch corrente (1-based, es. 1)")
     parser.add_argument("--total-batches", type=int, default=5,
-                        help="Numero totale di batch (default: 5)")
+                        help="Total number of batches (default: 5)")
     parser.add_argument("--out",           default=None,
                         help="Percorso output JSON (default: closed_calls_batch_N.json)")
     parser.add_argument("--max-pages",     type=int, default=None,
-                        help="Numero massimo pagine globale (per test)")
+                        help="Global maximum page count (for testing)")
     args = parser.parse_args()
 
     out = Path(args.out) if args.out else Path(f"closed_calls_batch_{args.batch}.json")
