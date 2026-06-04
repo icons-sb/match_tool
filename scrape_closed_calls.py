@@ -937,13 +937,32 @@ def to_call(row):
     full_text = row.get("full_text") or ""
     multi = classify_multitopic(row.get("name") or "", full_text, thematic)
 
+    # Thematic promotion: if still generic, use keywords from full_text
+    # "Cross-cutting / Other" is acceptable ONLY for WIDERA and genuinely
+    # interdisciplinary calls; everything else must have a specific area.
+    GENERIC_THEMATICS = {"Cross-cutting / Other", ""}
+    PROMOTION_EXEMPT  = {
+        "Internships, fellowships & scholarships",  # ERC/MSCA: domain-dependent, do not promote randomly
+    }
+    effective_thematic = thematic
+    if effective_thematic in GENERIC_THEMATICS and multi["multi_thematic"]:
+        for candidate in multi["multi_thematic"]:
+            if candidate not in GENERIC_THEMATICS and candidate not in PROMOTION_EXEMPT:
+                effective_thematic = candidate
+                break
+
+    # Ensure the primary thematic is always included in multi_thematic
+    all_thematics = list(multi["multi_thematic"])
+    if effective_thematic and effective_thematic not in all_thematics:
+        all_thematics.insert(0, effective_thematic)
+
     return {
         "name":             row.get("name") or "",
         "call_id":          call_id,
         "programme":        prog_raw,
         "cluster_num":      cluster_num,
         "cluster_label":    cluster_label,
-        "thematic_cluster": thematic,
+        "thematic_cluster": effective_thematic,
         "action":           action,
         "opening":          row.get("opening_raw") or "",
         "opening_iso":      parse_date_iso(row.get("opening_raw") or ""),
@@ -954,16 +973,15 @@ def to_call(row):
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
         "budget":           row.get("budget_raw") or 0,
-        # full_text sintetico: solo le keyword trovate nel testo (non il testo grezzo).
         # Used by the frontend for text search - matched keywords are sufficient
-        # e riducono il file da ~120 MB a ~5-8 MB.
+        # and reduce the file size from ~120 MB to ~5-8 MB.
         "full_text":        " ".join(
             kw
             for hits in multi["keyword_hits"].values()
             for kw in hits
         ),
         "keyword_hits":     multi["keyword_hits"],
-        "multi_thematic":   multi["multi_thematic"],
+        "multi_thematic":   all_thematics,
         "is_special_basic_research": multi["is_special_basic_research"],
     }
 
