@@ -1487,7 +1487,7 @@ def main(out_path: Path):
                     pass
 
         page.on("response", handle_first_response)
-        page.goto(LIST_URL.format(page=1, ps=PAGE_SIZE),
+        page.goto(LIST_URLS.format(page=1, ps=PAGE_SIZE),
                   wait_until="domcontentloaded", timeout=90000)
 
         # Force cookie acceptance
