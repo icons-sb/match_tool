@@ -25,12 +25,10 @@ import playwright_stealth
 
 PAGE_SIZE = 50  # number of results per API page
 
-LIST_URL = (
-    "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
-    "/opportunities/calls-for-proposals"
-    "?order=DESC&pageNumber={page}&pageSize={ps}&sortBy=startDate"
-    "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
-)
+LIST_URLS = [
+    "...&sortBy=startDate&status=31094501,31094502&programmePeriod=2021%20-%202027",
+    "...&sortBy=deadline&status=31094501,31094502&programmePeriod=2021%20-%202027",
+]
 
 # Substring present in every SEDIA API request URL — used to identify XHR calls
 SEARCH_API  = "apiKey=SEDIA"
