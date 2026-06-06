@@ -27,10 +27,10 @@ PAGE_SIZE = 50  # number of results per API page
 
 # Standard direct calls (type=1 is implicit when no type filter is specified)
 LIST_URL = (
-    "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen"
-    "/opportunities/calls-for-proposals"
-    "?order=DESC&pageNumber={page}&pageSize={ps}&sortBy=startDate"
-    "&isExactMatch=true&status=31094501,31094502&programmePeriod=2021%20-%202027"
+    "https://ec.europa.eu/info/funding-tenders/"
+    "opportunities/portal/screen/opportunities/calls-for-proposals"
+    "?order=DESC&pageNumber=1&pageSize=50&sortBy=startDate&"
+    "isExactMatch=true&type=1&status=31094501,31094502"
 )
 
 # Cascade / FSTP calls (type=8): open calls emitted by Horizon-funded projects
