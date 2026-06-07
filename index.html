@@ -475,6 +475,25 @@
       background-repeat: no-repeat; background-position: 12px center;
     }
 
+    /* ── SEARCH HINT ── */
+    .search-hint {
+      margin-top: 7px;
+      font-size: 0.74rem;
+      color: var(--muted2);
+      font-style: italic;
+      line-height: 1.6;
+    }
+    .search-hint code {
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: 'DM Mono', 'Courier New', monospace;
+      font-size: 0.88em;
+      font-style: normal;
+      color: var(--text);
+    }
+
     /* ── SELECTION BAR ── */
     .selection-bar {
       display: none;
@@ -799,7 +818,13 @@
       <div class="toolbar">
         <div class="tb-search">
           <label class="field-label" for="keyword_filter">Filtra per keyword</label>
-          <input id="keyword_filter" type="text" placeholder="Es. hydrogen, robotics, cancer…" />
+          <input id="keyword_filter" type="text" placeholder='Es. "EV" OR hydrogen AND storage' />
+          <p class="search-hint">
+            <code>"parola"</code> = match esatto (word boundary) &nbsp;·&nbsp;
+            <code>AND</code> = entrambi i termini &nbsp;·&nbsp;
+            <code>OR</code> = almeno uno &nbsp;·&nbsp;
+            Senza virgolette: substring libera
+          </p>
         </div>
         <div>
           <label class="field-label">Cerca in</label>
@@ -932,10 +957,10 @@
   let visibleCount      = PAGE_SIZE;
   let lastAnswers       = null;
   let lastScoredResults = [];
-  let lastFiltered      = [];   // filtered + sorted, with _filteredIdx assigned
+  let lastFiltered      = [];
   let sortMode          = 'relevance';
   let searchScope       = 'fulltext';
-  let selectedIds       = new Set(); // Set of _filteredIdx values
+  let selectedIds       = new Set();
 
   /* ── DOM refs ── */
   const form               = document.getElementById('surveyForm');
@@ -979,7 +1004,7 @@
    * Sets closedIndexReady=true on success; falls back gracefully on error.
    * Called once at startup in parallel with loadCalls().
    */
-    async function loadClosedIndex() {
+  async function loadClosedIndex() {
     try {
       const res  = await fetch('./closed_calls_autofill_index.json', {cache:'no-store'});
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -998,12 +1023,8 @@
   /**
    * updateIndexStatus
    * Renders the index status strip shown below the autofill input.
-   * Displays three coloured dots indicating:
-   *   - green:  number of open calls loaded from the local dataset
-   *   - cyan/grey: number of closed calls indexed (or "not available")
-   *   - orange: structural ID parsing always available as fallback
    */
-    function updateIndexStatus() {
+  function updateIndexStatus() {
     const openDot   = `<span class="idx-dot green"></span>`;
     const closedDot = closedIndexReady ? `<span class="idx-dot cyan"></span>` : `<span class="idx-dot grey"></span>`;
     const openCount = CALLS.length;
@@ -1021,11 +1042,8 @@
   /**
    * lookupClosedIndex
    * Searches the closed-calls index for a given call ID or topic URL slug.
-   * Tries exact match first, then extracts slug from URL patterns,
-   * then falls back to prefix/suffix matching.
-   * Returns the matched call data object or null if not found.
    */
-    function lookupClosedIndex(rawInput) {
+  function lookupClosedIndex(rawInput) {
     const key = rawInput.trim().toUpperCase();
     if (CLOSED_INDEX[key]) return CLOSED_INDEX[key];
     const slugMatch = key.match(/(?:TOPIC-DETAILS\/|COMPETITIVE-CALLS-CS\/)([^?#/]+)/);
@@ -1040,15 +1058,8 @@
   /**
    * lookupLocalCalls
    * Searches the in-memory CALLS array (open calls dataset) for a given ID.
-   * Tries multiple strategies in order of precision:
-   *   1. Exact topic slug match from URL
-   *   2. Prefix/suffix topic slug match
-   *   3. Exact call_id match
-   *   4. Prefix/suffix call_id match
-   *   5. Substring match anywhere in the URL
-   * Returns the first matching call object or null.
    */
-    function lookupLocalCalls(rawInput) {
+  function lookupLocalCalls(rawInput) {
     const idUp = rawInput.trim().toUpperCase();
     function topicSlug(url) {
       const m = String(url||'').match(/topic-details\/([^?#/]+)/i);
@@ -1065,13 +1076,8 @@
   /**
    * parseCallIdStructural
    * Parses a raw Horizon call ID string structurally, without any dataset lookup.
-   * Extracts the thematic cluster by:
-   *   1. Matching HORIZON-CL[1-6] cluster codes via CL_MAP
-   *   2. Applying URL_RULES prefix/suffix patterns as fallback
-   * Also detects the action type (RIA, IA, CSA, COFUND) via regex patterns.
-   * Returns { thematic, actionType } — used as last-resort autofill.
    */
-    function parseCallIdStructural(raw) {
+  function parseCallIdStructural(raw) {
     const id = raw.trim().toUpperCase();
     let thematic = null, actionType = null;
     const clMatch = id.match(/HORIZON-CL([1-6])-/);
@@ -1096,14 +1102,9 @@
 
   /**
    * doAutofill
-   * Main autofill handler — triggered by button click or Enter key.
-   * Tries three data sources in order of reliability:
-   *   1. lookupLocalCalls  — exact match in open calls dataset
-   *   2. lookupClosedIndex — match in closed calls index (if loaded)
-   *   3. parseCallIdStructural — structural parsing of the ID as fallback
-   * Calls applyAutofillResult() with the result and source label.
+   * Main autofill handler — tries three data sources in order of reliability.
    */
-    async function doAutofill() {
+  async function doAutofill() {
     const rawInput = callNumberInput.value.trim();
     if (!rawInput) {
       showFeedback('error', 'X', 'Inserisci un numero di call o topic ID prima di procedere.');
@@ -1133,13 +1134,8 @@
   /**
    * applyAutofillResult
    * Applies autofill data to the form fields based on the lookup result.
-   * - Sets the primary thematic cluster dropdown
-   * - Picks the best secondary thematic from multi_thematic array (by keyword count)
-   * - Sets the action type dropdown if recognised (RIA/IA/CSA/COFUND)
-   * - Triggers a visual flash animation on each injected field
-   * - Renders a feedback banner with source badge and summary chips
    */
-    function applyAutofillResult(rawInput, data, source) {
+  function applyAutofillResult(rawInput, data, source) {
     if (!data) {
       showFeedback('warning', '!', `Nessun dato trovato per <strong>${esc(rawInput)}</strong>. Compila manualmente.`);
       return;
@@ -1202,12 +1198,8 @@
   /**
    * showFeedback
    * Updates the autofill feedback banner with a given state and message.
-   * type: 'loading' | 'success' | 'warning' | 'error'
-   * icon: text character to show (e.g. 'OK', '!', 'X') — null for loading state
-   * html: inner HTML string for the message body
-   * Shows a spinner div for 'loading', otherwise an icon + message layout.
    */
-    function showFeedback(type, icon, html) {
+  function showFeedback(type, icon, html) {
     autofillFeedback.className = `autofill-feedback ${type}`;
     if (type === 'loading') {
       autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
@@ -1219,10 +1211,8 @@
   /**
    * flashInjected
    * Briefly applies the CSS 'injected' animation class to a DOM element.
-   * Used to visually indicate that a form field was auto-populated.
-   * Removes the class first to allow re-triggering, then removes it after 1.4s.
    */
-    function flashInjected(el) {
+  function flashInjected(el) {
     el.classList.remove('injected');
     void el.offsetWidth;
     el.classList.add('injected');
@@ -1249,49 +1239,16 @@
      UTILITIES
   ═══════════════════════════════════════════════════ */
 
-  /**
-   * esc
-   * HTML-escapes a string to prevent XSS when inserting user or data content
-   * into innerHTML. Replaces &, <, >, ", ' with their HTML entity equivalents.
-   */
-    function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  /**
-   * norm
-   * Normalises a value to a trimmed string.
-   * Returns empty string for null/undefined input.
-   */
-    function norm(s){ return String(s||'').trim(); }
-  /**
-   * lower
-   * Converts a value to a lowercase string.
-   * Returns empty string for null/undefined input.
-   */
-    function lower(s){ return String(s||'').toLowerCase(); }
-  /**
-   * escapeRegExp
-   * Escapes all special RegExp metacharacters in a string.
-   * Needed before inserting user-supplied text into a RegExp constructor.
-   */
-    function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+  function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function norm(s){ return String(s||'').trim(); }
+  function lower(s){ return String(s||'').toLowerCase(); }
+  function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 
-  /**
-   * projectEndIso
-   * Returns the ISO date string for the last day of a given year/quarter.
-   * E.g. projectEndIso('2025', 'Q2') => '2025-06-30'
-   * Used to filter out calls whose deadline falls before the project end.
-   */
-    function projectEndIso(y,q){
+  function projectEndIso(y,q){
     return {Q1:`${y}-03-31`,Q2:`${y}-06-30`,Q3:`${y}-09-30`,Q4:`${y}-12-31`}[q]||'';
   }
 
-  /**
-   * normalizeAction
-   * Normalises an action type string to one of: RIA, IA, CSA, COFUND.
-   * Handles both long-form descriptions ("Research and Innovation Action")
-   * and short abbreviations, case-insensitively.
-   * Returns the input uppercased if no known pattern matches.
-   */
-    function normalizeAction(v){
+  function normalizeAction(v){
     const s=lower(v);
     if(s.includes('research and innovation action')) return 'RIA';
     if(s.includes('innovation action')) return 'IA';
@@ -1305,17 +1262,7 @@
     return String(v||'').toUpperCase();
   }
 
-  /**
-   * parseBudgetValue
-   * Parses a budget string in various international formats to a numeric value.
-   * Handles:
-   *   - Shorthand notation: "1.5M", "500K", "2B"
-   *   - European format: "1.500.000" or "1.500,00"
-   *   - US format: "1,500,000" or "1,500.00"
-   *   - Mixed separators with disambiguation logic
-   * Returns a non-negative finite number, or null if unparseable.
-   */
-    function parseBudgetValue(value){
+  function parseBudgetValue(value){
     if(value===null||value===undefined||value==='') return null;
     let s=String(value).trim();
     const sh=s.match(/^[€$\s]*([\d.,]+)\s*([KkMmBb])\b/);
@@ -1334,48 +1281,24 @@
     return Number.isFinite(p)&&p>=0?p:null;
   }
 
-  /**
-   * formatBudget
-   * Formats a numeric budget value as a localised Italian string with EUR suffix.
-   * E.g. 1500000 => "1.500.000 EUR"
-   * Returns empty string for non-finite values.
-   */
-    function formatBudget(v){
+  function formatBudget(v){
     return Number.isFinite(v)?v.toLocaleString('it-IT',{maximumFractionDigits:0})+' EUR':'';
   }
 
-  /**
-   * getBudgetRange
-   * Reads the current min and max slider values and returns them as numbers.
-   * Swaps them if min > max to ensure a valid range.
-   * Falls back to 0 and BUDGET_MAX for non-finite values.
-   */
-    function getBudgetRange(){
+  function getBudgetRange(){
     let min=Number(budgetMinEl.value), max=Number(budgetMaxEl.value);
     if(!Number.isFinite(min)) min=0;
     if(!Number.isFinite(max)) max=BUDGET_MAX;
     if(min>max) [min,max]=[max,min];
     return {minBudget:min,maxBudget:max};
   }
-  /**
-   * budgetFilterActive
-   * Returns true if the budget filter is set to anything other than the full range
-   * (i.e. minBudget > 0 or maxBudget < BUDGET_MAX).
-   * Used to decide whether to show the "calls without budget will be excluded" warning.
-   */
-    function budgetFilterActive(){
+
+  function budgetFilterActive(){
     const {minBudget,maxBudget}=getBudgetRange();
     return minBudget>0||maxBudget<BUDGET_MAX;
   }
-  /**
-   * updateBudgetUi
-   * Synchronises the budget slider UI state with the current slider values:
-   *   - Updates the min/max label text
-   *   - Repositions and resizes the coloured fill bar between the two thumbs
-   *   - Highlights the active preset chip (if any matches exactly)
-   *   - Shows/hides the budget warning message
-   */
-    function updateBudgetUi(){
+
+  function updateBudgetUi(){
     const {minBudget,maxBudget}=getBudgetRange();
     budgetMinLabelEl.textContent=formatBudget(minBudget);
     budgetMaxLabelEl.textContent=formatBudget(maxBudget);
@@ -1396,59 +1319,28 @@
     /eu funding & tenders portal[^.]{0,80}/gi,
     /home funding calls for proposals[^.]{0,80}/gi,
   ];
-  /**
-   * stripBoilerplate
-   * Removes known boilerplate phrases from call text before keyword matching.
-   * The BOILERPLATE_PATTERNS list contains regexes for common EU portal navigation
-   * text and cookie banners that would otherwise produce false keyword matches.
-   */
-    function stripBoilerplate(t){
+
+  function stripBoilerplate(t){
     let x=String(t||'');
     BOILERPLATE_PATTERNS.forEach(p=>{x=x.replace(p,' ');});
     return x;
   }
 
-  /**
-   * textForSearch
-   * Builds a single concatenated lowercase string from all searchable fields of a call.
-   * Fields included: full_text, name, programme, cluster_label, thematic_cluster, action, budget.
-   * Boilerplate is stripped before concatenation to avoid noise in keyword matching.
-   */
-    function textForSearch(call){
+  function textForSearch(call){
     return lower(stripBoilerplate([call.full_text,call.name,call.programme,call.cluster_label,call.thematic_cluster,call.action,call.budget].filter(Boolean).join(' ')));
   }
-  /**
-   * titleHasSpecial
-   * Returns true if the call title contains any of the special-category keywords
-   * (e.g. "internship", "fellowship", "msca", "scholarship").
-   * Uses word-boundary regex to avoid partial matches.
-   */
-    function titleHasSpecial(title){
+
+  function titleHasSpecial(title){
     const t=lower(title);
     return TITLE_SPECIAL_KEYWORDS.some(k=>new RegExp(`(^|[^a-z])${escapeRegExp(k)}([^a-z]|$)`,'i').test(t));
   }
-  /**
-   * keywordHits
-   * Finds which keywords from the given thematic cluster appear in the search text.
-   * Uses word-boundary regex for each keyword, case-insensitively.
-   * Returns a deduplicated array of matched keyword strings.
-   */
-    function keywordHits(text,thematic){
+
+  function keywordHits(text,thematic){
     const kws=KEYWORDS[thematic]||[];
     return [...new Set(kws.filter(k=>new RegExp(`(^|[^a-z])${escapeRegExp(lower(k))}([^a-z]|$)`,'i').test(text)))];
   }
-  /**
-   * enrichCall
-   * Augments a raw call object with pre-computed derived fields used for scoring:
-   *   _assigned:      normalised thematic cluster string
-   *   _action_norm:   normalised action type (RIA/IA/CSA/COFUND)
-   *   _deadline_norm: ISO deadline date string
-   *   _budget_value:  parsed numeric budget
-   *   _search:        full concatenated search text (lowercase, boilerplate-stripped)
-   *   _special:       flag for internship/fellowship/scholarship calls
-   *   _keyword_hits:  map of thematic -> matched keywords
-   */
-    function enrichCall(raw){
+
+  function enrichCall(raw){
     const c={...raw};
     c._assigned=norm(c.thematic_cluster);
     c._action_norm=normalizeAction(c.action);
@@ -1466,35 +1358,19 @@
     return c;
   }
 
-  /**
-   * isAssignedTo
-   * Returns true if the call is formally assigned to the given thematic cluster.
-   * Special handling for the SPECIAL category (internships/fellowships).
-   */
-    function isAssignedTo(call,thematic){
+  function isAssignedTo(call,thematic){
     if(!thematic) return false;
     if(thematic===SPECIAL) return !!call._special;
     return norm(call._assigned)===thematic;
   }
-  /**
-   * hitsFor
-   * Returns the list of keyword matches for a given thematic cluster in a call.
-   * Falls back to live keywordHits() computation if pre-computed cache is missing.
-   */
-    function hitsFor(call,thematic){
+
+  function hitsFor(call,thematic){
     if(!thematic) return [];
     if(thematic===SPECIAL) return call._special?['title match']:[];
     return Array.isArray(call._keyword_hits[thematic])?call._keyword_hits[thematic]:keywordHits(call._search,thematic);
   }
-  /**
-   * scoreNature
-   * Computes a score bonus/penalty based on project nature vs call action type.
-   * - basic research:    prefers RIA (+14), CSA (+6), special calls (+8)
-   * - applied research:  prefers RIA (+9) and IA (+9)
-   * - industrial:        prefers IA (+14)
-   * Returns 0 if no nature filter is set.
-   */
-    function scoreNature(call,nature){
+
+  function scoreNature(call,nature){
     if(!nature) return 0;
     const a=call._action_norm;
     if(nature==='basic')    return (a==='RIA'?14:0)+(a==='CSA'?6:0)+(call._special?8:0);
@@ -1502,28 +1378,8 @@
     if(nature==='industrial') return (a==='IA'?14:0);
     return 0;
   }
-  /**
-   * bucketAndScore
-   * Determines the relevance bucket (1-6) and numeric score for a call
-   * given the user's thematic area selections.
-   *
-   * Bucket logic (with secondary area selected):
-   *   1 — primary match AND secondary keyword hits
-   *   2 — secondary match AND primary keyword hits
-   *   3 — primary match only
-   *   4 — secondary match only
-   *   5 — other area, but both primary AND secondary keyword hits
-   *   6 — other area, partial keyword hits
-   *
-   * Without secondary area:
-   *   1 — primary match
-   *   2 — primary keyword hits only
-   *
-   * Score is built on top of bucket rank, augmented by assignment flags,
-   * keyword hit counts, project nature, and action type match.
-   * Returns null if the call doesn't qualify for any bucket.
-   */
-    function bucketAndScore(call,answers){
+
+  function bucketAndScore(call,answers){
     const primary=answers.thematic_cluster||'';
     const secondary=answers.secondary_thematic_cluster||'';
     const pA=isAssignedTo(call,primary);
@@ -1555,13 +1411,7 @@
     return {bucket,score,primaryAssigned:pA,secondaryAssigned:sA,primaryHits:pH,secondaryHits:sH};
   }
 
-  /**
-   * passedBudgetFilter
-   * Returns true if the call passes the current budget range filter.
-   * If the budget filter is inactive (full range), all calls pass.
-   * Calls without a parseable budget value are excluded when the filter is active.
-   */
-    function passedBudgetFilter(call){
+  function passedBudgetFilter(call){
     if(!budgetFilterActive()) return true;
     const v=call._budget_value;
     if(!Number.isFinite(v)) return false;
@@ -1569,17 +1419,7 @@
     return v>=minBudget&&v<=maxBudget;
   }
 
-  /**
-   * applyFilters
-   * Main scoring pipeline. Processes the full CALLS array against the user's answers:
-   *   1. Enriches each call with derived fields via enrichCall()
-   *   2. Filters out calls whose deadline is before the project end date
-   *   3. Scores and buckets each call via bucketAndScore()
-   *   4. Discards calls that don't match any bucket
-   *   5. Sorts by bucket ASC, then score DESC, then deadline ASC
-   * Returns the sorted, filtered array of enriched call objects.
-   */
-    function applyFilters(calls,answers){
+  function applyFilters(calls,answers){
     const projectEnd=projectEndIso(answers.closure_year,answers.closure_quarter);
     return calls
       .map(enrichCall)
@@ -1597,36 +1437,133 @@
       });
   }
 
+  /* ═══════════════════════════════════════════════════
+     ADVANCED SEARCH QUERY PARSER
+  ═══════════════════════════════════════════════════ */
+
+  /**
+   * parseSearchQuery
+   * Parses the keyword search bar input into a structured boolean query.
+   *
+   * Supports:
+   *   "quoted phrase"  → exact word-boundary match (e.g. "EV" won't hit "development")
+   *   AND              → both adjacent terms must appear (higher precedence than OR)
+   *   OR               → at least one of the terms must appear
+   *   plain word       → substring match (original behaviour, no word boundary)
+   *
+   * Precedence: AND binds tighter than OR.
+   * Grammar:  query    = orGroup (OR orGroup)*
+   *           orGroup  = term (AND term)*
+   *           term     = "quoted" | plainWord
+   *
+   * Returns an array of OR-groups. Each OR-group is an array of term objects.
+   * Each term: { type: 'exact' | 'word', value: string }
+   *
+   * Empty query → [] (no filtering).
+   */
+  function parseSearchQuery(raw) {
+    if (!raw || !raw.trim()) return [];
+
+    // Tokenise: quoted strings, operators (AND/OR as standalone tokens), plain words
+    const tokens = [];
+    const re = /"([^"]*)"|\b(AND|OR)\b|([^\s"]+)/g;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      if (m[1] !== undefined) {
+        // Quoted term — exact word-boundary match
+        const val = m[1].trim();
+        if (val) tokens.push({ type: 'exact', value: val });
+      } else if (m[2]) {
+        tokens.push({ type: 'op', value: m[2] });
+      } else if (m[3]) {
+        tokens.push({ type: 'word', value: m[3].trim() });
+      }
+    }
+
+    if (!tokens.length) return [];
+
+    // Build OR-groups of AND-terms
+    // Consecutive non-operator tokens are implicitly AND-ed
+    const orGroups = [];
+    let currentAnd = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i];
+      if (tok.type === 'op') {
+        if (tok.value === 'OR') {
+          // Flush current AND-group into OR-groups
+          if (currentAnd.length) { orGroups.push(currentAnd); currentAnd = []; }
+        }
+        // AND: do nothing extra — next term will be pushed to same currentAnd
+      } else {
+        currentAnd.push(tok);
+      }
+    }
+    if (currentAnd.length) orGroups.push(currentAnd);
+
+    return orGroups;
+  }
+
+  /**
+   * matchesTerm
+   * Tests whether a single search term matches in the given (lowercase) text.
+   *
+   * type 'exact': word-boundary match using a character-class boundary
+   *   (^|[^a-z0-9]) + value + ([^a-z0-9]|$)
+   *   → "EV" matches " EV ", "EV.", "EV," but NOT "development" or "evaluation"
+   *   → multi-word quoted phrases ("fuel cell") are also matched as a whole
+   *
+   * type 'word': plain substring, can appear inside longer words (original behaviour)
+   *   → "hydrogen" matches "hydrogenation" too (intentional for broad matching)
+   */
+  function matchesTerm(text, term) {
+    if (!term.value) return true;
+    const val = term.value.toLowerCase();
+    if (term.type === 'exact') {
+      return new RegExp('(^|[^a-z0-9])' + escapeRegExp(val) + '([^a-z0-9]|$)').test(text);
+    }
+    // plain word: substring match
+    return text.includes(val);
+  }
+
+  /**
+   * matchesQuery
+   * Evaluates the full parsed query (array of OR-groups) against a text string.
+   * Returns true if at least one OR-group fully matches (all AND-terms match).
+   * Empty query always returns true (no filter active).
+   */
+  function matchesQuery(text, orGroups) {
+    if (!orGroups.length) return true;
+    return orGroups.some(andGroup => andGroup.every(term => matchesTerm(text, term)));
+  }
+
   /**
    * applyDisplayFilters
    * Applies the live (post-submit) display filters to the scored results:
-   *   - Keyword text filter: all terms must appear in the search scope
-   *     (full text or title only, depending on searchScope toggle)
+   *   - Boolean keyword search using parseSearchQuery / matchesQuery
    *   - Budget range filter via passedBudgetFilter()
    * Returns the filtered subset of results.
    */
-    function applyDisplayFilters(results){
-    const raw=lower(keywordFilterEl.value||'').trim();
-    const terms=raw.split(/\s+/).filter(Boolean);
-    return results.filter(c=>{
-      if(terms.length){
-        const h=searchScope==='title'?lower(c.name||''):(c._search||lower([c.name,c.full_text,c.programme,c.cluster_label,c.thematic_cluster,c.action,c.budget].filter(Boolean).join(' ')));
-        if(!terms.every(t=>h.includes(t))) return false;
+  function applyDisplayFilters(results){
+    const raw = (keywordFilterEl.value || '').trim();
+    const orGroups = parseSearchQuery(raw);
+    return results.filter(c => {
+      if (orGroups.length) {
+        const h = searchScope === 'title'
+          ? lower(c.name || '')
+          : (c._search || lower([c.name,c.full_text,c.programme,c.cluster_label,c.thematic_cluster,c.action,c.budget].filter(Boolean).join(' ')));
+        if (!matchesQuery(h, orGroups)) return false;
       }
-      if(!passedBudgetFilter(c)) return false;
+      if (!passedBudgetFilter(c)) return false;
       return true;
     });
   }
 
   /**
    * getSortedFiltered
-   * Applies display filters and sorts the results according to sortMode:
-   *   - 'relevance': bucket ASC, score DESC, deadline ASC (default)
-   *   - 'deadline':  deadline ASC (soonest first), with distant/missing dates last
-   * Assigns a sequential _filteredIdx to each result for stable selection tracking.
-   * Returns the final ordered array used by renderCalls().
+   * Applies display filters, sorts results, assigns sequential _filteredIdx.
    */
-    function getSortedFiltered(){
+  function getSortedFiltered(){
     let filtered=applyDisplayFilters(lastScoredResults);
     if(sortMode==='deadline'){
       filtered=[...filtered].sort((a,b)=>String(a._deadline_norm||'9999').localeCompare(String(b._deadline_norm||'9999')));
@@ -1641,12 +1578,7 @@
     return filtered;
   }
 
-  /**
-   * bucketLabel
-   * Returns a human-readable Italian label for a call's relevance bucket number.
-   * Used as the text content of the coloured badge on each result card.
-   */
-    function bucketLabel(call){
+  function bucketLabel(call){
     if(call._bucket===1) return 'Primario · con keyword secondaria';
     if(call._bucket===2) return 'Secondario · con keyword primaria';
     if(call._bucket===3) return 'Primario · senza keyword secondaria';
@@ -1656,13 +1588,7 @@
     return 'Match';
   }
 
-  /**
-   * renderSummary
-   * Renders a row of summary "pill" elements showing the active filter values:
-   * closure year/quarter, project nature, primary area, secondary area, action type, budget.
-   * Displayed at the top of the results section for user reference.
-   */
-    function renderSummary(a){
+  function renderSummary(a){
     const {minBudget,maxBudget}=getBudgetRange();
     const budgetLabel=budgetFilterActive()?`${formatBudget(minBudget)} – ${formatBudget(maxBudget)}`:'Qualsiasi';
     const items=[
@@ -1677,15 +1603,7 @@
   }
 
   /* ── Selection helpers ── */
-  /**
-   * updateSelectionUi
-   * Synchronises the selection bar UI with the current selectedIds set:
-   *   - Updates the count badge number
-   *   - Shows/hides the selection bar (only when results are present)
-   *   - Updates download button labels to indicate how many items are selected
-   *     (falls back to "Download all" wording when nothing is selected)
-   */
-    function updateSelectionUi(){
+  function updateSelectionUi(){
     const n=selectedIds.size;
     selCountNumEl.textContent=n;
     selectionBarEl.classList.toggle('visible', lastFiltered.length>0);
@@ -1698,17 +1616,10 @@
     }
   }
 
-  /**
-   * toggleSelection
-   * Adds or removes a call index from the selectedIds set.
-   * Updates the selection bar UI and toggles the visual 'selected' state
-   * on the corresponding card DOM element without triggering a full re-render.
-   */
-    function toggleSelection(idx){
+  function toggleSelection(idx){
     if(selectedIds.has(idx)) selectedIds.delete(idx);
     else selectedIds.add(idx);
     updateSelectionUi();
-    // Update card appearance without full re-render
     const card=resultsEl.querySelector(`.call[data-idx="${idx}"]`);
     if(card){
       card.classList.toggle('selected', selectedIds.has(idx));
@@ -1727,16 +1638,7 @@
   });
 
   /* ── Main render ── */
-  /**
-   * renderCalls
-   * Main rendering function for the results list.
-   * - Calls getSortedFiltered() to get the current filtered+sorted array
-   * - Slices to visibleCount for pagination
-   * - Builds the summary pills HTML, then an <article> card for each visible call
-   * - Each card shows: title, metadata, bucket badge, keyword tags, URL link, checkbox
-   * - Writes the HTML to the DOM and updates the pagination footer
-   */
-    function renderCalls(){
+  function renderCalls(){
     lastFiltered = getSortedFiltered();
     const visible=lastFiltered.slice(0,visibleCount);
 
@@ -1790,30 +1692,19 @@
 
   /* ── Click delegation on results ── */
   resultsEl.addEventListener('click', e=>{
-    // Checkbox click
     const cb=e.target.closest('.call-checkbox');
     if(cb){
       e.stopPropagation();
       toggleSelection(Number(cb.dataset.idx));
       return;
     }
-    // Link click – open but don't toggle
     if(e.target.closest('a')) return;
-    // Card click – open URL if present
     const card=e.target.closest('.call');
     if(card&&card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
   });
 
   /* ── Export ── */
-  /**
-   * getExportRows
-   * Builds the array of plain data objects to export.
-   * If any calls are selected (selectedIds not empty), exports only those;
-   * otherwise exports all currently filtered results (lastFiltered).
-   * Each row contains the core call fields: name, programme, cluster, action,
-   * budget, opening, deadline, url, bucket, score.
-   */
-    function getExportRows(){
+  function getExportRows(){
     const rows = selectedIds.size>0
       ? lastFiltered.filter(c=>selectedIds.has(c._filteredIdx))
       : lastFiltered;
@@ -1824,27 +1715,15 @@
       bucket:c._bucket||'',score:c._score||''
     }));
   }
-  /**
-   * downloadCsv
-   * Exports the current result set (or selection) as a CSV file.
-   * Builds a CSV string with a header row and one row per call.
-   * All values are double-quoted with internal quotes escaped.
-   * Triggers a browser download via a temporary <a> element.
-   */
-    function downloadCsv(){
+
+  function downloadCsv(){
     const rows=getExportRows(), headers=Object.keys(rows[0]||{});
     const csv=[headers.join(',')].concat(rows.map(r=>headers.map(h=>'"'+String(r[h]??'').replace(/"/g,'""')+'"').join(','))).join('\n');
     const b=new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='results.csv'; a.click(); URL.revokeObjectURL(a.href);
   }
-  /**
-   * downloadExcel
-   * Exports the current result set (or selection) as a .xls file.
-   * Builds an HTML table string (which Excel can open natively).
-   * Prepends a UTF-8 BOM to ensure correct character encoding in Excel.
-   * Triggers a browser download via a temporary <a> element.
-   */
-    function downloadExcel(){
+
+  function downloadExcel(){
     const rows=getExportRows(), headers=Object.keys(rows[0]||{});
     const table=`<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${esc(r[h]??'')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
     const b=new Blob(['\ufeff'+table],{type:'application/vnd.ms-excel;charset=utf-8;'});
@@ -1955,14 +1834,7 @@
   });
 
   /* ── Populate selects ── */
-  /**
-   * populateSelects
-   * Populates the primary and secondary thematic cluster <select> dropdowns
-   * with <option> elements generated from the THEMATIC_OPTIONS array.
-   * Primary has a "Select..." placeholder; secondary has a "None" option.
-   * Called once at initialisation.
-   */
-    function populateSelects(){
+  function populateSelects(){
     primaryEl.innerHTML='<option value="" selected disabled>Seleziona…</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
     secondaryEl.innerHTML='<option value="">Nessuna</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
   }
@@ -1974,11 +1846,8 @@
   /**
    * loadCalls
    * Fetches the open calls dataset from calls.json.
-   * Parses and stores the calls array in the global CALLS variable.
-   * Displays the last-updated timestamp in the header if available.
-   * Called once at startup in parallel with loadClosedIndex().
    */
-    async function loadCalls(){
+  async function loadCalls(){
     try {
       const res=await fetch('./calls.json',{cache:'no-store'});
       const data=await res.json();
