@@ -1884,41 +1884,25 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
   }
   /* =================================================================
      FIELD-WEIGHTED SCORE — replica logica ranking portale SEDIA
-     Pesi per campo calibrati sul rapporto ~2:1 osservato nei dati:
-       #1 score 14475 — "AI-Driven Robotics for Industry" (titolo)
-       #2 score  7016 — "Partnership in AI, Data and Robotics" (summary)
-     title        x8  -> "robotics" nel titolo = ~2x rispetto al body
-     summary      x4  -> primi 300 chars del full_text (partnership...)
-     call_id/url  x3  -> keyword nell'ID del topic o URL
-     keyword_hits x3  -> keyword esplicitamente taggata dallo scraper
-     cluster      x2  -> area tematica / cluster label / programme
-     full_text    x1  -> TF nel corpo, cappato a 10 occorrenze
+     title x8 | summary x4 | call_id/url x3 | keyword_hits x3 | cluster x2 | body x1
   ================================================================= */
   function fieldWeightedScore(call, terms) {
     if (!terms || !terms.length) return 0;
     var total = 0;
     terms.forEach(function(term) {
-      var escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      var re = new RegExp('\\b' + escaped, 'gi');
-      // Titolo — peso x8
+      var esc = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var re = new RegExp('\b' + esc, 'gi');
       total += Math.min((lower(call.name || '').match(re) || []).length, 3) * 8;
-      // Summary/partnership: primi 300 chars del full_text — peso x4
       total += Math.min((lower((call.full_text || '').slice(0, 300)).match(re) || []).length, 3) * 4;
-      // Call ID + URL — peso x3
       total += Math.min((lower((call.call_id || '') + ' ' + (call.url || '')).match(re) || []).length, 2) * 3;
-      // keyword_hits espliciti (taggati dallo scraper) — peso x3
       var allKws = Object.values(call._keyword_hits || {}).reduce(function(a,b){return a.concat(b);}, []);
       total += Math.min((lower(allKws.join(' ')).match(re) || []).length, 4) * 3;
-      // Cluster / thematic / programme — peso x2
       total += Math.min((lower([call.cluster_label, call.thematic_cluster, call.programme].filter(Boolean).join(' ')).match(re) || []).length, 2) * 2;
-      // Corpo (full_text dopo i primi 300 chars) — peso x1, max 10
       total += Math.min((lower((call.full_text || '').slice(300)).match(re) || []).length, 10) * 1;
     });
     return total;
   }
 
-  /* Termini attivi per il ranking SEDIA-style.
-     Usa il filtro keyword se compilato, altrimenti le prime 5 keyword dell'area primaria. */
   function getActiveTerms(primaryThematic) {
     var kw = lower((keywordFilterEl ? keywordFilterEl.value : '') || '').trim();
     if (kw) return kw.split(/\s+/).filter(Boolean);
@@ -1962,8 +1946,6 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if(at&&at!=='OTHER') score+=(call._action_norm===at?10:-50);
     if(at==='OTHER')     score+=(!['RIA','IA','CSA','COFUND'].includes(call._action_norm)?8:-50);
     if(call._special&&(primary===SPECIAL||secondary===SPECIAL)) score+=16;
-    // Field-weighted score: tiebreak SEDIA-style dentro ogni bucket
-    // "robotics" nel titolo -> +24 pts; solo nel body -> +1-10 pts
     var _fwsTerms = getActiveTerms(primary);
     var _fws = fieldWeightedScore(call, _fwsTerms);
     score += Math.min(_fws, 99);
