@@ -1883,7 +1883,8 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return Array.isArray(call._keyword_hits[thematic])?call._keyword_hits[thematic]:keywordHits(call._search,thematic);
   }
   /* =================================================================
-     FIELD-WEIGHTED SCORE — replica logica ranking portale SEDIA
+     FIELD-WEIGHTED SCORE — usato solo in modalità keyword search
+     Replica la logica BM25 del portale SEDIA:
      title x8 | summary x4 | call_id/url x3 | keyword_hits x3 | cluster x2 | body x1
   ================================================================= */
   function fieldWeightedScore(call, terms) {
@@ -1903,10 +1904,13 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return total;
   }
 
-  function getActiveTerms(primaryThematic) {
-    var kw = lower((keywordFilterEl ? keywordFilterEl.value : '') || '').trim();
-    if (kw) return kw.split(/\s+/).filter(Boolean);
-    return (KEYWORDS[primaryThematic] || []).slice(0, 5);
+  /* Bonus action type per keyword mode: mantiene l'importanza del type of action
+     anche quando si ordina per rilevanza SEDIA-style */
+  function actionTypeBonus(call, answers) {
+    var at = answers.action_type || '';
+    if (!at) return 0;
+    if (at !== 'OTHER') return call._action_norm === at ? 15 : -30;
+    return !['RIA','IA','CSA','COFUND'].includes(call._action_norm) ? 10 : -30;
   }
 
   function scoreNature(call,nature){
@@ -1946,9 +1950,6 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if(at&&at!=='OTHER') score+=(call._action_norm===at?10:-50);
     if(at==='OTHER')     score+=(!['RIA','IA','CSA','COFUND'].includes(call._action_norm)?8:-50);
     if(call._special&&(primary===SPECIAL||secondary===SPECIAL)) score+=16;
-    var _fwsTerms = getActiveTerms(primary);
-    var _fws = fieldWeightedScore(call, _fwsTerms);
-    score += Math.min(_fws, 99);
     return {bucket,score,primaryAssigned:pA,secondaryAssigned:sA,primaryHits:pH,secondaryHits:sH};
   }
 
@@ -1996,11 +1997,35 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if(sortMode==='deadline'){
       filtered=[...filtered].sort((a,b)=>String(a._deadline_norm||'9999').localeCompare(String(b._deadline_norm||'9999')));
     } else {
-      filtered=[...filtered].sort((a,b)=>{
-        if(a._bucket!==b._bucket) return a._bucket-b._bucket;
-        if(b._score!==a._score)   return b._score-a._score;
-        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
-      });
+      // Keyword mode: ordine SEDIA-style (fieldWeightedScore primario + bonus action type)
+      const kwRaw = lower((keywordFilterEl ? keywordFilterEl.value : '') || '').trim();
+      const kwTerms = kwRaw ? kwRaw.split(/\s+/).filter(Boolean) : [];
+      if (kwTerms.length > 0) {
+        // Calcola fws una volta per ogni call e cachelo
+        filtered.forEach(function(c) {
+          c._fws = fieldWeightedScore(c, kwTerms) + actionTypeBonus(c, lastAnswers || {});
+        });
+        filtered=[...filtered].sort((a,b)=>{
+          // Prima: action type match (se selezionato, chi non matcha va in fondo)
+          var at = (lastAnswers || {}).action_type || '';
+          if (at && at !== 'OTHER') {
+            var aMatch = a._action_norm === at;
+            var bMatch = b._action_norm === at;
+            if (aMatch !== bMatch) return aMatch ? -1 : 1;
+          }
+          // Poi: score SEDIA-style (fws + action bonus)
+          if (b._fws !== a._fws) return b._fws - a._fws;
+          // Tiebreak: deadline crescente
+          return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+        });
+      } else {
+        // No keyword: ordine bucket classico
+        filtered=[...filtered].sort((a,b)=>{
+          if(a._bucket!==b._bucket) return a._bucket-b._bucket;
+          if(b._score!==a._score)   return b._score-a._score;
+          return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+        });
+      }
     }
     filtered.forEach((c,i)=>{ c._filteredIdx=i; });
     return filtered;
