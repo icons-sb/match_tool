@@ -31,9 +31,6 @@
       --success: #16a34a; --success-bg: rgba(22,163,74,0.08);
       --warning: #d97706; --warning-bg: rgba(217,119,6,0.08);
       --error: #dc2626; --error-bg: rgba(220,38,38,0.08);
-      --ga-surface: #fafbff;
-      --ga-border: rgba(37,99,235,0.14);
-      --ga-accent: #2563eb;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
@@ -58,7 +55,7 @@
       top: 0;
       background: rgba(244,246,251,0.95);
       backdrop-filter: blur(12px);
-      z-index: 200;
+      z-index: 100;
     }
     .site-logo {
       font-family: 'DM Serif Display', serif;
@@ -68,34 +65,13 @@
       text-decoration: none;
     }
     .site-logo span { color: var(--accent); }
-    .header-right { display: flex; align-items: center; gap: 20px; }
     #lastUpdated {
       font-size: 0.78rem;
       color: var(--muted);
       letter-spacing: 0.02em;
     }
-    .btn-open-ga {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 7px 16px;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 999px;
-      font-family: inherit;
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.15s;
-      white-space: nowrap;
-    }
-    .btn-open-ga:hover { background: var(--accent-hover); transform: translateY(-1px); }
-    .btn-open-ga svg { flex-shrink: 0; }
 
-    /* ── PAGE LAYOUT ── */
+    /* ── PAGE ── */
     .page { max-width: 1100px; margin: 0 auto; padding: 56px 32px 96px; }
 
     /* ── HERO ── */
@@ -257,6 +233,7 @@
       color: #92400e;
     }
 
+    /* Source indicator strip */
     .index-status {
       display: flex;
       gap: 10px;
@@ -334,6 +311,7 @@
     .btn-autofill:hover { background: var(--accent-hover); transform: translateY(-1px); }
     .btn-autofill:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
+    /* Feedback banner */
     .autofill-feedback {
       display: none;
       margin-top: 12px;
@@ -359,7 +337,9 @@
       background: var(--surface2); border: 1px solid var(--border-strong); color: var(--muted);
     }
     .autofill-feedback-icon { flex-shrink: 0; font-size: 1rem; }
-    .autofill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .autofill-chips {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+    }
     .autofill-chip {
       display: inline-flex; align-items: center;
       padding: 3px 10px;
@@ -470,7 +450,10 @@
       background: var(--accent-hover); border-color: var(--accent-hover);
       transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37,99,235,0.28);
     }
-    .btn-download:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-download:disabled {
+      opacity: 0.45; cursor: not-allowed; transform: none;
+      box-shadow: none;
+    }
 
     /* ── RESULTS ── */
     .results { margin-top: 48px; }
@@ -494,26 +477,50 @@
 
     /* ── SELECTION BAR ── */
     .selection-bar {
-      display: none; align-items: center; gap: 10px; flex-wrap: wrap;
-      padding: 10px 16px; margin-bottom: 16px;
-      background: var(--surface); border: 1px solid var(--border-strong);
-      border-radius: 14px; font-size: 0.82rem; color: var(--muted);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      font-size: 0.82rem;
+      color: var(--muted);
     }
     .selection-bar.visible { display: flex; }
     .sel-count-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 12px; background: var(--accent-dim);
-      border: 1px solid rgba(37,99,235,0.22); border-radius: 999px;
-      font-size: 0.78rem; font-weight: 700; color: var(--accent);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(37,99,235,0.22);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent);
     }
     .sel-count-badge .sel-num { font-size: 0.92rem; }
     .btn-sel-action {
-      background: transparent; border: 1px solid var(--border-strong); color: var(--muted);
-      padding: 5px 13px; border-radius: 999px; font-size: 0.76rem;
-      font-family: inherit; cursor: pointer; transition: all 0.15s;
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      color: var(--muted);
+      padding: 5px 13px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
     }
     .btn-sel-action:hover { color: var(--accent); border-color: var(--accent); }
-    .sel-hint { margin-left: auto; font-size: 0.74rem; opacity: 0.55; font-style: italic; }
+    .sel-hint {
+      margin-left: auto;
+      font-size: 0.74rem;
+      opacity: 0.55;
+      font-style: italic;
+    }
 
     /* ── SUMMARY PILLS ── */
     .summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
@@ -541,12 +548,27 @@
     .call[data-bucket="6"]::before { background: var(--b6); }
     .call:hover { border-color: rgba(37,99,235,0.30); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(37,99,235,0.10); }
     .call.selected {
-      border-color: var(--accent); background: rgba(37,99,235,0.03);
+      border-color: var(--accent);
+      background: rgba(37,99,235,0.03);
       box-shadow: 0 0 0 2px rgba(37,99,235,0.12), 0 2px 8px rgba(37,99,235,0.08);
     }
     .call.selected:hover { transform: translateY(-1px); }
-    .call-checkbox-wrap { position: absolute; top: 16px; right: 16px; z-index: 3; }
-    .call-checkbox { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; border-radius: 4px; }
+
+    /* Checkbox overlay */
+    .call-checkbox-wrap {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 3;
+    }
+    .call-checkbox {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
     .call h3 { font-size: 0.96rem; font-weight: 600; line-height: 1.45; margin-bottom: 10px; color: var(--text); padding-right: 32px; }
     .meta { font-size: 0.78rem; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
 
@@ -571,6 +593,7 @@
       background: var(--tag-bg); border: 1px solid var(--tag-border);
       border-radius: 999px; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.03em;
     }
+
     .call-link { margin-top: 12px; font-size: 0.78rem; }
     .call-link a {
       color: var(--accent); text-decoration: none; word-break: break-all;
@@ -606,233 +629,6 @@
     .sort-btn:not(.active):hover { color: var(--accent); }
     .download-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
-    /* ════════════════════════════════════════════
-       GA MATCHER DRAWER
-    ════════════════════════════════════════════ */
-    .ga-overlay {
-      position: fixed; inset: 0; z-index: 300;
-      background: rgba(10,18,40,0.32);
-      backdrop-filter: blur(4px);
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.25s;
-    }
-    .ga-overlay.open { opacity: 1; pointer-events: auto; }
-
-    .ga-drawer {
-      position: fixed; top: 0; right: 0; bottom: 0; z-index: 310;
-      width: min(520px, 100vw);
-      background: var(--ga-surface);
-      border-left: 1px solid var(--ga-border);
-      box-shadow: -8px 0 40px rgba(30,60,140,0.12);
-      display: flex; flex-direction: column;
-      transform: translateX(100%);
-      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
-      overflow: hidden;
-    }
-    .ga-drawer.open { transform: translateX(0); }
-
-    .ga-drawer-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 24px 18px;
-      border-bottom: 1px solid var(--ga-border);
-      background: var(--surface);
-      flex-shrink: 0;
-    }
-    .ga-drawer-title {
-      display: flex; align-items: center; gap: 10px;
-    }
-    .ga-drawer-title-icon {
-      width: 34px; height: 34px; border-radius: 10px;
-      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.2);
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-    }
-    .ga-drawer-title-icon svg { color: var(--accent); }
-    .ga-drawer-title h2 {
-      font-family: 'DM Serif Display', serif;
-      font-size: 1.1rem; letter-spacing: -0.02em; color: var(--text);
-    }
-    .ga-drawer-title p { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
-    .ga-close-btn {
-      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border-strong);
-      background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1;
-      display: flex; align-items: center; justify-content: center; cursor: pointer;
-      transition: all 0.15s; flex-shrink: 0;
-    }
-    .ga-close-btn:hover { background: var(--surface2); color: var(--text); }
-
-    .ga-drawer-body { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-
-    /* Steps */
-    .ga-step {
-      background: var(--surface);
-      border: 1px solid var(--ga-border);
-      border-radius: 16px;
-      overflow: hidden;
-    }
-    .ga-step-header {
-      display: flex; align-items: center; gap: 10px;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--ga-border);
-      background: rgba(37,99,235,0.02);
-    }
-    .ga-step-num {
-      width: 22px; height: 22px; border-radius: 50%;
-      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.25);
-      font-size: 0.72rem; font-weight: 800; color: var(--accent);
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .ga-step-num.done { background: rgba(22,163,74,0.12); border-color: rgba(22,163,74,0.3); color: #16a34a; }
-    .ga-step-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
-    .ga-step-body { padding: 18px; }
-
-    /* GA input row */
-    .ga-input-row { display: flex; gap: 8px; }
-    .ga-input-row input[type="text"] {
-      flex: 1; font-family: 'DM Mono', monospace; letter-spacing: 0.06em;
-      font-size: 1rem; padding: 10px 14px;
-    }
-    .ga-fetch-btn {
-      padding: 10px 18px; background: var(--accent); color: #fff;
-      border: none; border-radius: 12px; font-family: inherit; font-size: 0.84rem;
-      font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s;
-    }
-    .ga-fetch-btn:hover { background: var(--accent-hover); }
-    .ga-fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .ga-hint { font-size: 0.78rem; color: var(--muted2); margin-top: 8px; font-style: italic; }
-
-    /* Project card */
-    .ga-project-card {
-      display: none;
-      background: var(--surface2);
-      border: 1px solid var(--ga-border);
-      border-radius: 12px;
-      padding: 14px;
-      margin-top: 14px;
-    }
-    .ga-project-card.visible { display: block; }
-    .ga-proj-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
-    .ga-proj-icon {
-      width: 36px; height: 36px; border-radius: 8px;
-      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.18);
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .ga-proj-title { font-size: 0.88rem; font-weight: 600; color: var(--text); line-height: 1.4; }
-    .ga-proj-meta { font-size: 0.75rem; color: var(--muted); margin-top: 3px; }
-    .ga-proj-abstract {
-      font-size: 0.8rem; color: var(--muted); line-height: 1.6;
-      max-height: 90px; overflow-y: auto;
-      border-left: 2px solid var(--border-strong); padding-left: 10px;
-      margin: 10px 0;
-    }
-    .ga-proj-kws { display: flex; flex-wrap: wrap; gap: 5px; }
-    .ga-kw {
-      font-size: 0.7rem; padding: 2px 8px; border-radius: 999px;
-      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.15); color: var(--accent);
-    }
-    .ga-cordis-link {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: 0.75rem; color: var(--accent); text-decoration: none;
-      margin-top: 10px; transition: color 0.12s;
-    }
-    .ga-cordis-link:hover { color: var(--accent-hover); text-decoration: underline; }
-
-    /* Calls textarea */
-    .ga-textarea {
-      width: 100%; min-height: 120px; resize: vertical;
-      padding: 10px 12px; font-size: 0.8rem; font-family: 'DM Mono', monospace;
-      background: var(--surface2); border: 1px solid var(--border-strong);
-      border-radius: 12px; color: var(--text); line-height: 1.5;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .ga-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
-    .ga-rank-btn {
-      display: flex; align-items: center; gap: 8px;
-      width: 100%; padding: 12px 20px; margin-top: 12px;
-      background: var(--accent); color: #fff; border: none; border-radius: 12px;
-      font-family: inherit; font-size: 0.88rem; font-weight: 600;
-      cursor: pointer; justify-content: center; transition: all 0.15s;
-    }
-    .ga-rank-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
-    .ga-rank-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-    /* Status banners */
-    .ga-status {
-      display: none; align-items: center; gap: 10px;
-      padding: 10px 14px; border-radius: 10px;
-      font-size: 0.8rem; line-height: 1.5; margin-top: 10px;
-    }
-    .ga-status.visible { display: flex; }
-    .ga-status.loading { background: var(--surface2); border: 1px solid var(--border-strong); color: var(--muted); }
-    .ga-status.success { background: var(--success-bg); border: 1px solid rgba(22,163,74,0.25); color: #14532d; }
-    .ga-status.warning { background: var(--warning-bg); border: 1px solid rgba(217,119,6,0.25); color: #78350f; }
-    .ga-status.error   { background: var(--error-bg);   border: 1px solid rgba(220,38,38,0.22); color: #7f1d1d; }
-
-    /* AI Results list */
-    .ga-results-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-    .ga-result-item {
-      background: var(--surface);
-      border: 1px solid var(--ga-border);
-      border-radius: 12px;
-      padding: 12px 14px 10px 16px;
-      position: relative;
-      cursor: default;
-      transition: border-color 0.15s;
-    }
-    .ga-result-item::before {
-      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-      width: 3px; border-radius: 12px 0 0 12px;
-    }
-    .ga-result-item.tier-high::before  { background: #16a34a; }
-    .ga-result-item.tier-med::before   { background: #d97706; }
-    .ga-result-item.tier-low::before   { background: #9ca3af; }
-    .ga-result-item:hover { border-color: rgba(37,99,235,0.25); }
-
-    .ga-result-top { display: flex; align-items: flex-start; gap: 8px; }
-    .ga-result-rank {
-      font-size: 0.7rem; font-weight: 800; color: var(--muted);
-      min-width: 20px; margin-top: 2px;
-    }
-    .ga-result-title { font-size: 0.84rem; font-weight: 600; line-height: 1.4; flex: 1; color: var(--text); }
-    .ga-score-badge {
-      font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
-    }
-    .ga-score-badge.high { background: rgba(22,163,74,0.1);  color: #15803d; border: 1px solid rgba(22,163,74,0.22); }
-    .ga-score-badge.med  { background: rgba(217,119,6,0.1);  color: #92400e; border: 1px solid rgba(217,119,6,0.22); }
-    .ga-score-badge.low  { background: rgba(17,24,39,0.05);  color: var(--muted); border: 1px solid var(--border); }
-    .ga-result-rationale {
-      font-size: 0.77rem; color: var(--muted); line-height: 1.55;
-      margin-top: 6px; padding-left: 28px;
-    }
-    .ga-result-footer {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      margin-top: 6px; padding-left: 28px;
-    }
-    .ga-result-kw {
-      font-size: 0.68rem; padding: 2px 7px; border-radius: 999px;
-      background: var(--tag-bg); border: 1px solid var(--tag-border); color: var(--muted);
-    }
-    .ga-result-meta { font-size: 0.7rem; color: var(--muted2); margin-left: auto; }
-    .ga-result-link { font-size: 0.72rem; color: var(--accent); text-decoration: none; padding-left: 28px; display: inline-block; margin-top: 3px; }
-    .ga-result-link:hover { text-decoration: underline; }
-
-    .ga-export-btn {
-      display: flex; align-items: center; gap: 6px;
-      padding: 9px 16px; background: transparent; color: var(--muted);
-      border: 1px solid var(--border-strong); border-radius: 10px;
-      font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
-      transition: all 0.15s; margin-top: 12px;
-    }
-    .ga-export-btn:hover { color: var(--accent); border-color: var(--accent); }
-    .ga-reset-btn {
-      display: flex; align-items: center; gap: 6px;
-      padding: 9px 16px; background: transparent; color: var(--muted);
-      border: 1px solid var(--border-strong); border-radius: 10px;
-      font-family: inherit; font-size: 0.8rem; cursor: pointer;
-      transition: all 0.15s; margin-top: 8px;
-    }
-    .ga-reset-btn:hover { color: var(--text); }
-
     /* ── RESPONSIVE ── */
     @media (max-width: 760px) {
       .site-header { padding: 0 20px; }
@@ -845,120 +641,13 @@
       .toolbar { flex-direction: column; align-items: stretch; }
       .autofill-input-row { flex-direction: column; }
       .sel-hint { display: none; }
-      .ga-drawer { width: 100vw; }
     }
   </style>
 </head>
 <body>
 
-  <!-- ── GA OVERLAY + DRAWER ── -->
-  <div class="ga-overlay" id="gaOverlay" onclick="closeGaDrawer()"></div>
-
-  <div class="ga-drawer" id="gaDrawer" role="dialog" aria-modal="true" aria-label="GA Matcher">
-
-    <div class="ga-drawer-header">
-      <div class="ga-drawer-title">
-        <div class="ga-drawer-title-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
-        </div>
-        <div>
-          <h2>GA Matcher</h2>
-          <p>Cerca call rilevanti a partire da un Grant Agreement</p>
-        </div>
-      </div>
-      <button class="ga-close-btn" onclick="closeGaDrawer()" aria-label="Chiudi pannello">✕</button>
-    </div>
-
-    <div class="ga-drawer-body">
-
-      <!-- STEP 1: GA Lookup -->
-      <div class="ga-step">
-        <div class="ga-step-header">
-          <div class="ga-step-num" id="stepNum1">1</div>
-          <span class="ga-step-label">Cerca progetto su CORDIS</span>
-        </div>
-        <div class="ga-step-body">
-          <div class="ga-input-row">
-            <input type="text" id="gaNumberInput" placeholder="Es. 101057944" maxlength="20" />
-            <button class="ga-fetch-btn" id="gaFetchBtn" onclick="gaFetchProject()">Cerca</button>
-          </div>
-          <p class="ga-hint">Inserisci il numero GA Horizon Europe. I dati vengono estratti tramite AI dalla base di conoscenza su CORDIS.</p>
-          <div class="ga-status" id="gaFetchStatus"></div>
-          <div class="ga-project-card" id="gaProjectCard">
-            <div class="ga-proj-row">
-              <div class="ga-proj-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
-              </div>
-              <div>
-                <div class="ga-proj-title" id="gaProjTitle"></div>
-                <div class="ga-proj-meta" id="gaProjMeta"></div>
-              </div>
-            </div>
-            <div class="ga-proj-abstract" id="gaProjAbstract"></div>
-            <div class="ga-proj-kws" id="gaProjKws"></div>
-            <a class="ga-cordis-link" id="gaCordisLink" target="_blank" rel="noopener">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              Verifica su CORDIS
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 2: Paste calls -->
-      <div class="ga-step" id="gaStep2" style="opacity:0.45;pointer-events:none;">
-        <div class="ga-step-header">
-          <div class="ga-step-num" id="stepNum2">2</div>
-          <span class="ga-step-label">Incolla le call da valutare</span>
-        </div>
-        <div class="ga-step-body">
-          <textarea
-            class="ga-textarea"
-            id="gaCallsTextarea"
-            placeholder='Incolla qui il contenuto di calls.json oppure un array JSON di call.&#10;&#10;Esempio: [{"name":"...", "full_text":"...", "thematic_cluster":"...", "deadline":"...", "url":"..."}]&#10;&#10;Vengono valutate le prime 50 call.'
-          ></textarea>
-          <p class="ga-hint">Puoi incollare il JSON completo di calls.json — il sistema prende le prime 50 voci. Sono supportati anche testo libero e array parziali.</p>
-          <button class="ga-rank-btn" id="gaRankBtn" onclick="gaRankCalls()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/><circle cx="18" cy="6" r="3"/><path d="m16.5 4.5 3 3"/></svg>
-            Analizza rilevanza con AI (top 50)
-          </button>
-          <div class="ga-status" id="gaRankStatus"></div>
-        </div>
-      </div>
-
-      <!-- STEP 3: Results -->
-      <div class="ga-step" id="gaStep3" style="display:none;">
-        <div class="ga-step-header">
-          <div class="ga-step-num done" id="stepNum3">✓</div>
-          <span class="ga-step-label">Call più rilevanti — <span id="gaResultsCount"></span></span>
-        </div>
-        <div class="ga-step-body">
-          <div class="ga-results-list" id="gaResultsList"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
-            <button class="ga-export-btn" onclick="gaExportCsv()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Esporta CSV
-            </button>
-            <button class="ga-reset-btn" onclick="gaReset()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-              Nuova ricerca
-            </button>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ── MAIN ── -->
   <header class="site-header">
-    <a class="site-logo" href="#">Funding Call<span>.</span></a>
-    <div class="header-right">
-      <div id="lastUpdated"></div>
-      <button class="btn-open-ga" onclick="openGaDrawer()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
-        GA Matcher
-      </button>
-    </div>
+    <div id="lastUpdated"></div>
   </header>
 
   <div class="page">
@@ -971,7 +660,7 @@
     <section class="form-card">
       <form id="surveyForm">
 
-        <!-- SEZIONE 00: AUTO-FILL -->
+        <!-- ── SEZIONE 00: AUTO-FILL ── -->
         <div class="autofill-section">
           <div class="autofill-label-row">
             <span class="section-label" style="margin-bottom:0;font-size:0.7rem;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted)">
@@ -979,14 +668,23 @@
             </span>
             <span class="autofill-badge">Opzionale</span>
           </div>
+
           <div id="indexStatus" class="index-status hidden"></div>
+
           <div class="autofill-input-row">
             <div class="autofill-input-wrap">
-              <input id="callNumberInput" type="text" placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01" autocomplete="off" spellcheck="false" />
-              <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">✕</button>
+              <input
+                id="callNumberInput"
+                type="text"
+                placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">X</button>
             </div>
             <button type="button" id="autofillBtn" class="btn-autofill">Cerca e compila</button>
           </div>
+
           <div id="autofillFeedback" class="autofill-feedback"></div>
         </div>
 
@@ -1082,6 +780,7 @@
           <button type="submit" class="btn-primary">Genera risultati</button>
           <button type="button" id="resetBtn" class="btn-secondary">Pulisci</button>
         </div>
+
       </form>
     </section>
 
@@ -1118,6 +817,7 @@
         </div>
       </div>
 
+      <!-- Selection bar -->
       <div id="selectionBar" class="selection-bar">
         <span class="sel-count-badge">
           <span class="sel-num" id="selCountNum">0</span>
@@ -1139,9 +839,6 @@
 
 <script>
 (() => {
-  /* ═══════════════════════════════════════════
-     CONSTANTS & CONFIG
-  ═══════════════════════════════════════════ */
   const PAGE_SIZE  = 25;
   const BUDGET_MAX = 20000000;
   const SPECIAL    = 'Internships, fellowships & scholarships';
@@ -1227,9 +924,7 @@
     {re:/\bCOFUND\b/i,v:'COFUND'},
   ];
 
-  /* ═══════════════════════════════════════════
-     STATE
-  ═══════════════════════════════════════════ */
+  /* ── State ── */
   let CALLS             = [];
   let CLOSED_INDEX      = {};
   let closedIndexReady  = false;
@@ -1237,18 +932,12 @@
   let visibleCount      = PAGE_SIZE;
   let lastAnswers       = null;
   let lastScoredResults = [];
-  let lastFiltered      = [];
+  let lastFiltered      = [];   // filtered + sorted, with _filteredIdx assigned
   let sortMode          = 'relevance';
   let searchScope       = 'fulltext';
-  let selectedIds       = new Set();
+  let selectedIds       = new Set(); // Set of _filteredIdx values
 
-  /* GA Matcher state */
-  let gaProjectData   = null;
-  let gaRankedResults = [];
-
-  /* ═══════════════════════════════════════════
-     DOM REFS
-  ═══════════════════════════════════════════ */
+  /* ── DOM refs ── */
   const form               = document.getElementById('surveyForm');
   const resetBtn           = document.getElementById('resetBtn');
   const resultsSection     = document.getElementById('resultsSection');
@@ -1279,313 +968,18 @@
   const selAllBtn          = document.getElementById('selAllBtn');
   const deselAllBtn        = document.getElementById('deselAllBtn');
 
-  /* ═══════════════════════════════════════════
-     GA DRAWER
-  ═══════════════════════════════════════════ */
-  window.openGaDrawer = function() {
-    document.getElementById('gaDrawer').classList.add('open');
-    document.getElementById('gaOverlay').classList.add('open');
-    document.body.style.overflow = 'hidden';
-    document.getElementById('gaNumberInput').focus();
-  };
-  window.closeGaDrawer = function() {
-    document.getElementById('gaDrawer').classList.remove('open');
-    document.getElementById('gaOverlay').classList.remove('open');
-    document.body.style.overflow = '';
-  };
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGaDrawer(); });
-
-  /* ── GA Status helpers ── */
-  function gaSetStatus(elId, type, html) {
-    const el = document.getElementById(elId);
-    el.className = 'ga-status visible ' + (type || '');
-    el.innerHTML = html;
-  }
-  function gaHideStatus(elId) {
-    const el = document.getElementById(elId);
-    el.className = 'ga-status';
-    el.innerHTML = '';
-  }
-  function gaSpinner(msg) {
-    return `<div class="spinner" style="border-top-color:var(--accent)"></div><span>${msg}</span>`;
-  }
-
-  /* ── Step 1: Fetch project from CORDIS via AI ── */
-  window.gaFetchProject = async function() {
-    const ga = document.getElementById('gaNumberInput').value.trim();
-    if (!ga || !/^\d{6,12}$/.test(ga)) {
-      gaSetStatus('gaFetchStatus', 'error', '⚠ Inserisci un numero GA valido (6-12 cifre, es. 101057944)');
-      return;
-    }
-    const btn = document.getElementById('gaFetchBtn');
-    btn.disabled = true;
-    gaSetStatus('gaFetchStatus', 'loading', gaSpinner('Interrogazione AI su CORDIS…'));
-    document.getElementById('gaProjectCard').classList.remove('visible');
-
-    const cordisUrl = `https://cordis.europa.eu/project/id/${ga}`;
-    const prompt = `You are a data extraction assistant for EU research projects. Extract information about Horizon Europe / H2020 grant agreement number ${ga}.
-
-CORDIS URL: ${cordisUrl}
-
-Use your knowledge of EU-funded research projects to provide the following. If you do not have reliable specific information for this exact GA number, say found=false but still provide your best inferences from the GA number range and any partial knowledge.
-
-Respond ONLY with a valid JSON object, no markdown fences, no commentary:
-{
-  "found": true,
-  "ga": "${ga}",
-  "acronym": "PROJECT_ACRONYM",
-  "title": "Full project title",
-  "programme": "Horizon Europe",
-  "cluster": "Thematic cluster or topic area",
-  "start": "YYYY-MM",
-  "end": "YYYY-MM",
-  "budget": "X EUR",
-  "abstract": "2-4 sentence project description focusing on objectives and research area",
-  "keywords": ["keyword1","keyword2","keyword3","keyword4","keyword5"],
-  "coordinator": "Institution name, Country",
-  "countries": ["Country1","Country2"],
-  "note": "Any caveat about data reliability or what was inferred vs known"
-}`;
-
-    try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-      const data = await resp.json();
-      const raw  = (data.content || []).find(b => b.type === 'text')?.text || '{}';
-      const proj = JSON.parse(raw.replace(/```json|```/g, '').trim());
-      gaProjectData = proj;
-
-      /* Render project card */
-      document.getElementById('gaProjTitle').textContent =
-        proj.acronym ? `${proj.acronym} — ${proj.title}` : (proj.title || 'Titolo non disponibile');
-      document.getElementById('gaProjMeta').textContent = [
-        proj.programme, proj.cluster,
-        proj.start && proj.end ? `${proj.start} → ${proj.end}` : '',
-        proj.budget || '',
-        proj.coordinator || ''
-      ].filter(Boolean).join(' · ');
-      document.getElementById('gaProjAbstract').textContent = proj.abstract || 'Abstract non disponibile.';
-
-      const kwsEl = document.getElementById('gaProjKws');
-      kwsEl.innerHTML = '';
-      (proj.keywords || []).slice(0, 10).forEach(k => {
-        const s = document.createElement('span');
-        s.className = 'ga-kw';
-        s.textContent = k;
-        kwsEl.appendChild(s);
-      });
-
-      const cordisLinkEl = document.getElementById('gaCordisLink');
-      cordisLinkEl.href = cordisUrl;
-      document.getElementById('gaProjectCard').classList.add('visible');
-
-      /* Unlock step 2 */
-      document.getElementById('gaStep2').style.opacity = '1';
-      document.getElementById('gaStep2').style.pointerEvents = 'auto';
-      document.getElementById('stepNum1').classList.add('done');
-      document.getElementById('stepNum1').textContent = '✓';
-
-      if (proj.found === false || proj.note) {
-        gaSetStatus('gaFetchStatus', 'warning',
-          `⚠ ${proj.note || 'Dati inferiti — verifica su CORDIS prima di procedere.'}`);
-      } else {
-        gaSetStatus('gaFetchStatus', 'success', '✓ Dati estratti. Verifica su CORDIS se necessario.');
-      }
-    } catch(err) {
-      gaSetStatus('gaFetchStatus', 'error', `✕ Errore: ${esc(err.message)}`);
-    }
-    btn.disabled = false;
-  };
-
-  document.getElementById('gaNumberInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') gaFetchProject();
-  });
-
-  /* ── Step 2: AI Ranking ── */
-  window.gaRankCalls = async function() {
-    if (!gaProjectData) return;
-    const raw = document.getElementById('gaCallsTextarea').value.trim();
-    if (!raw) {
-      gaSetStatus('gaRankStatus', 'error', '⚠ Incolla prima le call nel campo sopra.');
-      return;
-    }
-
-    let callsArr = [];
-    try {
-      const parsed = JSON.parse(raw);
-      callsArr = Array.isArray(parsed) ? parsed : (parsed.calls || []);
-    } catch(_) {
-      /* treat as free text: wrap in single object */
-      callsArr = [{ name: 'Input testuale', full_text: raw }];
-    }
-    if (!callsArr.length) {
-      gaSetStatus('gaRankStatus', 'error', '⚠ Nessuna call trovata nell\'input.');
-      return;
-    }
-
-    const top50 = callsArr.slice(0, 50);
-    const btn   = document.getElementById('gaRankBtn');
-    btn.disabled = true;
-    gaSetStatus('gaRankStatus', 'loading', gaSpinner(`Analisi semantica di ${top50.length} call in corso…`));
-
-    /* Build compact call summaries (keep under token budget) */
-    const callsSummary = top50.map((c, i) => {
-      const text = [c.name, c.full_text, c.description, c.objective]
-        .filter(Boolean).join(' ').slice(0, 500);
-      return `[${i}] TITLE: ${c.name || 'N/A'} | CLUSTER: ${c.thematic_cluster || ''} | ACTION: ${c.action || ''} | DEADLINE: ${c.deadline || ''} | TEXT: ${text}`;
-    }).join('\n\n');
-
-    const projSummary = `GA: ${gaProjectData.ga}
-Acronym: ${gaProjectData.acronym || 'N/A'}
-Title: ${gaProjectData.title}
-Programme: ${gaProjectData.programme}
-Cluster/Topic: ${gaProjectData.cluster}
-Abstract: ${gaProjectData.abstract}
-Keywords: ${(gaProjectData.keywords || []).join(', ')}
-Period: ${gaProjectData.start} → ${gaProjectData.end}`;
-
-    const prompt = `You are a senior EU research funding expert. Your task: score how relevant each open Horizon Europe call is for a project that is completing or has completed, to identify follow-up funding or exploitation opportunities for its results.
-
-PROJECT:
-${projSummary}
-
-CALLS (index 0-${top50.length - 1}):
-${callsSummary}
-
-Evaluation criteria:
-1. Thematic overlap with project research area and keywords (most important)
-2. Potential to exploit or continue the project's results / IP
-3. Methodological compatibility (basic/applied/industrial alignment)
-4. TRL compatibility
-
-Return ONLY a JSON array sorted by score descending. Include only calls with score >= 20. Maximum 15 results. No markdown fences.
-
-[
-  {
-    "idx": <0-based original index>,
-    "title": "<exact call title from input>",
-    "score": <integer 0-100>,
-    "tier": "high" | "medium" | "low",
-    "rationale": "<2 sentences in Italian explaining relevance for this specific project>",
-    "match_keywords": ["kw1","kw2","kw3"],
-    "deadline": "<deadline string or empty>"
-  }
-]
-
-Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-79 = partial overlap; 20-49 = adjacent area worth considering.`;
-
-    try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-      const data = await resp.json();
-      const rawTxt = (data.content || []).find(b => b.type === 'text')?.text || '[]';
-      gaRankedResults = JSON.parse(rawTxt.replace(/```json|```/g, '').trim());
-
-      gaRenderResults(gaRankedResults, top50);
-      gaHideStatus('gaRankStatus');
-      document.getElementById('gaStep2').style.opacity = '1';
-      document.getElementById('stepNum2').classList.add('done');
-      document.getElementById('stepNum2').textContent = '✓';
-    } catch(err) {
-      gaSetStatus('gaRankStatus', 'error', `✕ Errore AI: ${esc(err.message)}`);
-    }
-    btn.disabled = false;
-  };
-
-  function gaRenderResults(results, originalCalls) {
-    document.getElementById('gaResultsCount').textContent = `${results.length} call rilevanti`;
-    const listEl = document.getElementById('gaResultsList');
-    listEl.innerHTML = '';
-
-    results.forEach((r, rank) => {
-      const orig = originalCalls[r.idx] || {};
-      const tierClass = r.tier === 'high' ? 'tier-high' : r.tier === 'medium' ? 'tier-med' : 'tier-low';
-      const badgeClass = r.tier === 'high' ? 'high' : r.tier === 'medium' ? 'med' : 'low';
-
-      const item = document.createElement('div');
-      item.className = `ga-result-item ${tierClass}`;
-
-      const kws = (r.match_keywords || []).map(k =>
-        `<span class="ga-result-kw">${esc(k)}</span>`).join('');
-      const metaParts = [orig.thematic_cluster, orig.action, r.deadline || orig.deadline].filter(Boolean);
-      const urlHtml = orig.url
-        ? `<a class="ga-result-link" href="${esc(orig.url)}" target="_blank" rel="noopener">↗ ${esc(orig.url.slice(0,60))}${orig.url.length > 60 ? '…' : ''}</a>`
-        : '';
-
-      item.innerHTML = `
-        <div class="ga-result-top">
-          <span class="ga-result-rank">#${rank+1}</span>
-          <span class="ga-result-title">${esc(r.title || orig.name || 'N/A')}</span>
-          <span class="ga-score-badge ${badgeClass}">${r.score}</span>
-        </div>
-        <div class="ga-result-rationale">${esc(r.rationale || '')}</div>
-        ${kws ? `<div class="ga-result-footer">${kws}</div>` : ''}
-        ${metaParts.length ? `<div class="ga-result-meta">${esc(metaParts.join(' · '))}</div>` : ''}
-        ${urlHtml}
-      `;
-      listEl.appendChild(item);
-    });
-
-    document.getElementById('gaStep3').style.display = 'block';
-    /* scroll step 3 into view */
-    setTimeout(() => document.getElementById('gaStep3').scrollIntoView({ behavior:'smooth', block:'nearest' }), 80);
-  }
-
-  window.gaExportCsv = function() {
-    if (!gaRankedResults.length) return;
-    const headers = ['rank','score','tier','title','rationale','keywords','deadline'];
-    const rows = gaRankedResults.map((r, i) => [
-      i+1, r.score, r.tier,
-      '"'+String(r.title||'').replace(/"/g,'""')+'"',
-      '"'+String(r.rationale||'').replace(/"/g,'""')+'"',
-      '"'+(r.match_keywords||[]).join('; ')+'"',
-      r.deadline||''
-    ].join(','));
-    const csv = headers.join(',') + '\n' + rows.join('\n');
-    const blob = new Blob(['\ufeff'+csv], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `ga_${document.getElementById('gaNumberInput').value}_matches.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-
-  window.gaReset = function() {
-    gaProjectData   = null;
-    gaRankedResults = [];
-    document.getElementById('gaNumberInput').value    = '';
-    document.getElementById('gaCallsTextarea').value  = '';
-    document.getElementById('gaProjectCard').classList.remove('visible');
-    document.getElementById('gaStep2').style.opacity      = '0.45';
-    document.getElementById('gaStep2').style.pointerEvents = 'none';
-    document.getElementById('gaStep3').style.display      = 'none';
-    document.getElementById('gaResultsList').innerHTML    = '';
-    document.getElementById('stepNum1').classList.remove('done');
-    document.getElementById('stepNum1').textContent = '1';
-    document.getElementById('stepNum2').classList.remove('done');
-    document.getElementById('stepNum2').textContent = '2';
-    gaHideStatus('gaFetchStatus');
-    gaHideStatus('gaRankStatus');
-  };
-
-  /* ═══════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════
      CLOSED CALLS INDEX
-  ═══════════════════════════════════════════ */
-  async function loadClosedIndex() {
+  ═══════════════════════════════════════════════════ */
+
+  /**
+   * loadClosedIndex
+   * Fetches the JSON index of closed (past) calls from the server.
+   * Populates CLOSED_INDEX with a key-value map of call IDs to call data.
+   * Sets closedIndexReady=true on success; falls back gracefully on error.
+   * Called once at startup in parallel with loadCalls().
+   */
+    async function loadClosedIndex() {
     try {
       const res  = await fetch('./closed_calls_autofill_index.json', {cache:'no-store'});
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1594,17 +988,27 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       closedIndexCount = Object.keys(CLOSED_INDEX).length;
       closedIndexReady = true;
       updateIndexStatus();
-    } catch(err) {
+    } catch (err) {
+      console.warn('[autofill] Closed index not available:', err.message);
       closedIndexReady = false;
       updateIndexStatus();
     }
   }
 
-  function updateIndexStatus() {
+  /**
+   * updateIndexStatus
+   * Renders the index status strip shown below the autofill input.
+   * Displays three coloured dots indicating:
+   *   - green:  number of open calls loaded from the local dataset
+   *   - cyan/grey: number of closed calls indexed (or "not available")
+   *   - orange: structural ID parsing always available as fallback
+   */
+    function updateIndexStatus() {
     const openDot   = `<span class="idx-dot green"></span>`;
     const closedDot = closedIndexReady ? `<span class="idx-dot cyan"></span>` : `<span class="idx-dot grey"></span>`;
+    const openCount = CALLS.length;
     const items = [
-      `${openDot} <strong>${CALLS.length}</strong> call aperte (dataset locale)`,
+      `${openDot} <strong>${openCount}</strong> call aperte (dataset locale)`,
       closedIndexReady
         ? `${closedDot} <strong>${closedIndexCount}</strong> call chiuse indicizzate`
         : `${closedDot} Index call chiuse non disponibile`,
@@ -1614,7 +1018,14 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     indexStatusEl.classList.remove('hidden');
   }
 
-  function lookupClosedIndex(rawInput) {
+  /**
+   * lookupClosedIndex
+   * Searches the closed-calls index for a given call ID or topic URL slug.
+   * Tries exact match first, then extracts slug from URL patterns,
+   * then falls back to prefix/suffix matching.
+   * Returns the matched call data object or null if not found.
+   */
+    function lookupClosedIndex(rawInput) {
     const key = rawInput.trim().toUpperCase();
     if (CLOSED_INDEX[key]) return CLOSED_INDEX[key];
     const slugMatch = key.match(/(?:TOPIC-DETAILS\/|COMPETITIVE-CALLS-CS\/)([^?#/]+)/);
@@ -1626,7 +1037,18 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return null;
   }
 
-  function lookupLocalCalls(rawInput) {
+  /**
+   * lookupLocalCalls
+   * Searches the in-memory CALLS array (open calls dataset) for a given ID.
+   * Tries multiple strategies in order of precision:
+   *   1. Exact topic slug match from URL
+   *   2. Prefix/suffix topic slug match
+   *   3. Exact call_id match
+   *   4. Prefix/suffix call_id match
+   *   5. Substring match anywhere in the URL
+   * Returns the first matching call object or null.
+   */
+    function lookupLocalCalls(rawInput) {
     const idUp = rawInput.trim().toUpperCase();
     function topicSlug(url) {
       const m = String(url||'').match(/topic-details\/([^?#/]+)/i);
@@ -1640,7 +1062,16 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       || null;
   }
 
-  function parseCallIdStructural(raw) {
+  /**
+   * parseCallIdStructural
+   * Parses a raw Horizon call ID string structurally, without any dataset lookup.
+   * Extracts the thematic cluster by:
+   *   1. Matching HORIZON-CL[1-6] cluster codes via CL_MAP
+   *   2. Applying URL_RULES prefix/suffix patterns as fallback
+   * Also detects the action type (RIA, IA, CSA, COFUND) via regex patterns.
+   * Returns { thematic, actionType } — used as last-resort autofill.
+   */
+    function parseCallIdStructural(raw) {
     const id = raw.trim().toUpperCase();
     let thematic = null, actionType = null;
     const clMatch = id.match(/HORIZON-CL([1-6])-/);
@@ -1649,7 +1080,8 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       for (const rule of URL_RULES) {
         if (!id.includes(rule.p)) continue;
         if (rule.s && !id.includes(rule.s)) continue;
-        thematic = rule.t; break;
+        thematic = rule.t;
+        break;
       }
     }
     for (const {re, v} of ACTION_TYPE_PATTERNS) {
@@ -1658,29 +1090,60 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return { thematic, actionType };
   }
 
-  /* ═══════════════════════════════════════════
-     AUTOFILL (call number → form)
-  ═══════════════════════════════════════════ */
-  async function doAutofill() {
+  /* ═══════════════════════════════════════════════════
+     AUTOFILL
+  ═══════════════════════════════════════════════════ */
+
+  /**
+   * doAutofill
+   * Main autofill handler — triggered by button click or Enter key.
+   * Tries three data sources in order of reliability:
+   *   1. lookupLocalCalls  — exact match in open calls dataset
+   *   2. lookupClosedIndex — match in closed calls index (if loaded)
+   *   3. parseCallIdStructural — structural parsing of the ID as fallback
+   * Calls applyAutofillResult() with the result and source label.
+   */
+    async function doAutofill() {
     const rawInput = callNumberInput.value.trim();
     if (!rawInput) {
-      showFeedback('error', '✕', 'Inserisci un numero di call o topic ID prima di procedere.');
+      showFeedback('error', 'X', 'Inserisci un numero di call o topic ID prima di procedere.');
       return;
     }
     autofillBtn.disabled = true;
     showFeedback('loading', null, 'Ricerca in corso…');
     const localMatch = lookupLocalCalls(rawInput);
-    if (localMatch) { autofillBtn.disabled = false; applyAutofillResult(rawInput, localMatch, 'local'); return; }
+    if (localMatch) {
+      autofillBtn.disabled = false;
+      applyAutofillResult(rawInput, localMatch, 'local');
+      return;
+    }
     if (closedIndexReady) {
       const closedMatch = lookupClosedIndex(rawInput);
-      if (closedMatch) { autofillBtn.disabled = false; applyAutofillResult(rawInput, closedMatch, 'closed'); return; }
+      if (closedMatch) {
+        autofillBtn.disabled = false;
+        applyAutofillResult(rawInput, closedMatch, 'closed');
+        return;
+      }
     }
     autofillBtn.disabled = false;
-    applyAutofillResult(rawInput, parseCallIdStructural(rawInput), 'structural');
+    const structural = parseCallIdStructural(rawInput);
+    applyAutofillResult(rawInput, structural, 'structural');
   }
 
-  function applyAutofillResult(rawInput, data, source) {
-    if (!data) { showFeedback('warning', '!', `Nessun dato trovato per <strong>${esc(rawInput)}</strong>. Compila manualmente.`); return; }
+  /**
+   * applyAutofillResult
+   * Applies autofill data to the form fields based on the lookup result.
+   * - Sets the primary thematic cluster dropdown
+   * - Picks the best secondary thematic from multi_thematic array (by keyword count)
+   * - Sets the action type dropdown if recognised (RIA/IA/CSA/COFUND)
+   * - Triggers a visual flash animation on each injected field
+   * - Renders a feedback banner with source badge and summary chips
+   */
+    function applyAutofillResult(rawInput, data, source) {
+    if (!data) {
+      showFeedback('warning', '!', `Nessun dato trovato per <strong>${esc(rawInput)}</strong>. Compila manualmente.`);
+      return;
+    }
     const thematic      = data.thematic_cluster || data.thematic || null;
     const multiThematic = Array.isArray(data.multi_thematic) ? data.multi_thematic : [];
     const action        = normalizeAction(data.action || data.actionType || '');
@@ -1696,16 +1159,19 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     }
     const injected = [];
     if (thematic && THEMATIC_OPTIONS.includes(thematic)) {
-      primaryEl.value = thematic; flashInjected(primaryEl);
+      primaryEl.value = thematic;
+      flashInjected(primaryEl);
       injected.push({ label: 'Area primaria', value: thematic });
     }
     if (secondary && secondary !== thematic) {
-      secondaryEl.value = secondary; flashInjected(secondaryEl);
+      secondaryEl.value = secondary;
+      flashInjected(secondaryEl);
       const kwHint = (keywordHits[secondary] || []).slice(0,3).join(', ');
       injected.push({ label: 'Area secondaria', value: secondary, hint: kwHint || null });
     }
     if (action && ['RIA','IA','CSA','COFUND'].includes(action)) {
-      document.getElementById('action_type').value = action; flashInjected(document.getElementById('action_type'));
+      document.getElementById('action_type').value = action;
+      flashInjected(document.getElementById('action_type'));
       injected.push({ label: 'Action type', value: action });
     }
     const sourceLabels = {
@@ -1716,7 +1182,9 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     const sl = sourceLabels[source] || sourceLabels.structural;
     const sourceBadge = `<span class="autofill-source-badge ${sl.cls}">${sl.icon} ${sl.text}</span>`;
     let msg = `Compilazione per <strong>${esc(rawInput)}</strong>. ${sourceBadge}`;
-    if (title) msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(title.substring(0,120))}${title.length > 120 ? '…' : ''}</em>`;
+    if (title) {
+      msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(title.substring(0,120))}${title.length > 120 ? '…' : ''}</em>`;
+    }
     const chipsHtml = injected.map(i => {
       const hintSpan = i.hint ? ` <span style="opacity:0.6;font-weight:400;font-size:0.88em">(${esc(i.hint)})</span>` : '';
       return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
@@ -1727,11 +1195,19 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if (injected.length === 0) {
       showFeedback('warning', '!', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
     } else {
-      showFeedback('success', '✓', `${msg}<div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>${noteHtml}`);
+      showFeedback('success', 'OK', `${msg}<div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>${noteHtml}`);
     }
   }
 
-  function showFeedback(type, icon, html) {
+  /**
+   * showFeedback
+   * Updates the autofill feedback banner with a given state and message.
+   * type: 'loading' | 'success' | 'warning' | 'error'
+   * icon: text character to show (e.g. 'OK', '!', 'X') — null for loading state
+   * html: inner HTML string for the message body
+   * Shows a spinner div for 'loading', otherwise an icon + message layout.
+   */
+    function showFeedback(type, icon, html) {
     autofillFeedback.className = `autofill-feedback ${type}`;
     if (type === 'loading') {
       autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
@@ -1739,9 +1215,18 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       autofillFeedback.innerHTML = `<span class="autofill-feedback-icon">${icon||''}</span><div>${html}</div>`;
     }
   }
-  function flashInjected(el) {
-    el.classList.remove('injected'); void el.offsetWidth;
-    el.classList.add('injected'); setTimeout(() => el.classList.remove('injected'), 1400);
+
+  /**
+   * flashInjected
+   * Briefly applies the CSS 'injected' animation class to a DOM element.
+   * Used to visually indicate that a form field was auto-populated.
+   * Removes the class first to allow re-triggering, then removes it after 1.4s.
+   */
+    function flashInjected(el) {
+    el.classList.remove('injected');
+    void el.offsetWidth;
+    el.classList.add('injected');
+    setTimeout(() => el.classList.remove('injected'), 1400);
   }
 
   callNumberInput.addEventListener('input', () => {
@@ -1750,25 +1235,63 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if (!has) autofillFeedback.className = 'autofill-feedback';
   });
   autofillClearBtn.addEventListener('click', () => {
-    callNumberInput.value = ''; autofillClearBtn.classList.remove('visible');
-    autofillFeedback.className = 'autofill-feedback'; callNumberInput.focus();
+    callNumberInput.value = '';
+    autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className = 'autofill-feedback';
+    callNumberInput.focus();
   });
-  callNumberInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doAutofill(); } });
+  callNumberInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); doAutofill(); }
+  });
   autofillBtn.addEventListener('click', doAutofill);
 
-  /* ═══════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════
      UTILITIES
-  ═══════════════════════════════════════════ */
-  function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function norm(s){ return String(s||'').trim(); }
-  function lower(s){ return String(s||'').toLowerCase(); }
-  function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+  ═══════════════════════════════════════════════════ */
 
-  function projectEndIso(y,q){
+  /**
+   * esc
+   * HTML-escapes a string to prevent XSS when inserting user or data content
+   * into innerHTML. Replaces &, <, >, ", ' with their HTML entity equivalents.
+   */
+    function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  /**
+   * norm
+   * Normalises a value to a trimmed string.
+   * Returns empty string for null/undefined input.
+   */
+    function norm(s){ return String(s||'').trim(); }
+  /**
+   * lower
+   * Converts a value to a lowercase string.
+   * Returns empty string for null/undefined input.
+   */
+    function lower(s){ return String(s||'').toLowerCase(); }
+  /**
+   * escapeRegExp
+   * Escapes all special RegExp metacharacters in a string.
+   * Needed before inserting user-supplied text into a RegExp constructor.
+   */
+    function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+  /**
+   * projectEndIso
+   * Returns the ISO date string for the last day of a given year/quarter.
+   * E.g. projectEndIso('2025', 'Q2') => '2025-06-30'
+   * Used to filter out calls whose deadline falls before the project end.
+   */
+    function projectEndIso(y,q){
     return {Q1:`${y}-03-31`,Q2:`${y}-06-30`,Q3:`${y}-09-30`,Q4:`${y}-12-31`}[q]||'';
   }
 
-  function normalizeAction(v){
+  /**
+   * normalizeAction
+   * Normalises an action type string to one of: RIA, IA, CSA, COFUND.
+   * Handles both long-form descriptions ("Research and Innovation Action")
+   * and short abbreviations, case-insensitively.
+   * Returns the input uppercased if no known pattern matches.
+   */
+    function normalizeAction(v){
     const s=lower(v);
     if(s.includes('research and innovation action')) return 'RIA';
     if(s.includes('innovation action')) return 'IA';
@@ -1782,7 +1305,17 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return String(v||'').toUpperCase();
   }
 
-  function parseBudgetValue(value){
+  /**
+   * parseBudgetValue
+   * Parses a budget string in various international formats to a numeric value.
+   * Handles:
+   *   - Shorthand notation: "1.5M", "500K", "2B"
+   *   - European format: "1.500.000" or "1.500,00"
+   *   - US format: "1,500,000" or "1,500.00"
+   *   - Mixed separators with disambiguation logic
+   * Returns a non-negative finite number, or null if unparseable.
+   */
+    function parseBudgetValue(value){
     if(value===null||value===undefined||value==='') return null;
     let s=String(value).trim();
     const sh=s.match(/^[€$\s]*([\d.,]+)\s*([KkMmBb])\b/);
@@ -1801,22 +1334,48 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return Number.isFinite(p)&&p>=0?p:null;
   }
 
-  function formatBudget(v){
+  /**
+   * formatBudget
+   * Formats a numeric budget value as a localised Italian string with EUR suffix.
+   * E.g. 1500000 => "1.500.000 EUR"
+   * Returns empty string for non-finite values.
+   */
+    function formatBudget(v){
     return Number.isFinite(v)?v.toLocaleString('it-IT',{maximumFractionDigits:0})+' EUR':'';
   }
 
-  function getBudgetRange(){
+  /**
+   * getBudgetRange
+   * Reads the current min and max slider values and returns them as numbers.
+   * Swaps them if min > max to ensure a valid range.
+   * Falls back to 0 and BUDGET_MAX for non-finite values.
+   */
+    function getBudgetRange(){
     let min=Number(budgetMinEl.value), max=Number(budgetMaxEl.value);
     if(!Number.isFinite(min)) min=0;
     if(!Number.isFinite(max)) max=BUDGET_MAX;
     if(min>max) [min,max]=[max,min];
     return {minBudget:min,maxBudget:max};
   }
-  function budgetFilterActive(){
+  /**
+   * budgetFilterActive
+   * Returns true if the budget filter is set to anything other than the full range
+   * (i.e. minBudget > 0 or maxBudget < BUDGET_MAX).
+   * Used to decide whether to show the "calls without budget will be excluded" warning.
+   */
+    function budgetFilterActive(){
     const {minBudget,maxBudget}=getBudgetRange();
     return minBudget>0||maxBudget<BUDGET_MAX;
   }
-  function updateBudgetUi(){
+  /**
+   * updateBudgetUi
+   * Synchronises the budget slider UI state with the current slider values:
+   *   - Updates the min/max label text
+   *   - Repositions and resizes the coloured fill bar between the two thumbs
+   *   - Highlights the active preset chip (if any matches exactly)
+   *   - Shows/hides the budget warning message
+   */
+    function updateBudgetUi(){
     const {minBudget,maxBudget}=getBudgetRange();
     budgetMinLabelEl.textContent=formatBudget(minBudget);
     budgetMaxLabelEl.textContent=formatBudget(maxBudget);
@@ -1837,24 +1396,59 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     /eu funding & tenders portal[^.]{0,80}/gi,
     /home funding calls for proposals[^.]{0,80}/gi,
   ];
-  function stripBoilerplate(t){
+  /**
+   * stripBoilerplate
+   * Removes known boilerplate phrases from call text before keyword matching.
+   * The BOILERPLATE_PATTERNS list contains regexes for common EU portal navigation
+   * text and cookie banners that would otherwise produce false keyword matches.
+   */
+    function stripBoilerplate(t){
     let x=String(t||'');
     BOILERPLATE_PATTERNS.forEach(p=>{x=x.replace(p,' ');});
     return x;
   }
 
-  function textForSearch(call){
+  /**
+   * textForSearch
+   * Builds a single concatenated lowercase string from all searchable fields of a call.
+   * Fields included: full_text, name, programme, cluster_label, thematic_cluster, action, budget.
+   * Boilerplate is stripped before concatenation to avoid noise in keyword matching.
+   */
+    function textForSearch(call){
     return lower(stripBoilerplate([call.full_text,call.name,call.programme,call.cluster_label,call.thematic_cluster,call.action,call.budget].filter(Boolean).join(' ')));
   }
-  function titleHasSpecial(title){
+  /**
+   * titleHasSpecial
+   * Returns true if the call title contains any of the special-category keywords
+   * (e.g. "internship", "fellowship", "msca", "scholarship").
+   * Uses word-boundary regex to avoid partial matches.
+   */
+    function titleHasSpecial(title){
     const t=lower(title);
     return TITLE_SPECIAL_KEYWORDS.some(k=>new RegExp(`(^|[^a-z])${escapeRegExp(k)}([^a-z]|$)`,'i').test(t));
   }
-  function keywordHits(text,thematic){
+  /**
+   * keywordHits
+   * Finds which keywords from the given thematic cluster appear in the search text.
+   * Uses word-boundary regex for each keyword, case-insensitively.
+   * Returns a deduplicated array of matched keyword strings.
+   */
+    function keywordHits(text,thematic){
     const kws=KEYWORDS[thematic]||[];
     return [...new Set(kws.filter(k=>new RegExp(`(^|[^a-z])${escapeRegExp(lower(k))}([^a-z]|$)`,'i').test(text)))];
   }
-  function enrichCall(raw){
+  /**
+   * enrichCall
+   * Augments a raw call object with pre-computed derived fields used for scoring:
+   *   _assigned:      normalised thematic cluster string
+   *   _action_norm:   normalised action type (RIA/IA/CSA/COFUND)
+   *   _deadline_norm: ISO deadline date string
+   *   _budget_value:  parsed numeric budget
+   *   _search:        full concatenated search text (lowercase, boilerplate-stripped)
+   *   _special:       flag for internship/fellowship/scholarship calls
+   *   _keyword_hits:  map of thematic -> matched keywords
+   */
+    function enrichCall(raw){
     const c={...raw};
     c._assigned=norm(c.thematic_cluster);
     c._action_norm=normalizeAction(c.action);
@@ -1872,48 +1466,35 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return c;
   }
 
-  function isAssignedTo(call,thematic){
+  /**
+   * isAssignedTo
+   * Returns true if the call is formally assigned to the given thematic cluster.
+   * Special handling for the SPECIAL category (internships/fellowships).
+   */
+    function isAssignedTo(call,thematic){
     if(!thematic) return false;
     if(thematic===SPECIAL) return !!call._special;
     return norm(call._assigned)===thematic;
   }
-  function hitsFor(call,thematic){
+  /**
+   * hitsFor
+   * Returns the list of keyword matches for a given thematic cluster in a call.
+   * Falls back to live keywordHits() computation if pre-computed cache is missing.
+   */
+    function hitsFor(call,thematic){
     if(!thematic) return [];
     if(thematic===SPECIAL) return call._special?['title match']:[];
     return Array.isArray(call._keyword_hits[thematic])?call._keyword_hits[thematic]:keywordHits(call._search,thematic);
   }
-  /* =================================================================
-     FIELD-WEIGHTED SCORE — usato solo in modalità keyword search
-     Replica la logica BM25 del portale SEDIA:
-     title x8 | summary x4 | call_id/url x3 | keyword_hits x3 | cluster x2 | body x1
-  ================================================================= */
-  function fieldWeightedScore(call, terms) {
-    if (!terms || !terms.length) return 0;
-    var total = 0;
-    terms.forEach(function(term) {
-      var esc = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      var re = new RegExp('\b' + esc, 'gi');
-      total += Math.min((lower(call.name || '').match(re) || []).length, 3) * 8;
-      total += Math.min((lower((call.full_text || '').slice(0, 300)).match(re) || []).length, 3) * 4;
-      total += Math.min((lower((call.call_id || '') + ' ' + (call.url || '')).match(re) || []).length, 2) * 3;
-      var allKws = Object.values(call._keyword_hits || {}).reduce(function(a,b){return a.concat(b);}, []);
-      total += Math.min((lower(allKws.join(' ')).match(re) || []).length, 4) * 3;
-      total += Math.min((lower([call.cluster_label, call.thematic_cluster, call.programme].filter(Boolean).join(' ')).match(re) || []).length, 2) * 2;
-      total += Math.min((lower((call.full_text || '').slice(300)).match(re) || []).length, 10) * 1;
-    });
-    return total;
-  }
-
-  /* Bonus action type per keyword mode: mantiene l'importanza del type of action
-     anche quando si ordina per rilevanza SEDIA-style */
-  function actionTypeBonus(call, answers) {
-    var at = answers.action_type || '';
-    if (!at) return 0;
-    if (at !== 'OTHER') return call._action_norm === at ? 15 : -30;
-    return !['RIA','IA','CSA','COFUND'].includes(call._action_norm) ? 10 : -30;
-  }
-
-  function scoreNature(call,nature){
+  /**
+   * scoreNature
+   * Computes a score bonus/penalty based on project nature vs call action type.
+   * - basic research:    prefers RIA (+14), CSA (+6), special calls (+8)
+   * - applied research:  prefers RIA (+9) and IA (+9)
+   * - industrial:        prefers IA (+14)
+   * Returns 0 if no nature filter is set.
+   */
+    function scoreNature(call,nature){
     if(!nature) return 0;
     const a=call._action_norm;
     if(nature==='basic')    return (a==='RIA'?14:0)+(a==='CSA'?6:0)+(call._special?8:0);
@@ -1921,7 +1502,28 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if(nature==='industrial') return (a==='IA'?14:0);
     return 0;
   }
-  function bucketAndScore(call,answers){
+  /**
+   * bucketAndScore
+   * Determines the relevance bucket (1-6) and numeric score for a call
+   * given the user's thematic area selections.
+   *
+   * Bucket logic (with secondary area selected):
+   *   1 — primary match AND secondary keyword hits
+   *   2 — secondary match AND primary keyword hits
+   *   3 — primary match only
+   *   4 — secondary match only
+   *   5 — other area, but both primary AND secondary keyword hits
+   *   6 — other area, partial keyword hits
+   *
+   * Without secondary area:
+   *   1 — primary match
+   *   2 — primary keyword hits only
+   *
+   * Score is built on top of bucket rank, augmented by assignment flags,
+   * keyword hit counts, project nature, and action type match.
+   * Returns null if the call doesn't qualify for any bucket.
+   */
+    function bucketAndScore(call,answers){
     const primary=answers.thematic_cluster||'';
     const secondary=answers.secondary_thematic_cluster||'';
     const pA=isAssignedTo(call,primary);
@@ -1931,7 +1533,7 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     const other=!pA&&!sA;
     let bucket=99;
     if(!secondary){
-      if(pA)             bucket=1;
+      if(pA)          bucket=1;
       else if(pH.length) bucket=2;
     } else {
       if(pA&&sH.length)                       bucket=1;
@@ -1953,7 +1555,13 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return {bucket,score,primaryAssigned:pA,secondaryAssigned:sA,primaryHits:pH,secondaryHits:sH};
   }
 
-  function passedBudgetFilter(call){
+  /**
+   * passedBudgetFilter
+   * Returns true if the call passes the current budget range filter.
+   * If the budget filter is inactive (full range), all calls pass.
+   * Calls without a parseable budget value are excluded when the filter is active.
+   */
+    function passedBudgetFilter(call){
     if(!budgetFilterActive()) return true;
     const v=call._budget_value;
     if(!Number.isFinite(v)) return false;
@@ -1961,7 +1569,17 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return v>=minBudget&&v<=maxBudget;
   }
 
-  function applyFilters(calls,answers){
+  /**
+   * applyFilters
+   * Main scoring pipeline. Processes the full CALLS array against the user's answers:
+   *   1. Enriches each call with derived fields via enrichCall()
+   *   2. Filters out calls whose deadline is before the project end date
+   *   3. Scores and buckets each call via bucketAndScore()
+   *   4. Discards calls that don't match any bucket
+   *   5. Sorts by bucket ASC, then score DESC, then deadline ASC
+   * Returns the sorted, filtered array of enriched call objects.
+   */
+    function applyFilters(calls,answers){
     const projectEnd=projectEndIso(answers.closure_year,answers.closure_quarter);
     return calls
       .map(enrichCall)
@@ -1979,7 +1597,15 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       });
   }
 
-  function applyDisplayFilters(results){
+  /**
+   * applyDisplayFilters
+   * Applies the live (post-submit) display filters to the scored results:
+   *   - Keyword text filter: all terms must appear in the search scope
+   *     (full text or title only, depending on searchScope toggle)
+   *   - Budget range filter via passedBudgetFilter()
+   * Returns the filtered subset of results.
+   */
+    function applyDisplayFilters(results){
     const raw=lower(keywordFilterEl.value||'').trim();
     const terms=raw.split(/\s+/).filter(Boolean);
     return results.filter(c=>{
@@ -1992,46 +1618,35 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     });
   }
 
-  function getSortedFiltered(){
+  /**
+   * getSortedFiltered
+   * Applies display filters and sorts the results according to sortMode:
+   *   - 'relevance': bucket ASC, score DESC, deadline ASC (default)
+   *   - 'deadline':  deadline ASC (soonest first), with distant/missing dates last
+   * Assigns a sequential _filteredIdx to each result for stable selection tracking.
+   * Returns the final ordered array used by renderCalls().
+   */
+    function getSortedFiltered(){
     let filtered=applyDisplayFilters(lastScoredResults);
     if(sortMode==='deadline'){
       filtered=[...filtered].sort((a,b)=>String(a._deadline_norm||'9999').localeCompare(String(b._deadline_norm||'9999')));
     } else {
-      // Keyword mode: ordine SEDIA-style (fieldWeightedScore primario + bonus action type)
-      const kwRaw = lower((keywordFilterEl ? keywordFilterEl.value : '') || '').trim();
-      const kwTerms = kwRaw ? kwRaw.split(/\s+/).filter(Boolean) : [];
-      if (kwTerms.length > 0) {
-        // Calcola fws una volta per ogni call e cachelo
-        filtered.forEach(function(c) {
-          c._fws = fieldWeightedScore(c, kwTerms) + actionTypeBonus(c, lastAnswers || {});
-        });
-        filtered=[...filtered].sort((a,b)=>{
-          // Prima: action type match (se selezionato, chi non matcha va in fondo)
-          var at = (lastAnswers || {}).action_type || '';
-          if (at && at !== 'OTHER') {
-            var aMatch = a._action_norm === at;
-            var bMatch = b._action_norm === at;
-            if (aMatch !== bMatch) return aMatch ? -1 : 1;
-          }
-          // Poi: score SEDIA-style (fws + action bonus)
-          if (b._fws !== a._fws) return b._fws - a._fws;
-          // Tiebreak: deadline crescente
-          return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
-        });
-      } else {
-        // No keyword: ordine bucket classico
-        filtered=[...filtered].sort((a,b)=>{
-          if(a._bucket!==b._bucket) return a._bucket-b._bucket;
-          if(b._score!==a._score)   return b._score-a._score;
-          return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
-        });
-      }
+      filtered=[...filtered].sort((a,b)=>{
+        if(a._bucket!==b._bucket) return a._bucket-b._bucket;
+        if(b._score!==a._score)   return b._score-a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
     }
     filtered.forEach((c,i)=>{ c._filteredIdx=i; });
     return filtered;
   }
 
-  function bucketLabel(call){
+  /**
+   * bucketLabel
+   * Returns a human-readable Italian label for a call's relevance bucket number.
+   * Used as the text content of the coloured badge on each result card.
+   */
+    function bucketLabel(call){
     if(call._bucket===1) return 'Primario · con keyword secondaria';
     if(call._bucket===2) return 'Secondario · con keyword primaria';
     if(call._bucket===3) return 'Primario · senza keyword secondaria';
@@ -2041,7 +1656,13 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return 'Match';
   }
 
-  function renderSummary(a){
+  /**
+   * renderSummary
+   * Renders a row of summary "pill" elements showing the active filter values:
+   * closure year/quarter, project nature, primary area, secondary area, action type, budget.
+   * Displayed at the top of the results section for user reference.
+   */
+    function renderSummary(a){
     const {minBudget,maxBudget}=getBudgetRange();
     const budgetLabel=budgetFilterActive()?`${formatBudget(minBudget)} – ${formatBudget(maxBudget)}`:'Qualsiasi';
     const items=[
@@ -2055,7 +1676,16 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     return '<div class="summary">'+items.map(i=>`<span class="pill">${i.l}<strong>${i.v}</strong></span>`).join('')+'</div>';
   }
 
-  function updateSelectionUi(){
+  /* ── Selection helpers ── */
+  /**
+   * updateSelectionUi
+   * Synchronises the selection bar UI with the current selectedIds set:
+   *   - Updates the count badge number
+   *   - Shows/hides the selection bar (only when results are present)
+   *   - Updates download button labels to indicate how many items are selected
+   *     (falls back to "Download all" wording when nothing is selected)
+   */
+    function updateSelectionUi(){
     const n=selectedIds.size;
     selCountNumEl.textContent=n;
     selectionBarEl.classList.toggle('visible', lastFiltered.length>0);
@@ -2068,10 +1698,17 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     }
   }
 
-  function toggleSelection(idx){
+  /**
+   * toggleSelection
+   * Adds or removes a call index from the selectedIds set.
+   * Updates the selection bar UI and toggles the visual 'selected' state
+   * on the corresponding card DOM element without triggering a full re-render.
+   */
+    function toggleSelection(idx){
     if(selectedIds.has(idx)) selectedIds.delete(idx);
     else selectedIds.add(idx);
     updateSelectionUi();
+    // Update card appearance without full re-render
     const card=resultsEl.querySelector(`.call[data-idx="${idx}"]`);
     if(card){
       card.classList.toggle('selected', selectedIds.has(idx));
@@ -2080,19 +1717,39 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     }
   }
 
-  selAllBtn.addEventListener('click',()=>{ lastFiltered.forEach(c=>selectedIds.add(c._filteredIdx)); renderCalls(); });
-  deselAllBtn.addEventListener('click',()=>{ selectedIds.clear(); renderCalls(); });
+  selAllBtn.addEventListener('click',()=>{
+    lastFiltered.forEach(c=>selectedIds.add(c._filteredIdx));
+    renderCalls();
+  });
+  deselAllBtn.addEventListener('click',()=>{
+    selectedIds.clear();
+    renderCalls();
+  });
 
-  function renderCalls(){
+  /* ── Main render ── */
+  /**
+   * renderCalls
+   * Main rendering function for the results list.
+   * - Calls getSortedFiltered() to get the current filtered+sorted array
+   * - Slices to visibleCount for pagination
+   * - Builds the summary pills HTML, then an <article> card for each visible call
+   * - Each card shows: title, metadata, bucket badge, keyword tags, URL link, checkbox
+   * - Writes the HTML to the DOM and updates the pagination footer
+   */
+    function renderCalls(){
     lastFiltered = getSortedFiltered();
     const visible=lastFiltered.slice(0,visibleCount);
+
     document.getElementById('statsCount').innerHTML=`<strong>${lastFiltered.length}</strong> call trovate`;
     updateSelectionUi();
+
     let html=renderSummary(lastAnswers);
     if(!lastFiltered.length){
       resultsEl.innerHTML=html+'<div class="empty">Nessuna call corrisponde ai filtri attivi.</div>';
-      resultsFooterEl.classList.add('hidden'); return;
+      resultsFooterEl.classList.add('hidden');
+      return;
     }
+
     visible.forEach(call=>{
       const meta=[
         call.programme?`Programme: ${esc(call.programme)}`:'',
@@ -2103,13 +1760,16 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
         call.opening?`Opening: ${esc(call.opening)}`:'',
         call.deadline?`Deadline: ${esc(call.deadline)}`:'',
       ].filter(Boolean).join(' · ');
+
       const bucketClass=`badge-b${call._bucket||6}`;
       const badges=[`<span class="badge ${bucketClass}">${bucketLabel(call)}</span>`];
       if(call._special) badges.push('<span class="badge badge-special">internships / fellowships</span>');
       const tags=[...(call._primaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`),...(call._secondaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`)];
       const urlAttr=call.url?` data-url="${esc(call.url)}"`:'' ;
       const isSelected=selectedIds.has(call._filteredIdx);
-      html+=`<article class="call${isSelected?' selected':''}" data-bucket="${call._bucket||6}"${urlAttr} data-idx="${call._filteredIdx}">
+      const selectedClass=isSelected?' selected':'';
+
+      html+=`<article class="call${selectedClass}" data-bucket="${call._bucket||6}"${urlAttr} data-idx="${call._filteredIdx}">
         <div class="call-checkbox-wrap">
           <input type="checkbox" class="call-checkbox" data-idx="${call._filteredIdx}" ${isSelected?'checked':''} title="Seleziona per export" />
         </div>
@@ -2120,6 +1780,7 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
         ${call.url?`<div class="call-link"><a href="${encodeURI(call.url)}" target="_blank" rel="noopener noreferrer">${esc(call.url)}</a></div>`:''}
       </article>`;
     });
+
     resultsEl.innerHTML=html;
     const shown=Math.min(visibleCount,lastFiltered.length);
     resultsProgressEl.textContent=`Stai vedendo ${shown} risultati su ${lastFiltered.length}.`;
@@ -2127,15 +1788,32 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     loadMoreBtn.classList.toggle('hidden',shown>=lastFiltered.length);
   }
 
+  /* ── Click delegation on results ── */
   resultsEl.addEventListener('click', e=>{
+    // Checkbox click
     const cb=e.target.closest('.call-checkbox');
-    if(cb){ e.stopPropagation(); toggleSelection(Number(cb.dataset.idx)); return; }
+    if(cb){
+      e.stopPropagation();
+      toggleSelection(Number(cb.dataset.idx));
+      return;
+    }
+    // Link click – open but don't toggle
     if(e.target.closest('a')) return;
+    // Card click – open URL if present
     const card=e.target.closest('.call');
     if(card&&card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
   });
 
-  function getExportRows(){
+  /* ── Export ── */
+  /**
+   * getExportRows
+   * Builds the array of plain data objects to export.
+   * If any calls are selected (selectedIds not empty), exports only those;
+   * otherwise exports all currently filtered results (lastFiltered).
+   * Each row contains the core call fields: name, programme, cluster, action,
+   * budget, opening, deadline, url, bucket, score.
+   */
+    function getExportRows(){
     const rows = selectedIds.size>0
       ? lastFiltered.filter(c=>selectedIds.has(c._filteredIdx))
       : lastFiltered;
@@ -2146,13 +1824,27 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       bucket:c._bucket||'',score:c._score||''
     }));
   }
-  function downloadCsv(){
+  /**
+   * downloadCsv
+   * Exports the current result set (or selection) as a CSV file.
+   * Builds a CSV string with a header row and one row per call.
+   * All values are double-quoted with internal quotes escaped.
+   * Triggers a browser download via a temporary <a> element.
+   */
+    function downloadCsv(){
     const rows=getExportRows(), headers=Object.keys(rows[0]||{});
     const csv=[headers.join(',')].concat(rows.map(r=>headers.map(h=>'"'+String(r[h]??'').replace(/"/g,'""')+'"').join(','))).join('\n');
     const b=new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='results.csv'; a.click(); URL.revokeObjectURL(a.href);
   }
-  function downloadExcel(){
+  /**
+   * downloadExcel
+   * Exports the current result set (or selection) as a .xls file.
+   * Builds an HTML table string (which Excel can open natively).
+   * Prepends a UTF-8 BOM to ensure correct character encoding in Excel.
+   * Triggers a browser download via a temporary <a> element.
+   */
+    function downloadExcel(){
     const rows=getExportRows(), headers=Object.keys(rows[0]||{});
     const table=`<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${esc(r[h]??'')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
     const b=new Blob(['\ufeff'+table],{type:'application/vnd.ms-excel;charset=utf-8;'});
@@ -2174,7 +1866,9 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
     if(answers.secondary_thematic_cluster&&answers.secondary_thematic_cluster===answers.thematic_cluster){
       alert('Area primaria e secondaria devono essere diverse.'); return;
     }
-    lastAnswers=answers; visibleCount=PAGE_SIZE; selectedIds.clear();
+    lastAnswers=answers;
+    visibleCount=PAGE_SIZE;
+    selectedIds.clear();
     lastScoredResults=applyFilters(CALLS,answers);
     resultsSection.classList.remove('hidden');
     renderCalls();
@@ -2184,7 +1878,13 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
   let _kwTimer=null;
   keywordFilterEl.addEventListener('input',()=>{
     clearTimeout(_kwTimer);
-    _kwTimer=setTimeout(()=>{ if(lastAnswers){ visibleCount=PAGE_SIZE; selectedIds.clear(); renderCalls(); } },180);
+    _kwTimer=setTimeout(()=>{
+      if(lastAnswers){
+        visibleCount=PAGE_SIZE;
+        selectedIds.clear();
+        renderCalls();
+      }
+    },180);
   });
 
   budgetMinEl.addEventListener('input',()=>{
@@ -2230,12 +1930,21 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
   downloadExcelBtn.addEventListener('click',()=>{if(lastAnswers)downloadExcel();});
 
   resetBtn.addEventListener('click',()=>{
-    form.reset(); secondaryEl.value='';
-    resultsSection.classList.add('hidden'); resultsEl.innerHTML='';
-    resultsFooterEl.classList.add('hidden'); keywordFilterEl.value='';
-    budgetMinEl.value='0'; budgetMaxEl.value=String(BUDGET_MAX); updateBudgetUi();
-    lastAnswers=null; lastScoredResults=[]; lastFiltered=[]; selectedIds.clear();
-    callNumberInput.value=''; autofillClearBtn.classList.remove('visible');
+    form.reset();
+    secondaryEl.value='';
+    resultsSection.classList.add('hidden');
+    resultsEl.innerHTML='';
+    resultsFooterEl.classList.add('hidden');
+    keywordFilterEl.value='';
+    budgetMinEl.value='0';
+    budgetMaxEl.value=String(BUDGET_MAX);
+    updateBudgetUi();
+    lastAnswers=null;
+    lastScoredResults=[];
+    lastFiltered=[];
+    selectedIds.clear();
+    callNumberInput.value='';
+    autofillClearBtn.classList.remove('visible');
     autofillFeedback.className='autofill-feedback';
     searchScope='fulltext';
     document.getElementById('scopeFullText').classList.add('active');
@@ -2246,7 +1955,14 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
   });
 
   /* ── Populate selects ── */
-  function populateSelects(){
+  /**
+   * populateSelects
+   * Populates the primary and secondary thematic cluster <select> dropdowns
+   * with <option> elements generated from the THEMATIC_OPTIONS array.
+   * Primary has a "Select..." placeholder; secondary has a "None" option.
+   * Called once at initialisation.
+   */
+    function populateSelects(){
     primaryEl.innerHTML='<option value="" selected disabled>Seleziona…</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
     secondaryEl.innerHTML='<option value="">Nessuna</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
   }
@@ -2255,7 +1971,14 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
   updateBudgetUi();
   populateSelects();
 
-  async function loadCalls(){
+  /**
+   * loadCalls
+   * Fetches the open calls dataset from calls.json.
+   * Parses and stores the calls array in the global CALLS variable.
+   * Displays the last-updated timestamp in the header if available.
+   * Called once at startup in parallel with loadClosedIndex().
+   */
+    async function loadCalls(){
     try {
       const res=await fetch('./calls.json',{cache:'no-store'});
       const data=await res.json();
@@ -2265,6 +1988,7 @@ Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-
       }
       CALLS=Array.isArray(data.calls)?data.calls:[];
     } catch(err){
+      console.error(err);
       lastUpdatedEl.textContent='Errore nel caricamento di calls.json';
       CALLS=[];
     }
