@@ -1,33 +1,19 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-07 06:50:43.02
+**Last updated:** 2026-06-07 09:58:49.95
 
 ## Summary
 
 | | Count |
 |---|---|
 | Total calls (new) | 598 |
-| Total calls (previous) | 595 |
-| **New calls added** | **3** |
+| Total calls (previous) | 598 |
+| **New calls added** | **0** |
 | Calls removed (expired/closed) | 0 |
 
-## Calls added (3)
+## Calls added
 
-### Digital, Industry & Space (2)
-
-- **Digital solutions for regulatory compliance through data**
-  Digital Europe Programme · DIGITAL-LS DIGITAL Lump Sum Grants · Deadline: 2026-10-01
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/DIGITAL-2026-AI-DATA-10-COMPLIANCE
-
-- **Research Support Framework for Situational Awareness on information integrity**
-  Digital Europe Programme · DIGITAL-GFS DIGITAL Grants for Financial Support · Deadline: 2026-10-01
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/DIGITAL-2026-BESTUSE-RSF-10-AWARENESS
-
-### Food, Bioeconomy & Environment (1)
-
-- **Strategic Integrated Projects - Environment**
-  43252405 · LIFE-PJG LIFE Project Grants · Deadline: 2027-03-04
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/LIFE-2026-STRAT-ENV-SIP-two-stage
+No new calls compared to the previous snapshot.
 
 ## Distribution by thematic area (new dataset)
 
