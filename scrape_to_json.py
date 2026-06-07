@@ -395,51 +395,13 @@ def keyword_hits_for_thematic(text: str, thematic: str):
             hits.append(kw)
     return list(dict.fromkeys(hits))
 
-
-def keyword_hits_in_title(title: str) -> dict:
-    """
-    Scan the call title against every thematic keyword list and return a dict
-    mapping thematic_area -> [matched_keywords].
-
-    This is used to compute ``title_match_score``: calls whose title contains
-    the searched keyword rank higher than calls that only mention it in the
-    body text, even when the consumer searches across the full ``full_text``
-    field.  The result is stored as ``title_keyword_hits`` in the output JSON
-    so that any downstream client (API, front-end, script) can apply the
-    title-boost without re-implementing the keyword logic.
-
-    Example output:
-        {
-            "Digital, Industry & Space": ["digital", "quantum"],
-            "Climate, Energy & Mobility": ["energy"]
-        }
-    """
-    title_lower = (title or "").lower()
-    hits: dict = {}
-    for thematic, keywords in TOPIC_KEYWORDS.items():
-        matched = [kw for kw in keywords if text_has_keyword(title_lower, kw)]
-        if matched:
-            hits[thematic] = list(dict.fromkeys(matched))
-    return hits
-
-
 def title_is_special_basic_research(title: str) -> bool:
     """Return True if the title contains keywords typical of fellowships or scholarship calls."""
     tl = (title or "").lower()
     return any(text_has_keyword(tl, kw) for kw in SPECIAL_TITLE_KEYWORDS)
 
 def classify_multitopic(name: str, full_text: str, thematic: str):
-    """
-    Scan full_text for keywords across all thematic areas and return a dict
-    with hits and matched themes.
-
-    New fields added for title-based ranking:
-      - ``title_keyword_hits``  (dict)  thematic -> keywords found in the title only
-      - ``title_match_score``   (int)   total number of distinct keywords found in
-                                        the title; used by consumers to sort
-                                        title-matched calls above body-only matches
-                                        without altering the existing ranking logic.
-    """
+    """Scan full_text for keywords across all thematic areas and return a dict with hits and matched themes."""
     text = re.sub(r"\s+", " ", (full_text or "")).strip().lower()
     keyword_hits = {}
     multi_thematic = []
@@ -455,29 +417,11 @@ def classify_multitopic(name: str, full_text: str, thematic: str):
         if SPECIAL_BASIC_RESEARCH_CATEGORY not in multi_thematic:
             multi_thematic.append(SPECIAL_BASIC_RESEARCH_CATEGORY)
 
-    # --- Title-level keyword scan -------------------------------------------
-    # Run the same keyword matching restricted to the call *title* (name).
-    # This produces a lighter-weight signal than full_text hits: a keyword
-    # present in the title is a much stronger relevance indicator than one
-    # buried in the body.  Downstream search/ranking code can use
-    # ``title_match_score > 0`` as a boost tier without touching the existing
-    # ``multi_thematic`` / ``keyword_hits`` fields.
-    title_kw_hits = keyword_hits_in_title(name)
-
-    # title_match_score = total unique keywords matched in the title across all
-    # thematic areas.  A score of 0 means "keyword only in body text";
-    # any positive value means "keyword appears in the call title".
-    title_match_score = sum(len(v) for v in title_kw_hits.values())
-    # ------------------------------------------------------------------------
-
     return {
-        "full_text":           text,
-        "keyword_hits":        keyword_hits,
-        "multi_thematic":      multi_thematic,
+        "full_text": text,
+        "keyword_hits": keyword_hits,
+        "multi_thematic": multi_thematic,
         "is_special_basic_research": special,
-        # New fields — title-level relevance signals
-        "title_keyword_hits":  title_kw_hits,
-        "title_match_score":   title_match_score,
     }
 
 # Structural classification functions 
@@ -563,7 +507,7 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
             return cnum, clabel, thematic
         if tid_norm.startswith("HORIZON-" + prefix) or cid_norm.startswith("HORIZON-" + prefix):
             return cnum, clabel, thematic
-        # d) Prefix present as an internal segment (e.g. -MSCA- inside HORIZON-MSCA-2026-)
+        # d) Prefisso presente come segmento interno (es. -MSCA- dentro HORIZON-MSCA-2026-)
         if ("-" + prefix + "-") in tid or ("-" + prefix + "-") in cid_up:
             return cnum, clabel, thematic
 
@@ -761,7 +705,7 @@ def extract_budget_from_text(text: str) -> int:
     # The largest figure is most likely the total call budget (not a per-project cap)
     return max(candidates)
 
-#  Playwright utilities 
+#  Utilità Playwright 
 
 def clean(s):
     """Strip and collapse whitespace in a string; return None if the result is empty."""
@@ -1001,7 +945,7 @@ def _enrich_one(page, row: dict) -> bool:
                 for item in body.get("results", [body]):
                     meta    = item.get("metadata", {}) or {}
                     prog_id = _first(meta, "frameworkProgramme", "programme")
-                    cid     = _first(meta, "identifier", "callIdentifier")
+                    cid     = _first(meta, "callIdentifier","identifier")
 
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
@@ -1391,17 +1335,6 @@ def to_call(row: dict) -> dict:
         "keyword_hits":     multi["keyword_hits"],
         "multi_thematic":   all_thematics,
         "is_special_basic_research": multi["is_special_basic_research"],
-        # --- Title-level relevance signals (for search ranking) ---
-        # ``title_keyword_hits``: thematic areas whose keywords appear in the
-        # call *title* (not just in the body text).  Consumers can use this to
-        # surface title-matching calls above body-only matches.
-        # Example: {"Digital, Industry & Space": ["digital", "quantum"]}
-        "title_keyword_hits":  multi["title_keyword_hits"],
-        # ``title_match_score``: total number of distinct topic keywords found
-        # in the title.  A score > 0 means the call title itself contains the
-        # searched term; use it as a sort-tier boost.
-        # Suggested sort key: (-title_match_score, deadline, name)
-        "title_match_score":   multi["title_match_score"],
     }
 
 # Changelog 
@@ -1862,6 +1795,370 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="calls.json", help="Output JSON file path")
     args = parser.parse_args()
     main(Path(args.out))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
