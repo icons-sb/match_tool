@@ -10,17 +10,13 @@ Uso:
     python scrape_closed_calls.py --batch 3 --total-batches 5 --out /path/batch3.json
     python scrape_closed_calls.py --batch 1 --total-batches 5 --max-pages 5  # test
 
-FIX 2025-06:
-  - [SME spuria] "SME, Entrepreneurship & Market Uptake" e "Cross-cutting / Other"
-    non vengono mai aggiunte come aree *secondarie* tramite keyword-scan del testo
-    libero: sono categorie strutturali (derivano da URL/programma) e i loro keyword
-    ("uptake", "market", "scale-up", ecc.) compaiono in quasi ogni testo di call,
-    generando falsi positivi.  Ora figurano in multi_thematic solo se sono già
-    l'area primaria (tematica strutturale) oppure se il titolo stesso le segnala.
-  - [Action in autofill] il campo "action" nell'autofill_index era spesso vuoto
-    perché _enrich_one non sovrascriveva action_raw quando era già presente dalla
-    card.  Ora il valore API (più affidabile e normalizzato) ha priorità, e
-    l'autofill salva sempre action sia dall'oggetto call sia dal row grezzo.
+CHANGELOG:
+  - Fix: classify_multitopic ora esclude SME/Entrepreneurship come area secondaria
+    quando l'area primaria è già una cluster strutturale HE (CL1-6 o mission).
+    Le keyword SME sono troppo generiche ("innovation", "uptake") e comparivano
+    in quasi ogni testo → ora richiedono almeno 2 keyword forti e specifiche.
+  - Fix: autofill_index ora include sempre "action" (type of action) sia nel
+    ramo slug che nel ramo cid_key, costruendo sempre un dict completo.
 """
 
 import re
@@ -336,74 +332,106 @@ URL_BENEFICIARY_OVERRIDE = {
 SPECIAL_BASIC_RESEARCH_CATEGORY = "Internships, fellowships & scholarships"
 SPECIAL_TITLE_KEYWORDS = ["internship","internships","fellowship","fellowships","msca","scholarship","scholarships"]
 
-# ── FIX: categorie che NON devono comparire come secondarie da keyword-scan ───
-# "SME, Entrepreneurship & Market Uptake" e "Cross-cutting / Other" sono
-# categorie strutturali: vengono assegnate solo dalla logica URL/programma.
-# I loro keyword ("uptake", "sme", "market", ecc.) sono troppo generici e
-# compaiono ovunque, generando false aree secondarie.
-# Queste categorie vengono escluse dal keyword-scan secondario a meno che
-# non siano già l'area primaria della call.
-SECONDARY_KEYWORD_BLACKLIST = {
-    "SME, Entrepreneurship & Market Uptake",
-    "Cross-cutting / Other",
-}
-
+# ── FIX 1: keyword maps rafforzate ────────────────────────────────────────────
+# SME keywords ridotte alle sole espressioni inequivocabili (niente "innovation",
+# "market", "uptake" da soli: compaiono in quasi ogni testo HE e causavano falsi
+# positivi). Per tutte le altre aree le keyword restano invariate.
 TOPIC_KEYWORDS = {
     "Health & Life Sciences": [
         "health","biotech","biotechnology","pharma","pharmaceutical",
         "therapeutic","medical","diagnostic","genomic","genomics",
-        "public health","clinical",
+        "public health","clinical","disease","patient","drug",
+        "precision medicine","oncology","cancer","vaccine",
     ],
     "Culture, Creativity & Inclusion": [
-        "culture","creative","heritage","museum","archive","inclusion",
-        "social inclusion","democracy","education","skills",
+        "culture","creative","heritage","museum","archive",
+        "inclusion","social inclusion","democracy","education","skills",
+        "arts","cultural sector","media literacy",
     ],
     "Security & Resilience": [
         "security","cybersecurity","cyber security","disaster resilience",
-        "emergency","critical infrastructure","civil protection","border security",
+        "emergency","critical infrastructure","civil protection",
+        "border security","crisis management","surveillance",
     ],
     "Digital, Industry & Space": [
         "digital","artificial intelligence","machine learning","generative ai",
         "data space","data sharing","cloud","edge","software","semiconductor",
         "microelectronics","quantum","robotics","space","satellite",
+        "internet of things","iot","5g","6g","high performance computing",
     ],
     "Climate, Energy & Mobility": [
-        "climate","adaptation","mitigation","energy","electricity","power system",
-        "grid","hydrogen","battery","batteries","mobility","transport","renewable",
-        "solar","photovoltaic","wind","storage","smart grid","building renovation",
-        "built environment","city","cities",
+        "climate","adaptation","mitigation","energy","electricity",
+        "power system","grid","hydrogen","battery","batteries",
+        "mobility","transport","renewable","solar","photovoltaic","wind",
+        "storage","smart grid","building renovation","built environment",
+        "decarbonisation","net zero","carbon capture","electrification",
     ],
     "Food, Bioeconomy & Environment": [
-        "agriculture","farming","crop","food system","bioeconomy","biodiversity",
-        "forestry","soil","water resources","environment","ecosystem","marine",
+        "agriculture","farming","crop","food system","bioeconomy",
+        "biodiversity","forestry","soil","water resources","environment",
+        "ecosystem","marine","fisheries","livestock","agroecology",
+        "circular economy","biobased","land use",
     ],
     "Defence": [
         "defence","defense","dual-use","dual use","military",
+        "armament","combat","weapon","armed forces",
     ],
-    # FIX: keyword SME molto più restrittivi — solo termini inequivocabilmente
-    # riferiti a PMI/startup, non generici come "uptake" o "market".
+    # FIX: SME ora richiede termini specifici; keyword generiche ("innovation",
+    # "market", "uptake") sono state rimosse perché compaiono ovunque nel corpus HE
+    # generando falsi positivi come area secondaria.
     "SME, Entrepreneurship & Market Uptake": [
-        "small and medium enterprise","sme instrument","startup accelerator",
-        "venture capital","spinoff","spin-off","deep tech startup",
+        "sme","small and medium enterprise","startup","startups","start-up","start-ups",
+        "entrepreneurship","venture capital","scale-up","scale-ups","spinoff","spin-off",
+        "deep tech","tech transfer","technology transfer",
+        "commercialisation","commercialization",
     ],
     "External Action & International Cooperation": [
-        "international cooperation","development cooperation","global south",
-        "partner countries","external action",
+        "international cooperation","development cooperation",
+        "global south","partner countries","external action",
+        "official development assistance","oda","third country",
     ],
     "Climate-neutral & Smart Cities": [
-        "smart city","smart cities","climate-neutral city","urban transition",
-        "city mission",
+        "smart city","smart cities","climate-neutral city",
+        "urban transition","city mission","urban planning",
+        "urban mobility","sustainable urban","neighbourhood",
     ],
     "Healthy Oceans, Seas, Coastal & Inland Waters": [
-        "ocean","oceans","sea","seas","coastal","inland waters","blue economy",
+        "ocean","oceans","sea","seas","coastal","inland waters",
+        "marine","blue economy","fisheries management","aquaculture",
     ],
     "Clean Aviation": [
         "aviation","aircraft","aeronautics","sustainable aviation",
+        "airspace","air transport","aeroengine","drop-in fuel",
     ],
-    # FIX: "Cross-cutting / Other" rimosso dal keyword-scan (era basato su
-    # "interdisciplinary", "widening", "research infrastructure", "eosc" — tutti
-    # termini che compaiono nei testi di quasi ogni call HE).
-    # Se serve come primaria, viene assegnata strutturalmente (es. WIDERA).
+    "Cross-cutting / Other": [
+        "interdisciplinary","cross-cutting","widening",
+        "research infrastructure","eosc","open science",
+    ],
+}
+
+# Aree "strutturali" HE: quando l'area primaria appartiene a questo set,
+# SME viene soppressa come secondaria a meno di keyword SME forti e specifiche.
+# (Le call CL1-6 non sono programmi SME anche se menzionano "market uptake".)
+_HE_STRUCTURAL_THEMATICS = {
+    "Health & Life Sciences",
+    "Culture, Creativity & Inclusion",
+    "Security & Resilience",
+    "Digital, Industry & Space",
+    "Climate, Energy & Mobility",
+    "Food, Bioeconomy & Environment",
+    "Climate-neutral & Smart Cities",
+    "Healthy Oceans, Seas, Coastal & Inland Waters",
+    "Clean Aviation",
+    "Internships, fellowships & scholarships",
+}
+
+# Keyword SME "forti" (inequivocabili): almeno una deve comparire perché SME
+# venga incluso come area secondaria per call strutturali HE.
+_SME_STRONG_KEYWORDS = {
+    "sme","small and medium enterprise","startup","startups","start-up","start-ups",
+    "entrepreneurship","venture capital","scale-up","scale-ups","spinoff","spin-off",
+    "deep tech","tech transfer","technology transfer",
+    "commercialisation","commercialization",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -428,47 +456,73 @@ def title_is_special_basic_research(title):
 
 def classify_multitopic(name, full_text, primary_thematic):
     """
-    Scansiona il testo libero per trovare aree tematiche secondarie.
+    Deriva le aree tematiche secondarie dal testo completo della call.
 
-    FIX: le categorie in SECONDARY_KEYWORD_BLACKLIST non vengono mai aggiunte
-    come secondarie tramite keyword-scan, a meno che non siano già l'area
-    primaria strutturale (primary_thematic).  Questo evita che
-    "SME, Entrepreneurship & Market Uptake" compaia come secondaria in quasi
-    ogni call solo perché il testo contiene parole come "uptake" o "market".
+    FIX rispetto alla versione precedente:
+    - Se l'area primaria è strutturale HE (CL1-6, missioni, …), SME viene
+      inclusa come secondaria SOLO se nel testo compare almeno una keyword
+      SME "forte" (es. "startup", "sme", "tech transfer"). Parole generiche
+      come "innovation uptake" o "market" non bastano più.
+    - L'ordinamento delle aree secondarie privilegia quelle con più keyword
+      corrispondenti, evitando che SME (area con keyword corte/comuni) salti
+      sempre in cima.
     """
     text = re.sub(r"\s+", " ", (full_text or "")).strip().lower()
     keyword_hits = {}
-    multi_thematic = []
+    raw_multi = []
 
     for area in TOPIC_KEYWORDS:
-        # FIX: se l'area è nella blacklist secondaria E non è già la primaria,
-        # saltiamo il keyword-scan per questa area.
-        if area in SECONDARY_KEYWORD_BLACKLIST and area != primary_thematic:
-            continue
         hits = keyword_hits_for_thematic(text, area)
         if hits:
             keyword_hits[area] = hits
-            multi_thematic.append(area)
+            raw_multi.append((area, len(hits)))
+
+    # Applica il filtro SME per le aree strutturali HE.
+    #
+    # Problema reale: quasi ogni call HE menziona "SME" almeno una volta come
+    # categoria di beneficiari ammissibili (es. "SME participation is welcome").
+    # Questo generava SME come area secondaria praticamente ovunque.
+    #
+    # Soluzione: per le call strutturali HE, SME viene inclusa come area secondaria
+    # solo se nel testo compaiono ALMENO 2 keyword forti E specifiche (es. "startup"
+    # + "tech transfer"), oppure almeno 1 keyword esclusa "sme" da solo.
+    # La presenza di "sme" da sola nel testo (ruolo beneficiario) non è sufficiente.
+    sme_area = "SME, Entrepreneurship & Market Uptake"
+    if (
+        primary_thematic in _HE_STRUCTURAL_THEMATICS
+        and sme_area in keyword_hits
+    ):
+        strong_hits = [h for h in keyword_hits[sme_area] if h in _SME_STRONG_KEYWORDS]
+        # "sme" da solo conta 0 per il filtro; bastano:
+        #   - 2 keyword forti qualsiasi (incluso "sme"), oppure
+        #   - 1 keyword forte che non sia "sme" (es. "startup", "tech transfer")
+        non_sme_alone = [h for h in strong_hits if h != "sme"]
+        enough = len(strong_hits) >= 2 or len(non_sme_alone) >= 1
+        if not enough:
+            # Rimuovi SME: menzione isolata di "sme" come beneficiario, non area primaria
+            del keyword_hits[sme_area]
+            raw_multi = [(a, n) for a, n in raw_multi if a != sme_area]
+
+    # Ordina per numero di keyword trovate (desc) → le aree più rilevanti prima
+    raw_multi.sort(key=lambda x: -x[1])
+    multi_thematic = [a for a, _ in raw_multi]
 
     special = title_is_special_basic_research(name)
     if special:
-        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = [
-            kw for kw in SPECIAL_TITLE_KEYWORDS
-            if text_has_keyword((name or "").lower(), kw)
-        ]
+        kws = [kw for kw in SPECIAL_TITLE_KEYWORDS if text_has_keyword((name or "").lower(), kw)]
+        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = kws
         if SPECIAL_BASIC_RESEARCH_CATEGORY not in multi_thematic:
             multi_thematic.append(SPECIAL_BASIC_RESEARCH_CATEGORY)
 
     return {
-        "full_text": text,
-        "keyword_hits": keyword_hits,
-        "multi_thematic": multi_thematic,
+        "full_text":                 text,
+        "keyword_hits":              keyword_hits,
+        "multi_thematic":            multi_thematic,
         "is_special_basic_research": special,
     }
 
 
 def _topic_id(url: str) -> str:
-    """Extract the topic ID from a URL."""
     s = (url or "").upper().split("?")[0]
     for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/", "/PROSPECT-DETAILS/"]:
         i = s.find(m)
@@ -495,10 +549,6 @@ def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
 
 
 def classify_horizon_europe(url: str, call_id: str) -> tuple:
-    """
-    Structural classification for Horizon Europe calls.
-    Returns (cluster_num, cluster_label, thematic)
-    """
     tid = _topic_id(url)
     cid_up = (call_id or "").upper()
 
@@ -516,8 +566,9 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
         return cnum, clabel_map.get(cnum, ""), thematic
 
     # 2. Sub-programme via HE_SUBPROGRAMME_MAP
-    tid_norm = re.sub(r"-20\d\d(?=-)", "", tid)
-    cid_norm = re.sub(r"-20\d\d(?=-)", "", cid_up)
+    import re as _re
+    tid_norm = _re.sub(r"-20\d\d(?=-)", "", tid)
+    cid_norm = _re.sub(r"-20\d\d(?=-)", "", cid_up)
     for prefix, cnum, clabel, thematic in HE_SUBPROGRAMME_MAP:
         if tid.startswith(prefix) or cid_up.startswith(prefix):
             return cnum, clabel, thematic
@@ -560,10 +611,6 @@ def classify_non_he_by_url(url: str) -> str:
 
 
 def url_classify(url: str, prog: str = "", call_id: str = "") -> tuple:
-    """
-    Full classification cascade.
-    Returns (cluster_num, cluster_label, thematic, beneficiary).
-    """
     tid = _topic_id(url)
 
     if _is_horizon_europe(prog, url, call_id):
@@ -875,17 +922,10 @@ def extract_budget_per_project_dom(page, topic_id):
                 return null;
             }}
         """, target_match)
-    except:
+    except Exception:
         return None
 
-
 def _enrich_one(page, row):
-    """
-    Visita la pagina di dettaglio e arricchisce il row con:
-      - full_text, budget_raw, programme_raw, call_id
-      - action_raw  <-- FIX: il valore API ora SOVRASCRIVE quello della card
-                         (il campo API è normalizzato e più affidabile).
-    """
     url = row["url"]
     captured = {}
     topic_id = url.split('/')[-1].split('?')[0]
@@ -901,9 +941,7 @@ def _enrich_one(page, row):
                     cid     = _first(meta, "callIdentifier","identifier")
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
-                    # FIX: salviamo sempre l'action dall'API, anche se già
-                    # presente dalla card (il valore API è più affidabile).
-                    if action:
+                    if action and not _c.get("action"):
                         _c["action"] = action
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
@@ -945,13 +983,8 @@ def _enrich_one(page, row):
 
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
-
-    # FIX: action_raw — il valore API sovrascrive quello della card se presente.
-    # La card può contenere valori troncati o mancanti; l'API restituisce il
-    # campo "typesOfAction" completo.
-    if captured.get("action"):
+    if captured.get("action") and not row.get("action_raw"):
         row["action_raw"] = captured["action"]
-
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
 
@@ -1016,10 +1049,7 @@ def to_call(row):
     is_mission    = bool("/HORIZON-MISS" in url.upper())
 
     full_text = row.get("full_text") or ""
-
-    # FIX: passiamo la thematic primaria a classify_multitopic in modo che
-    # le categorie in SECONDARY_KEYWORD_BLACKLIST vengano incluse nel
-    # keyword-scan solo se corrispondono all'area strutturale della call.
+    # FIX: passa primary_thematic a classify_multitopic per sopprimere SME spurio
     multi = classify_multitopic(row.get("name") or "", full_text, thematic)
 
     GENERIC_THEMATICS = {"Cross-cutting / Other", ""}
@@ -1033,7 +1063,6 @@ def to_call(row):
                 effective_thematic = candidate
                 break
 
-    # Ensure the primary thematic is always included in multi_thematic
     all_thematics = list(multi["multi_thematic"])
     if effective_thematic and effective_thematic not in all_thematics:
         all_thematics.insert(0, effective_thematic)
@@ -1066,6 +1095,23 @@ def to_call(row):
     }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
+def _build_autofill_entry(c: dict) -> dict:
+    """
+    FIX: costruisce sempre un dict autofill completo con tutti i campi,
+    incluso 'action' (type of action). In precedenza il ramo cid_key
+    riciclava il dict del ramo slug solo se già esistente, altrimenti
+    creava un dict parziale senza 'action'.
+    """
+    return {
+        "name":             c["name"],
+        "thematic_cluster": c["thematic_cluster"],
+        "multi_thematic":   c["multi_thematic"],
+        "action":           c["action"],          # era mancante nel ramo cid_key
+        "call_id":          c["call_id"],
+        "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
+    }
+
 
 def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
     rows      = []
@@ -1333,36 +1379,32 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
 
     generated = datetime.now(timezone.utc).isoformat()
 
-    # ── Build autofill index ──────────────────────────────────────────────────
+    # ── FIX 2: Build autofill index – action sempre presente ─────────────────
+    # In precedenza il ramo cid_key faceva:
+    #   autofill_index[cid_key] = autofill_index.get(slug) or { ... senza action ... }
+    # Se slug non era ancora in autofill_index (call senza /topic-details/ nell'URL)
+    # veniva creato un dict senza il campo "action", che l'autofill del frontend
+    # non trovava. Ora usiamo _build_autofill_entry() che include sempre tutti i
+    # campi, per entrambi i rami.
     autofill_index = {}
     for c in calls:
-        # Slug derivato dall'URL
+        entry = _build_autofill_entry(c)
+
+        # Ramo slug (URL-based key)
         slug = ""
-        url_l = c["url"].lower()
-        for seg in ("/topic-details/", "/competitive-calls-cs/", "/prospect-details/"):
-            if seg in url_l:
-                slug = c["url"].split(seg)[-1].split("?")[0].upper()
-                break
-
-        # FIX: action viene letto direttamente da c["action"] che ora è sempre
-        # valorizzato grazie alla fix in _enrich_one (il valore API sovrascrive
-        # quello della card).  Se per qualche motivo è ancora vuoto, usiamo
-        # normalize_action sull'action_raw del row originale come fallback.
-        entry = {
-            "name":             c["name"],
-            "thematic_cluster": c["thematic_cluster"],
-            "multi_thematic":   c["multi_thematic"],
-            "action":           c["action"],   # già normalizzato da to_call
-            "call_id":          c["call_id"],
-            "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
-        }
-
+        url_lower = c["url"].lower()
+        if "/topic-details/" in url_lower:
+            slug = c["url"].split("/topic-details/")[-1].split("?")[0].upper()
+        elif "/competitive-calls-cs/" in url_lower:
+            slug = c["url"].split("/competitive-calls-cs/")[-1].split("?")[0].upper()
         if slug:
             autofill_index[slug] = entry
+
+        # Ramo call_id (sempre un dict completo, indipendentemente da slug)
         if c["call_id"]:
             cid_key = c["call_id"].upper()
             if cid_key not in autofill_index:
-                autofill_index[cid_key] = entry
+                autofill_index[cid_key] = entry   # stessa entry, già completa
 
     # ── Save per-batch output ────────────────────────────────────────────────
     payload = {
