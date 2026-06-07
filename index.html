@@ -1,92 +1,2271 @@
-#!/usr/bin/env python3
-"""
-apply_ranking_patch.py — applica il ranking SEDIA-style a index.html
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Funding Call Matcher — ICONS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --surface: #ffffff;
+      --surface2: #eef1f8;
+      --border: rgba(30,60,140,0.10);
+      --border-strong: rgba(30,60,140,0.18);
+      --text: #111827;
+      --muted: rgba(17,24,39,0.50);
+      --muted2: rgba(17,24,39,0.30);
+      --accent: #2563eb;
+      --accent-dim: rgba(37,99,235,0.10);
+      --accent-hover: #1d4ed8;
+      --tag-bg: rgba(37,99,235,0.06);
+      --tag-border: rgba(37,99,235,0.16);
+      --b1: #16a34a; --b1-bg: rgba(22,163,74,0.08);
+      --b2: #2563eb; --b2-bg: rgba(37,99,235,0.08);
+      --b3: #d97706; --b3-bg: rgba(217,119,6,0.08);
+      --b4: #0891b2; --b4-bg: rgba(8,145,178,0.08);
+      --b5: #7c3aed; --b5-bg: rgba(124,58,237,0.08);
+      --b6: rgba(17,24,39,0.35); --b6-bg: rgba(17,24,39,0.04);
+      --success: #16a34a; --success-bg: rgba(22,163,74,0.08);
+      --warning: #d97706; --warning-bg: rgba(217,119,6,0.08);
+      --error: #dc2626; --error-bg: rgba(220,38,38,0.08);
+      --ga-surface: #fafbff;
+      --ga-border: rgba(37,99,235,0.14);
+      --ga-accent: #2563eb;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
 
-Uso:
-    python3 apply_ranking_patch.py index.html
-    # scrive index_patched.html nella stessa cartella
-"""
-import sys, pathlib
+    /* ── HEADER ── */
+    .site-header {
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      position: sticky;
+      top: 0;
+      background: rgba(244,246,251,0.95);
+      backdrop-filter: blur(12px);
+      z-index: 200;
+    }
+    .site-logo {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.4rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .site-logo span { color: var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 20px; }
+    #lastUpdated {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+    .btn-open-ga {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.15s;
+      white-space: nowrap;
+    }
+    .btn-open-ga:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-open-ga svg { flex-shrink: 0; }
 
-if len(sys.argv) < 2:
-    print("Uso: python3 apply_ranking_patch.py index.html")
-    sys.exit(1)
+    /* ── PAGE LAYOUT ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 56px 32px 96px; }
 
-src = pathlib.Path(sys.argv[1])
-html = src.read_text(encoding="utf-8")
+    /* ── HERO ── */
+    .hero { margin-bottom: 56px; }
+    .hero-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2.4rem, 5vw, 3.6rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      margin-bottom: 20px;
+    }
+    .hero h1 em { font-style: italic; color: var(--muted); }
+    .hero p {
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 1rem;
+      font-weight: 300;
+      line-height: 1.7;
+    }
 
-# ── PATCH 1: aggiungi fieldWeightedScore + getActiveTerms prima di scoreNature ──
-FIND_1 = "  function scoreNature(call,nature){"
-INJECT_1 = """  /* =================================================================
+    /* ── FORM CARD ── */
+    .form-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(30,60,140,0.07), 0 1px 3px rgba(30,60,140,0.05);
+    }
+
+    /* ── FIELDSET ── */
+    .field-section {
+      border: none;
+      border-bottom: 1px solid var(--border);
+      padding: 28px 32px;
+    }
+    .field-section:last-of-type { border-bottom: none; }
+    .field-section .section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 20px;
+      display: block;
+    }
+    .field-section .section-label span.num {
+      color: var(--accent);
+      margin-right: 8px;
+      font-weight: 800;
+    }
+
+    /* ── GRID ── */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* ── LABELS ── */
+    label.field-label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .hint {
+      margin-top: 12px;
+      color: var(--muted2);
+      font-size: 0.82rem;
+      font-style: italic;
+    }
+
+    /* ── INPUTS ── */
+    select, input[type="text"] {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.92rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(17,24,39,0.4)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      padding-right: 36px;
+      cursor: pointer;
+    }
+    select option { background: #ffffff; color: #111827; }
+    select:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    /* ── AUTOFILL SECTION ── */
+    .autofill-section {
+      background: linear-gradient(135deg, rgba(37,99,235,0.04) 0%, rgba(37,99,235,0.02) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 28px 32px;
+    }
+    .autofill-label-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .autofill-label-row .section-label { margin-bottom: 0; }
+    .autofill-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(37,99,235,0.22);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .autofill-source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+    }
+    .autofill-source-badge.local {
+      background: rgba(22,163,74,0.10);
+      border: 1px solid rgba(22,163,74,0.25);
+      color: #14532d;
+    }
+    .autofill-source-badge.closed {
+      background: rgba(8,145,178,0.10);
+      border: 1px solid rgba(8,145,178,0.25);
+      color: #0e7490;
+    }
+    .autofill-source-badge.structural {
+      background: rgba(217,119,6,0.10);
+      border: 1px solid rgba(217,119,6,0.25);
+      color: #92400e;
+    }
+
+    .index-status {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      background: rgba(37,99,235,0.04);
+      border: 1px solid rgba(37,99,235,0.10);
+      border-radius: 12px;
+      font-size: 0.76rem;
+      color: var(--muted);
+      align-items: center;
+    }
+    .index-status .idx-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .index-status .idx-dot.green  { background: #16a34a; }
+    .index-status .idx-dot.cyan   { background: #0891b2; }
+    .index-status .idx-dot.orange { background: #d97706; }
+    .index-status .idx-dot.grey   { background: #9ca3af; }
+
+    .autofill-input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .autofill-input-wrap {
+      flex: 1;
+      min-width: 260px;
+      position: relative;
+    }
+    .autofill-input-wrap input[type="text"] {
+      font-family: 'DM Mono', 'Courier New', monospace;
+      letter-spacing: 0.04em;
+      padding-right: 38px;
+    }
+    .autofill-clear-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted2);
+      font-size: 1rem;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 6px;
+      display: none;
+      transition: color 0.15s;
+    }
+    .autofill-clear-btn:hover { color: var(--text); }
+    .autofill-clear-btn.visible { display: flex; align-items: center; justify-content: center; }
+    .btn-autofill {
+      background: var(--accent);
+      color: #fff;
+      padding: 11px 22px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-family: inherit;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: all 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-autofill:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-autofill:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    .autofill-feedback {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .autofill-feedback.success {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: var(--success-bg); border: 1px solid rgba(22,163,74,0.22); color: #14532d;
+    }
+    .autofill-feedback.warning {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: var(--warning-bg); border: 1px solid rgba(217,119,6,0.22); color: #78350f;
+    }
+    .autofill-feedback.error {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: var(--error-bg); border: 1px solid rgba(220,38,38,0.22); color: #7f1d1d;
+    }
+    .autofill-feedback.loading {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface2); border: 1px solid var(--border-strong); color: var(--muted);
+    }
+    .autofill-feedback-icon { flex-shrink: 0; font-size: 1rem; }
+    .autofill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .autofill-chip {
+      display: inline-flex; align-items: center;
+      padding: 3px 10px;
+      background: rgba(22,163,74,0.08);
+      border: 1px solid rgba(22,163,74,0.20);
+      border-radius: 999px;
+      font-size: 0.72rem; color: #14532d; font-weight: 500;
+    }
+    .autofill-chip .chip-label { color: rgba(20,83,45,0.6); margin-right: 5px; font-weight: 400; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(17,24,39,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes injectPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.35); border-color: var(--success); }
+      60%  { box-shadow: 0 0 0 6px rgba(22,163,74,0); border-color: var(--success); }
+      100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+    }
+    .injected { animation: injectPulse 1.2s ease-out forwards; }
+
+    /* ── RADIO ── */
+    .radio-group { display: flex; flex-wrap: wrap; gap: 10px; }
+    .radio-group label {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 16px;
+      background: var(--surface2); border: 1px solid var(--border-strong);
+      border-radius: 999px; cursor: pointer; font-size: 0.88rem; color: var(--muted);
+      transition: all 0.15s; user-select: none;
+    }
+    .radio-group label:hover { color: var(--text); }
+    .radio-group input[type="radio"] { display: none; }
+    .radio-group label:has(input:checked) {
+      border-color: var(--accent); background: var(--accent-dim); color: var(--text);
+    }
+
+    /* ── BUDGET SLIDER ── */
+    .budget-range-wrap { display: flex; flex-direction: column; gap: 14px; }
+    .budget-range-top { display: flex; justify-content: space-between; align-items: center; }
+    .budget-range-values { font-size: 0.88rem; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+    .budget-slider-box { position: relative; padding: 8px 0 0; }
+    .budget-track {
+      position: absolute; left: 0; right: 0; top: 20px;
+      height: 3px; background: var(--border-strong); border-radius: 999px;
+    }
+    .budget-range-fill { position: absolute; top: 20px; height: 3px; background: var(--accent); border-radius: 999px; }
+    .budget-sliders { position: relative; height: 32px; }
+    .budget-sliders input[type=range] {
+      position: absolute; left: 0; top: 0; width: 100%; height: 32px;
+      background: none; pointer-events: none;
+      -webkit-appearance: none; appearance: none; margin: 0;
+    }
+    .budget-sliders input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      height: 16px; width: 16px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--bg);
+      box-shadow: 0 0 0 2px var(--accent);
+      pointer-events: auto; cursor: pointer;
+    }
+    .budget-sliders input[type=range]::-moz-range-thumb {
+      height: 16px; width: 16px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--bg);
+      pointer-events: auto; cursor: pointer;
+    }
+    .budget-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    .budget-chip {
+      border: 1px solid var(--border-strong); background: transparent; color: var(--muted);
+      border-radius: 999px; padding: 5px 14px; font-size: 0.78rem; font-family: inherit;
+      cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em;
+    }
+    .budget-chip:hover { color: var(--accent); border-color: var(--accent); }
+    .budget-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .budget-warning {
+      display: none; margin-top: 10px; padding: 8px 14px;
+      background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.25);
+      border-radius: 10px; font-size: 0.8rem; color: #92400e;
+    }
+    .budget-warning.visible { display: block; }
+
+    /* ── ACTIONS ── */
+    .form-actions {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      padding: 24px 32px; border-top: 1px solid var(--border); background: var(--surface2);
+    }
+    button { border: none; font-family: inherit; font-weight: 600; cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em; }
+    .btn-primary {
+      background: var(--accent); color: #fff; padding: 12px 28px;
+      border-radius: 999px; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37,99,235,0.25); }
+    .btn-secondary {
+      background: transparent; color: var(--muted); border: 1px solid var(--border-strong);
+      padding: 11px 20px; border-radius: 999px; font-size: 0.88rem;
+    }
+    .btn-secondary:hover { color: var(--accent); border-color: var(--accent); }
+    .btn-download {
+      background: var(--accent); color: #fff; border: 1px solid var(--accent);
+      padding: 10px 18px; border-radius: 999px; font-size: 0.82rem;
+      box-shadow: 0 4px 14px rgba(37,99,235,0.18);
+      white-space: nowrap;
+    }
+    .btn-download:hover {
+      background: var(--accent-hover); border-color: var(--accent-hover);
+      transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37,99,235,0.28);
+    }
+    .btn-download:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ── RESULTS ── */
+    .results { margin-top: 48px; }
+    .results-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+      padding-bottom: 20px; border-bottom: 1px solid var(--border);
+    }
+    .results-title { font-family: 'DM Serif Display', serif; font-size: 1.5rem; letter-spacing: -0.02em; }
+    .stats-count { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .stats-count strong { color: var(--accent); font-size: 1rem; }
+
+    /* ── TOOLBAR ── */
+    .toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+    .toolbar > .tb-search { flex: 1; min-width: 220px; }
+    .toolbar input[type="text"] {
+      padding: 10px 14px 10px 38px; font-size: 0.88rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='rgba(17,24,39,0.35)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: 12px center;
+    }
+
+    /* ── SELECTION BAR ── */
+    .selection-bar {
+      display: none; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 10px 16px; margin-bottom: 16px;
+      background: var(--surface); border: 1px solid var(--border-strong);
+      border-radius: 14px; font-size: 0.82rem; color: var(--muted);
+    }
+    .selection-bar.visible { display: flex; }
+    .sel-count-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; background: var(--accent-dim);
+      border: 1px solid rgba(37,99,235,0.22); border-radius: 999px;
+      font-size: 0.78rem; font-weight: 700; color: var(--accent);
+    }
+    .sel-count-badge .sel-num { font-size: 0.92rem; }
+    .btn-sel-action {
+      background: transparent; border: 1px solid var(--border-strong); color: var(--muted);
+      padding: 5px 13px; border-radius: 999px; font-size: 0.76rem;
+      font-family: inherit; cursor: pointer; transition: all 0.15s;
+    }
+    .btn-sel-action:hover { color: var(--accent); border-color: var(--accent); }
+    .sel-hint { margin-left: auto; font-size: 0.74rem; opacity: 0.55; font-style: italic; }
+
+    /* ── SUMMARY PILLS ── */
+    .summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+    .pill {
+      display: inline-flex; align-items: center; padding: 5px 12px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 999px; font-size: 0.75rem; color: var(--muted); letter-spacing: 0.03em;
+    }
+    .pill strong { color: var(--text); margin-left: 5px; }
+
+    /* ── CALL CARD ── */
+    .call {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      margin-bottom: 10px; padding: 20px 28px 18px 32px; position: relative;
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s, background 0.15s;
+      overflow: hidden; box-shadow: 0 1px 4px rgba(30,60,140,0.06);
+      cursor: pointer;
+    }
+    .call::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 20px 0 0 20px; }
+    .call[data-bucket="1"]::before { background: var(--b1); }
+    .call[data-bucket="2"]::before { background: var(--b2); }
+    .call[data-bucket="3"]::before { background: var(--b3); }
+    .call[data-bucket="4"]::before { background: var(--b4); }
+    .call[data-bucket="5"]::before { background: var(--b5); }
+    .call[data-bucket="6"]::before { background: var(--b6); }
+    .call:hover { border-color: rgba(37,99,235,0.30); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(37,99,235,0.10); }
+    .call.selected {
+      border-color: var(--accent); background: rgba(37,99,235,0.03);
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.12), 0 2px 8px rgba(37,99,235,0.08);
+    }
+    .call.selected:hover { transform: translateY(-1px); }
+    .call-checkbox-wrap { position: absolute; top: 16px; right: 16px; z-index: 3; }
+    .call-checkbox { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; border-radius: 4px; }
+    .call h3 { font-size: 0.96rem; font-weight: 600; line-height: 1.45; margin-bottom: 10px; color: var(--text); padding-right: 32px; }
+    .meta { font-size: 0.78rem; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
+
+    /* ── BADGES ── */
+    .matchbadges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .badge {
+      display: inline-flex; align-items: center; padding: 4px 10px;
+      border-radius: 999px; font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .badge-b1 { background: var(--b1-bg); color: var(--b1); border: 1px solid rgba(34,197,94,0.25); }
+    .badge-b2 { background: var(--b2-bg); color: var(--b2); border: 1px solid rgba(59,130,246,0.25); }
+    .badge-b3 { background: var(--b3-bg); color: var(--b3); border: 1px solid rgba(245,158,11,0.25); }
+    .badge-b4 { background: var(--b4-bg); color: var(--b4); border: 1px solid rgba(6,182,212,0.2); }
+    .badge-b5 { background: var(--b5-bg); color: var(--b5); border: 1px solid rgba(129,140,248,0.2); }
+    .badge-b6 { background: var(--b6-bg); color: var(--b6); border: 1px solid rgba(255,255,255,0.1); }
+    .badge-special { background: rgba(37,99,235,0.08); color: var(--accent); border: 1px solid rgba(37,99,235,0.22); }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .tag {
+      display: inline-flex; align-items: center; padding: 3px 9px;
+      background: var(--tag-bg); border: 1px solid var(--tag-border);
+      border-radius: 999px; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.03em;
+    }
+    .call-link { margin-top: 12px; font-size: 0.78rem; }
+    .call-link a {
+      color: var(--accent); text-decoration: none; word-break: break-all;
+      transition: color 0.1s; position: relative; z-index: 2;
+    }
+    .call-link a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    /* ── FOOTER ── */
+    .results-footer {
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      margin-top: 32px; padding-top: 32px; border-top: 1px solid var(--border);
+    }
+    .results-progress { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.04em; }
+    .empty, .error {
+      padding: 32px; text-align: center; color: var(--muted); font-size: 0.9rem;
+      border: 1px solid var(--border); border-radius: 20px;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ── SORT TOGGLE ── */
+    .sort-toggle {
+      display: inline-flex; align-items: center; gap: 0;
+      background: var(--surface2); border: 1px solid var(--border-strong);
+      border-radius: 999px; padding: 3px; flex-shrink: 0;
+    }
+    .sort-btn {
+      border: none; background: transparent; color: var(--muted); font-family: inherit;
+      font-size: 0.78rem; font-weight: 500; padding: 6px 14px; border-radius: 999px;
+      cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em; white-space: nowrap;
+    }
+    .sort-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
+    .sort-btn:not(.active):hover { color: var(--accent); }
+    .download-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    /* ════════════════════════════════════════════
+       GA MATCHER DRAWER
+    ════════════════════════════════════════════ */
+    .ga-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(10,18,40,0.32);
+      backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    .ga-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .ga-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 310;
+      width: min(520px, 100vw);
+      background: var(--ga-surface);
+      border-left: 1px solid var(--ga-border);
+      box-shadow: -8px 0 40px rgba(30,60,140,0.12);
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+      overflow: hidden;
+    }
+    .ga-drawer.open { transform: translateX(0); }
+
+    .ga-drawer-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px 18px;
+      border-bottom: 1px solid var(--ga-border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .ga-drawer-title {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .ga-drawer-title-icon {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.2);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .ga-drawer-title-icon svg { color: var(--accent); }
+    .ga-drawer-title h2 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.1rem; letter-spacing: -0.02em; color: var(--text);
+    }
+    .ga-drawer-title p { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+    .ga-close-btn {
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border-strong);
+      background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      transition: all 0.15s; flex-shrink: 0;
+    }
+    .ga-close-btn:hover { background: var(--surface2); color: var(--text); }
+
+    .ga-drawer-body { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* Steps */
+    .ga-step {
+      background: var(--surface);
+      border: 1px solid var(--ga-border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .ga-step-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--ga-border);
+      background: rgba(37,99,235,0.02);
+    }
+    .ga-step-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.25);
+      font-size: 0.72rem; font-weight: 800; color: var(--accent);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .ga-step-num.done { background: rgba(22,163,74,0.12); border-color: rgba(22,163,74,0.3); color: #16a34a; }
+    .ga-step-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .ga-step-body { padding: 18px; }
+
+    /* GA input row */
+    .ga-input-row { display: flex; gap: 8px; }
+    .ga-input-row input[type="text"] {
+      flex: 1; font-family: 'DM Mono', monospace; letter-spacing: 0.06em;
+      font-size: 1rem; padding: 10px 14px;
+    }
+    .ga-fetch-btn {
+      padding: 10px 18px; background: var(--accent); color: #fff;
+      border: none; border-radius: 12px; font-family: inherit; font-size: 0.84rem;
+      font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+    }
+    .ga-fetch-btn:hover { background: var(--accent-hover); }
+    .ga-fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ga-hint { font-size: 0.78rem; color: var(--muted2); margin-top: 8px; font-style: italic; }
+
+    /* Project card */
+    .ga-project-card {
+      display: none;
+      background: var(--surface2);
+      border: 1px solid var(--ga-border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-top: 14px;
+    }
+    .ga-project-card.visible { display: block; }
+    .ga-proj-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+    .ga-proj-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.18);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .ga-proj-title { font-size: 0.88rem; font-weight: 600; color: var(--text); line-height: 1.4; }
+    .ga-proj-meta { font-size: 0.75rem; color: var(--muted); margin-top: 3px; }
+    .ga-proj-abstract {
+      font-size: 0.8rem; color: var(--muted); line-height: 1.6;
+      max-height: 90px; overflow-y: auto;
+      border-left: 2px solid var(--border-strong); padding-left: 10px;
+      margin: 10px 0;
+    }
+    .ga-proj-kws { display: flex; flex-wrap: wrap; gap: 5px; }
+    .ga-kw {
+      font-size: 0.7rem; padding: 2px 8px; border-radius: 999px;
+      background: var(--accent-dim); border: 1px solid rgba(37,99,235,0.15); color: var(--accent);
+    }
+    .ga-cordis-link {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.75rem; color: var(--accent); text-decoration: none;
+      margin-top: 10px; transition: color 0.12s;
+    }
+    .ga-cordis-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    /* Calls textarea */
+    .ga-textarea {
+      width: 100%; min-height: 120px; resize: vertical;
+      padding: 10px 12px; font-size: 0.8rem; font-family: 'DM Mono', monospace;
+      background: var(--surface2); border: 1px solid var(--border-strong);
+      border-radius: 12px; color: var(--text); line-height: 1.5;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .ga-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+    .ga-rank-btn {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 12px 20px; margin-top: 12px;
+      background: var(--accent); color: #fff; border: none; border-radius: 12px;
+      font-family: inherit; font-size: 0.88rem; font-weight: 600;
+      cursor: pointer; justify-content: center; transition: all 0.15s;
+    }
+    .ga-rank-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .ga-rank-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* Status banners */
+    .ga-status {
+      display: none; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 10px;
+      font-size: 0.8rem; line-height: 1.5; margin-top: 10px;
+    }
+    .ga-status.visible { display: flex; }
+    .ga-status.loading { background: var(--surface2); border: 1px solid var(--border-strong); color: var(--muted); }
+    .ga-status.success { background: var(--success-bg); border: 1px solid rgba(22,163,74,0.25); color: #14532d; }
+    .ga-status.warning { background: var(--warning-bg); border: 1px solid rgba(217,119,6,0.25); color: #78350f; }
+    .ga-status.error   { background: var(--error-bg);   border: 1px solid rgba(220,38,38,0.22); color: #7f1d1d; }
+
+    /* AI Results list */
+    .ga-results-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .ga-result-item {
+      background: var(--surface);
+      border: 1px solid var(--ga-border);
+      border-radius: 12px;
+      padding: 12px 14px 10px 16px;
+      position: relative;
+      cursor: default;
+      transition: border-color 0.15s;
+    }
+    .ga-result-item::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; border-radius: 12px 0 0 12px;
+    }
+    .ga-result-item.tier-high::before  { background: #16a34a; }
+    .ga-result-item.tier-med::before   { background: #d97706; }
+    .ga-result-item.tier-low::before   { background: #9ca3af; }
+    .ga-result-item:hover { border-color: rgba(37,99,235,0.25); }
+
+    .ga-result-top { display: flex; align-items: flex-start; gap: 8px; }
+    .ga-result-rank {
+      font-size: 0.7rem; font-weight: 800; color: var(--muted);
+      min-width: 20px; margin-top: 2px;
+    }
+    .ga-result-title { font-size: 0.84rem; font-weight: 600; line-height: 1.4; flex: 1; color: var(--text); }
+    .ga-score-badge {
+      font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
+    }
+    .ga-score-badge.high { background: rgba(22,163,74,0.1);  color: #15803d; border: 1px solid rgba(22,163,74,0.22); }
+    .ga-score-badge.med  { background: rgba(217,119,6,0.1);  color: #92400e; border: 1px solid rgba(217,119,6,0.22); }
+    .ga-score-badge.low  { background: rgba(17,24,39,0.05);  color: var(--muted); border: 1px solid var(--border); }
+    .ga-result-rationale {
+      font-size: 0.77rem; color: var(--muted); line-height: 1.55;
+      margin-top: 6px; padding-left: 28px;
+    }
+    .ga-result-footer {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-top: 6px; padding-left: 28px;
+    }
+    .ga-result-kw {
+      font-size: 0.68rem; padding: 2px 7px; border-radius: 999px;
+      background: var(--tag-bg); border: 1px solid var(--tag-border); color: var(--muted);
+    }
+    .ga-result-meta { font-size: 0.7rem; color: var(--muted2); margin-left: auto; }
+    .ga-result-link { font-size: 0.72rem; color: var(--accent); text-decoration: none; padding-left: 28px; display: inline-block; margin-top: 3px; }
+    .ga-result-link:hover { text-decoration: underline; }
+
+    .ga-export-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 9px 16px; background: transparent; color: var(--muted);
+      border: 1px solid var(--border-strong); border-radius: 10px;
+      font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s; margin-top: 12px;
+    }
+    .ga-export-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .ga-reset-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 9px 16px; background: transparent; color: var(--muted);
+      border: 1px solid var(--border-strong); border-radius: 10px;
+      font-family: inherit; font-size: 0.8rem; cursor: pointer;
+      transition: all 0.15s; margin-top: 8px;
+    }
+    .ga-reset-btn:hover { color: var(--text); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 760px) {
+      .site-header { padding: 0 20px; }
+      .page { padding: 36px 20px 72px; }
+      .grid { grid-template-columns: 1fr; }
+      .field-section { padding: 20px; }
+      .autofill-section { padding: 20px; }
+      .form-actions { padding: 20px; }
+      .call { padding: 16px 20px 14px 24px; }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .autofill-input-row { flex-direction: column; }
+      .sel-hint { display: none; }
+      .ga-drawer { width: 100vw; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── GA OVERLAY + DRAWER ── -->
+  <div class="ga-overlay" id="gaOverlay" onclick="closeGaDrawer()"></div>
+
+  <div class="ga-drawer" id="gaDrawer" role="dialog" aria-modal="true" aria-label="GA Matcher">
+
+    <div class="ga-drawer-header">
+      <div class="ga-drawer-title">
+        <div class="ga-drawer-title-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
+        </div>
+        <div>
+          <h2>GA Matcher</h2>
+          <p>Cerca call rilevanti a partire da un Grant Agreement</p>
+        </div>
+      </div>
+      <button class="ga-close-btn" onclick="closeGaDrawer()" aria-label="Chiudi pannello">✕</button>
+    </div>
+
+    <div class="ga-drawer-body">
+
+      <!-- STEP 1: GA Lookup -->
+      <div class="ga-step">
+        <div class="ga-step-header">
+          <div class="ga-step-num" id="stepNum1">1</div>
+          <span class="ga-step-label">Cerca progetto su CORDIS</span>
+        </div>
+        <div class="ga-step-body">
+          <div class="ga-input-row">
+            <input type="text" id="gaNumberInput" placeholder="Es. 101057944" maxlength="20" />
+            <button class="ga-fetch-btn" id="gaFetchBtn" onclick="gaFetchProject()">Cerca</button>
+          </div>
+          <p class="ga-hint">Inserisci il numero GA Horizon Europe. I dati vengono estratti tramite AI dalla base di conoscenza su CORDIS.</p>
+          <div class="ga-status" id="gaFetchStatus"></div>
+          <div class="ga-project-card" id="gaProjectCard">
+            <div class="ga-proj-row">
+              <div class="ga-proj-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
+              </div>
+              <div>
+                <div class="ga-proj-title" id="gaProjTitle"></div>
+                <div class="ga-proj-meta" id="gaProjMeta"></div>
+              </div>
+            </div>
+            <div class="ga-proj-abstract" id="gaProjAbstract"></div>
+            <div class="ga-proj-kws" id="gaProjKws"></div>
+            <a class="ga-cordis-link" id="gaCordisLink" target="_blank" rel="noopener">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Verifica su CORDIS
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Paste calls -->
+      <div class="ga-step" id="gaStep2" style="opacity:0.45;pointer-events:none;">
+        <div class="ga-step-header">
+          <div class="ga-step-num" id="stepNum2">2</div>
+          <span class="ga-step-label">Incolla le call da valutare</span>
+        </div>
+        <div class="ga-step-body">
+          <textarea
+            class="ga-textarea"
+            id="gaCallsTextarea"
+            placeholder='Incolla qui il contenuto di calls.json oppure un array JSON di call.&#10;&#10;Esempio: [{"name":"...", "full_text":"...", "thematic_cluster":"...", "deadline":"...", "url":"..."}]&#10;&#10;Vengono valutate le prime 50 call.'
+          ></textarea>
+          <p class="ga-hint">Puoi incollare il JSON completo di calls.json — il sistema prende le prime 50 voci. Sono supportati anche testo libero e array parziali.</p>
+          <button class="ga-rank-btn" id="gaRankBtn" onclick="gaRankCalls()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/><circle cx="18" cy="6" r="3"/><path d="m16.5 4.5 3 3"/></svg>
+            Analizza rilevanza con AI (top 50)
+          </button>
+          <div class="ga-status" id="gaRankStatus"></div>
+        </div>
+      </div>
+
+      <!-- STEP 3: Results -->
+      <div class="ga-step" id="gaStep3" style="display:none;">
+        <div class="ga-step-header">
+          <div class="ga-step-num done" id="stepNum3">✓</div>
+          <span class="ga-step-label">Call più rilevanti — <span id="gaResultsCount"></span></span>
+        </div>
+        <div class="ga-step-body">
+          <div class="ga-results-list" id="gaResultsList"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+            <button class="ga-export-btn" onclick="gaExportCsv()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Esporta CSV
+            </button>
+            <button class="ga-reset-btn" onclick="gaReset()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              Nuova ricerca
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── MAIN ── -->
+  <header class="site-header">
+    <a class="site-logo" href="#">Funding Call<span>.</span></a>
+    <div class="header-right">
+      <div id="lastUpdated"></div>
+      <button class="btn-open-ga" onclick="openGaDrawer()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
+        GA Matcher
+      </button>
+    </div>
+  </header>
+
+  <div class="page">
+    <header class="hero">
+      <div class="hero-label">Strumento di ricerca</div>
+      <h1>Funding Call<br><em>Matcher</em></h1>
+      <p>Seleziona area primaria e secondaria per ordinare le call in base a cluster/programma e ai match trasversali trovati nel testo completo.</p>
+    </header>
+
+    <section class="form-card">
+      <form id="surveyForm">
+
+        <!-- SEZIONE 00: AUTO-FILL -->
+        <div class="autofill-section">
+          <div class="autofill-label-row">
+            <span class="section-label" style="margin-bottom:0;font-size:0.7rem;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted)">
+              <span style="color:var(--accent);margin-right:8px;font-weight:800">00</span>Auto-compilazione da numero call
+            </span>
+            <span class="autofill-badge">Opzionale</span>
+          </div>
+          <div id="indexStatus" class="index-status hidden"></div>
+          <div class="autofill-input-row">
+            <div class="autofill-input-wrap">
+              <input id="callNumberInput" type="text" placeholder="Es. HORIZON-CL6-2022-GOVERNANCE-01-01" autocomplete="off" spellcheck="false" />
+              <button type="button" id="autofillClearBtn" class="autofill-clear-btn" title="Cancella">✕</button>
+            </div>
+            <button type="button" id="autofillBtn" class="btn-autofill">Cerca e compila</button>
+          </div>
+          <div id="autofillFeedback" class="autofill-feedback"></div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">01</span>Timeframe progetto</span>
+          <div class="grid">
+            <div>
+              <label class="field-label" for="closure_year">Anno di chiusura</label>
+              <select id="closure_year" name="closure_year" required>
+                <option value="" selected disabled>Seleziona…</option>
+                <option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="closure_quarter">Quarter</label>
+              <select id="closure_quarter" name="closure_quarter" required>
+                <option value="" selected disabled>Seleziona…</option>
+                <option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">02</span>Natura del progetto</span>
+          <div class="radio-group">
+            <label><input type="radio" name="project_nature" value="" checked><span>Qualsiasi</span></label>
+            <label><input type="radio" name="project_nature" value="basic"><span>Basic research</span></label>
+            <label><input type="radio" name="project_nature" value="applied"><span>Applied research</span></label>
+            <label><input type="radio" name="project_nature" value="industrial"><span>Industrial research</span></label>
+          </div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">03</span>Aree tematiche</span>
+          <div class="grid">
+            <div>
+              <label class="field-label" for="thematic_cluster">Area principale</label>
+              <select id="thematic_cluster" name="thematic_cluster" required></select>
+            </div>
+            <div>
+              <label class="field-label" for="secondary_thematic_cluster">Area secondaria</label>
+              <select id="secondary_thematic_cluster" name="secondary_thematic_cluster"></select>
+            </div>
+          </div>
+          <p class="hint">La primaria pesa sempre più della secondaria. I match via keyword nel testo completo servono come livello trasversale.</p>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">04</span>Budget</span>
+          <div class="budget-range-wrap">
+            <div class="budget-range-top">
+              <label class="field-label" style="margin:0">Range [EUR]</label>
+              <div class="budget-range-values">
+                <span id="budget_min_label">0 EUR</span> – <span id="budget_max_label">20.000.000 EUR</span>
+              </div>
+            </div>
+            <div class="budget-slider-box">
+              <div class="budget-track"></div>
+              <div id="budget_range_fill" class="budget-range-fill"></div>
+              <div class="budget-sliders">
+                <input id="budget_min" type="range" min="0" max="20000000" step="50000" value="0" />
+                <input id="budget_max" type="range" min="0" max="20000000" step="50000" value="20000000" />
+              </div>
+            </div>
+            <div class="budget-presets">
+              <button type="button" class="budget-chip" data-min="0" data-max="500000">0 – 0,5M</button>
+              <button type="button" class="budget-chip" data-min="500000" data-max="1000000">0,5M – 1M</button>
+              <button type="button" class="budget-chip" data-min="1000000" data-max="3000000">1M – 3M</button>
+              <button type="button" class="budget-chip" data-min="3000000" data-max="10000000">3M – 10M</button>
+              <button type="button" class="budget-chip" data-min="10000000" data-max="20000000">Più di 10M</button>
+            </div>
+            <div id="budgetWarning" class="budget-warning">
+              Nota: le call prive di budget specificato verranno escluse quando il filtro budget è attivo.
+            </div>
+          </div>
+        </div>
+
+        <div class="field-section">
+          <span class="section-label"><span class="num">05</span>Tipo di azione</span>
+          <label class="field-label" for="action_type">Action type</label>
+          <select id="action_type" name="action_type" style="max-width:320px">
+            <option value="">Qualsiasi</option>
+            <option value="RIA">RIA</option>
+            <option value="IA">IA</option>
+            <option value="CSA">CSA</option>
+            <option value="COFUND">COFUND</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Genera risultati</button>
+          <button type="button" id="resetBtn" class="btn-secondary">Pulisci</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="resultsSection" class="results hidden">
+      <div class="results-header">
+        <div class="results-title">Risultati</div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div id="statsCount" class="stats-count"></div>
+          <div class="download-group">
+            <button id="downloadResultsBtn" type="button" class="btn-download">↓ Scarica CSV</button>
+            <button id="downloadExcelBtn" type="button" class="btn-download">↓ Scarica Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="tb-search">
+          <label class="field-label" for="keyword_filter">Filtra per keyword</label>
+          <input id="keyword_filter" type="text" placeholder="Es. hydrogen, robotics, cancer…" />
+        </div>
+        <div>
+          <label class="field-label">Cerca in</label>
+          <div class="sort-toggle">
+            <button type="button" class="sort-btn active" id="scopeFullText">Testo completo</button>
+            <button type="button" class="sort-btn" id="scopeTitle">Solo titolo</button>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">Ordina per</label>
+          <div class="sort-toggle">
+            <button type="button" class="sort-btn active" id="sortRelevance">Rilevanza</button>
+            <button type="button" class="sort-btn" id="sortDeadline">Scadenza ↑</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="selectionBar" class="selection-bar">
+        <span class="sel-count-badge">
+          <span class="sel-num" id="selCountNum">0</span>
+          <span>selezionate</span>
+        </span>
+        <button type="button" class="btn-sel-action" id="selAllBtn">Seleziona tutte</button>
+        <button type="button" class="btn-sel-action" id="deselAllBtn">Deseleziona tutte</button>
+        <span class="sel-hint">Se nessuna è selezionata, il download include tutti i risultati visibili</span>
+      </div>
+
+      <div id="results"></div>
+
+      <div id="resultsFooter" class="results-footer hidden">
+        <div id="resultsProgress" class="results-progress"></div>
+        <button id="loadMoreBtn" type="button" class="btn-secondary">Mostra altri</button>
+      </div>
+    </section>
+  </div>
+
+<script>
+(() => {
+  /* ═══════════════════════════════════════════
+     CONSTANTS & CONFIG
+  ═══════════════════════════════════════════ */
+  const PAGE_SIZE  = 25;
+  const BUDGET_MAX = 20000000;
+  const SPECIAL    = 'Internships, fellowships & scholarships';
+
+  const THEMATIC_OPTIONS = [
+    'Clean Aviation','Climate, Energy & Mobility','Climate-neutral & Smart Cities',
+    'Culture, Creativity & Inclusion','Defence','Digital, Industry & Space',
+    'External Action & International Cooperation','Food, Bioeconomy & Environment',
+    'Health & Life Sciences','Healthy Oceans, Seas, Coastal & Inland Waters',
+    SPECIAL,'Security & Resilience','SME, Entrepreneurship & Market Uptake',
+    'Cross-cutting / Other'
+  ];
+
+  const TITLE_SPECIAL_KEYWORDS = ['internship','internships','fellowship','fellowships','msca','scholarship','scholarships'];
+
+  const KEYWORDS = {
+    'Health & Life Sciences': ['health','biotech','biotechnology','pharma','pharmaceutical','therapeutic','medical','diagnostic','genomic','genomics','dna','rna','public health','clinical'],
+    'Culture, Creativity & Inclusion': ['culture','creative','heritage','museum','archive','inclusion','social inclusion','democracy','education','skills'],
+    'Security & Resilience': ['security','cybersecurity','cyber security','disaster resilience','emergency','critical infrastructure','civil protection','border security'],
+    'Digital, Industry & Space': ['digital twin','digital twins','artificial intelligence','machine learning','deep learning','generative ai','large language model','cloud computing','cloud infrastructure','edge computing','edge ai','software defined network','semiconductor','microelectronics','quantum computing','quantum communication','quantum sensing','robotics','autonomous system','satellite communication','satellite navigation','earth observation satellite','space mission','space technology','launch vehicle','spacecraft','virtual world','web 4.0','internet of things','photonics','cybersecurity','cyber security','data space initiative','common european data space','next generation internet','5g network','6g network','high performance computing','supercomputing','blockchain'],
+    'Climate, Energy & Mobility': ['climate change','climate adaptation','climate mitigation','decarbonisation','decarbonization','net zero','energy transition','energy efficiency','renewable energy','electricity grid','power system','hydrogen','fuel cell','battery storage','electric vehicle','sustainable transport','low carbon','solar energy','photovoltaic','wind energy','wind power','building renovation','energy storage','smart grid'],
+    'Food, Bioeconomy & Environment': ['agriculture','farming','crop','food system','food security','bioeconomy','biodiversity','forestry','soil health','water resources','natural environment','ecosystem services','agroecology','sustainable food','land use'],
+    'Defence': ['defence','defense','dual-use','dual use','military'],
+    'SME, Entrepreneurship & Market Uptake': ['sme','startup','entrepreneurship','venture','scale-up','market uptake','innovation uptake'],
+    'External Action & International Cooperation': ['international cooperation','development cooperation','global south','partner countries','external action'],
+    'Climate-neutral & Smart Cities': ['smart city','smart cities','climate-neutral city','urban transition','city mission'],
+    'Healthy Oceans, Seas, Coastal & Inland Waters': ['ocean','oceans','sea','seas','coastal','inland waters','marine','blue economy'],
+    'Clean Aviation': ['aviation','aircraft','aeronautics','sustainable aviation'],
+    'Cross-cutting / Other': ['interdisciplinary','cross-cutting','widening','research infrastructure','eosc'],
+    [SPECIAL]: TITLE_SPECIAL_KEYWORDS
+  };
+
+  const URL_RULES = [
+    {p:'MISS',s:'CIT',    t:'Climate-neutral & Smart Cities'},
+    {p:'MISS',s:'OCEAN',  t:'Healthy Oceans, Seas, Coastal & Inland Waters'},
+    {p:'MISS',s:'CLIMA',  t:'Climate, Energy & Mobility'},
+    {p:'MISS',s:'CANCER', t:'Health & Life Sciences'},
+    {p:'MISS',s:'SOIL',   t:'Food, Bioeconomy & Environment'},
+    {p:'MISS',s:null,     t:'Cross-cutting / Other'},
+    {p:'HLTH',s:null,     t:'Health & Life Sciences'},
+    {p:'EIC', s:null,     t:'SME, Entrepreneurship & Market Uptake'},
+    {p:'EIE', s:null,     t:'SME, Entrepreneurship & Market Uptake'},
+    {p:'EIT', s:null,     t:'SME, Entrepreneurship & Market Uptake'},
+    {p:'CID', s:null,     t:'Climate, Energy & Mobility'},
+    {p:'EURATOM',s:null,  t:'Climate, Energy & Mobility'},
+    {p:'EUROHPC',s:null,  t:'Digital, Industry & Space'},
+    {p:'JU-CLEAN-AVIATION',s:null, t:'Clean Aviation'},
+    {p:'JU-', s:null,     t:'Climate, Energy & Mobility'},
+    {p:'MSCA',s:null,     t:'Cross-cutting / Other'},
+    {p:'NEB', s:null,     t:'Climate-neutral & Smart Cities'},
+    {p:'RAISE',s:null,    t:'Digital, Industry & Space'},
+    {p:'WIDERA',s:null,   t:'Cross-cutting / Other'},
+    {p:'CL3',s:'INFRA',   t:'Security & Resilience'},
+    {p:'INFRA',s:'TECH',  t:'Digital, Industry & Space'},
+    {p:'INFRA',s:'SERV',  t:'Digital, Industry & Space'},
+    {p:'INFRA',s:null,    t:'Cross-cutting / Other'},
+    {p:'AGRIP',s:null,    t:'Food, Bioeconomy & Environment'},
+    {p:'EUAF',s:null,     t:'Digital, Industry & Space'},
+    {p:'DIGITAL',s:null,  t:'Digital, Industry & Space'},
+    {p:'RFCS',s:null,     t:'Climate, Energy & Mobility'},
+    {p:'EUBA',s:null,     t:'External Action & International Cooperation'},
+    {p:'PPPA',s:'CHIPS',  t:'Digital, Industry & Space'},
+    {p:'PPPA',s:'MEDIA',  t:'Culture, Creativity & Inclusion'},
+    {p:'PPPA',s:null,     t:'Digital, Industry & Space'},
+    {p:'RENEWFM',s:null,  t:'Climate, Energy & Mobility'},
+    {p:'SOCPL',s:null,    t:'Culture, Creativity & Inclusion'},
+    {p:'ERC', s:null,     t:'Cross-cutting / Other'},
+    {p:'EMFAF',s:null,    t:'Food, Bioeconomy & Environment'},
+    {p:'JUST',s:null,     t:'Culture, Creativity & Inclusion'},
+    {p:'I3',  s:null,     t:'SME, Entrepreneurship & Market Uptake'},
+  ];
+
+  const CL_MAP = {
+    '1':'Health & Life Sciences','2':'Culture, Creativity & Inclusion',
+    '3':'Security & Resilience', '4':'Digital, Industry & Space',
+    '5':'Climate, Energy & Mobility','6':'Food, Bioeconomy & Environment',
+  };
+
+  const ACTION_TYPE_PATTERNS = [
+    {re:/\bRIA\b/i,   v:'RIA'},
+    {re:/\bIA\b/i,    v:'IA'},
+    {re:/\bCSA\b/i,   v:'CSA'},
+    {re:/\bCOFUND\b/i,v:'COFUND'},
+  ];
+
+  /* ═══════════════════════════════════════════
+     STATE
+  ═══════════════════════════════════════════ */
+  let CALLS             = [];
+  let CLOSED_INDEX      = {};
+  let closedIndexReady  = false;
+  let closedIndexCount  = 0;
+  let visibleCount      = PAGE_SIZE;
+  let lastAnswers       = null;
+  let lastScoredResults = [];
+  let lastFiltered      = [];
+  let sortMode          = 'relevance';
+  let searchScope       = 'fulltext';
+  let selectedIds       = new Set();
+
+  /* GA Matcher state */
+  let gaProjectData   = null;
+  let gaRankedResults = [];
+
+  /* ═══════════════════════════════════════════
+     DOM REFS
+  ═══════════════════════════════════════════ */
+  const form               = document.getElementById('surveyForm');
+  const resetBtn           = document.getElementById('resetBtn');
+  const resultsSection     = document.getElementById('resultsSection');
+  const resultsEl          = document.getElementById('results');
+  const resultsFooterEl    = document.getElementById('resultsFooter');
+  const resultsProgressEl  = document.getElementById('resultsProgress');
+  const loadMoreBtn        = document.getElementById('loadMoreBtn');
+  const downloadResultsBtn = document.getElementById('downloadResultsBtn');
+  const downloadExcelBtn   = document.getElementById('downloadExcelBtn');
+  const keywordFilterEl    = document.getElementById('keyword_filter');
+  const budgetMinEl        = document.getElementById('budget_min');
+  const budgetMaxEl        = document.getElementById('budget_max');
+  const budgetMinLabelEl   = document.getElementById('budget_min_label');
+  const budgetMaxLabelEl   = document.getElementById('budget_max_label');
+  const budgetRangeFillEl  = document.getElementById('budget_range_fill');
+  const budgetWarningEl    = document.getElementById('budgetWarning');
+  const budgetPresetEls    = Array.from(document.querySelectorAll('.budget-chip'));
+  const lastUpdatedEl      = document.getElementById('lastUpdated');
+  const primaryEl          = document.getElementById('thematic_cluster');
+  const secondaryEl        = document.getElementById('secondary_thematic_cluster');
+  const callNumberInput    = document.getElementById('callNumberInput');
+  const autofillBtn        = document.getElementById('autofillBtn');
+  const autofillClearBtn   = document.getElementById('autofillClearBtn');
+  const autofillFeedback   = document.getElementById('autofillFeedback');
+  const indexStatusEl      = document.getElementById('indexStatus');
+  const selectionBarEl     = document.getElementById('selectionBar');
+  const selCountNumEl      = document.getElementById('selCountNum');
+  const selAllBtn          = document.getElementById('selAllBtn');
+  const deselAllBtn        = document.getElementById('deselAllBtn');
+
+  /* ═══════════════════════════════════════════
+     GA DRAWER
+  ═══════════════════════════════════════════ */
+  window.openGaDrawer = function() {
+    document.getElementById('gaDrawer').classList.add('open');
+    document.getElementById('gaOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('gaNumberInput').focus();
+  };
+  window.closeGaDrawer = function() {
+    document.getElementById('gaDrawer').classList.remove('open');
+    document.getElementById('gaOverlay').classList.remove('open');
+    document.body.style.overflow = '';
+  };
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGaDrawer(); });
+
+  /* ── GA Status helpers ── */
+  function gaSetStatus(elId, type, html) {
+    const el = document.getElementById(elId);
+    el.className = 'ga-status visible ' + (type || '');
+    el.innerHTML = html;
+  }
+  function gaHideStatus(elId) {
+    const el = document.getElementById(elId);
+    el.className = 'ga-status';
+    el.innerHTML = '';
+  }
+  function gaSpinner(msg) {
+    return `<div class="spinner" style="border-top-color:var(--accent)"></div><span>${msg}</span>`;
+  }
+
+  /* ── Step 1: Fetch project from CORDIS via AI ── */
+  window.gaFetchProject = async function() {
+    const ga = document.getElementById('gaNumberInput').value.trim();
+    if (!ga || !/^\d{6,12}$/.test(ga)) {
+      gaSetStatus('gaFetchStatus', 'error', '⚠ Inserisci un numero GA valido (6-12 cifre, es. 101057944)');
+      return;
+    }
+    const btn = document.getElementById('gaFetchBtn');
+    btn.disabled = true;
+    gaSetStatus('gaFetchStatus', 'loading', gaSpinner('Interrogazione AI su CORDIS…'));
+    document.getElementById('gaProjectCard').classList.remove('visible');
+
+    const cordisUrl = `https://cordis.europa.eu/project/id/${ga}`;
+    const prompt = `You are a data extraction assistant for EU research projects. Extract information about Horizon Europe / H2020 grant agreement number ${ga}.
+
+CORDIS URL: ${cordisUrl}
+
+Use your knowledge of EU-funded research projects to provide the following. If you do not have reliable specific information for this exact GA number, say found=false but still provide your best inferences from the GA number range and any partial knowledge.
+
+Respond ONLY with a valid JSON object, no markdown fences, no commentary:
+{
+  "found": true,
+  "ga": "${ga}",
+  "acronym": "PROJECT_ACRONYM",
+  "title": "Full project title",
+  "programme": "Horizon Europe",
+  "cluster": "Thematic cluster or topic area",
+  "start": "YYYY-MM",
+  "end": "YYYY-MM",
+  "budget": "X EUR",
+  "abstract": "2-4 sentence project description focusing on objectives and research area",
+  "keywords": ["keyword1","keyword2","keyword3","keyword4","keyword5"],
+  "coordinator": "Institution name, Country",
+  "countries": ["Country1","Country2"],
+  "note": "Any caveat about data reliability or what was inferred vs known"
+}`;
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      const data = await resp.json();
+      const raw  = (data.content || []).find(b => b.type === 'text')?.text || '{}';
+      const proj = JSON.parse(raw.replace(/```json|```/g, '').trim());
+      gaProjectData = proj;
+
+      /* Render project card */
+      document.getElementById('gaProjTitle').textContent =
+        proj.acronym ? `${proj.acronym} — ${proj.title}` : (proj.title || 'Titolo non disponibile');
+      document.getElementById('gaProjMeta').textContent = [
+        proj.programme, proj.cluster,
+        proj.start && proj.end ? `${proj.start} → ${proj.end}` : '',
+        proj.budget || '',
+        proj.coordinator || ''
+      ].filter(Boolean).join(' · ');
+      document.getElementById('gaProjAbstract').textContent = proj.abstract || 'Abstract non disponibile.';
+
+      const kwsEl = document.getElementById('gaProjKws');
+      kwsEl.innerHTML = '';
+      (proj.keywords || []).slice(0, 10).forEach(k => {
+        const s = document.createElement('span');
+        s.className = 'ga-kw';
+        s.textContent = k;
+        kwsEl.appendChild(s);
+      });
+
+      const cordisLinkEl = document.getElementById('gaCordisLink');
+      cordisLinkEl.href = cordisUrl;
+      document.getElementById('gaProjectCard').classList.add('visible');
+
+      /* Unlock step 2 */
+      document.getElementById('gaStep2').style.opacity = '1';
+      document.getElementById('gaStep2').style.pointerEvents = 'auto';
+      document.getElementById('stepNum1').classList.add('done');
+      document.getElementById('stepNum1').textContent = '✓';
+
+      if (proj.found === false || proj.note) {
+        gaSetStatus('gaFetchStatus', 'warning',
+          `⚠ ${proj.note || 'Dati inferiti — verifica su CORDIS prima di procedere.'}`);
+      } else {
+        gaSetStatus('gaFetchStatus', 'success', '✓ Dati estratti. Verifica su CORDIS se necessario.');
+      }
+    } catch(err) {
+      gaSetStatus('gaFetchStatus', 'error', `✕ Errore: ${esc(err.message)}`);
+    }
+    btn.disabled = false;
+  };
+
+  document.getElementById('gaNumberInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') gaFetchProject();
+  });
+
+  /* ── Step 2: AI Ranking ── */
+  window.gaRankCalls = async function() {
+    if (!gaProjectData) return;
+    const raw = document.getElementById('gaCallsTextarea').value.trim();
+    if (!raw) {
+      gaSetStatus('gaRankStatus', 'error', '⚠ Incolla prima le call nel campo sopra.');
+      return;
+    }
+
+    let callsArr = [];
+    try {
+      const parsed = JSON.parse(raw);
+      callsArr = Array.isArray(parsed) ? parsed : (parsed.calls || []);
+    } catch(_) {
+      /* treat as free text: wrap in single object */
+      callsArr = [{ name: 'Input testuale', full_text: raw }];
+    }
+    if (!callsArr.length) {
+      gaSetStatus('gaRankStatus', 'error', '⚠ Nessuna call trovata nell\'input.');
+      return;
+    }
+
+    const top50 = callsArr.slice(0, 50);
+    const btn   = document.getElementById('gaRankBtn');
+    btn.disabled = true;
+    gaSetStatus('gaRankStatus', 'loading', gaSpinner(`Analisi semantica di ${top50.length} call in corso…`));
+
+    /* Build compact call summaries (keep under token budget) */
+    const callsSummary = top50.map((c, i) => {
+      const text = [c.name, c.full_text, c.description, c.objective]
+        .filter(Boolean).join(' ').slice(0, 500);
+      return `[${i}] TITLE: ${c.name || 'N/A'} | CLUSTER: ${c.thematic_cluster || ''} | ACTION: ${c.action || ''} | DEADLINE: ${c.deadline || ''} | TEXT: ${text}`;
+    }).join('\n\n');
+
+    const projSummary = `GA: ${gaProjectData.ga}
+Acronym: ${gaProjectData.acronym || 'N/A'}
+Title: ${gaProjectData.title}
+Programme: ${gaProjectData.programme}
+Cluster/Topic: ${gaProjectData.cluster}
+Abstract: ${gaProjectData.abstract}
+Keywords: ${(gaProjectData.keywords || []).join(', ')}
+Period: ${gaProjectData.start} → ${gaProjectData.end}`;
+
+    const prompt = `You are a senior EU research funding expert. Your task: score how relevant each open Horizon Europe call is for a project that is completing or has completed, to identify follow-up funding or exploitation opportunities for its results.
+
+PROJECT:
+${projSummary}
+
+CALLS (index 0-${top50.length - 1}):
+${callsSummary}
+
+Evaluation criteria:
+1. Thematic overlap with project research area and keywords (most important)
+2. Potential to exploit or continue the project's results / IP
+3. Methodological compatibility (basic/applied/industrial alignment)
+4. TRL compatibility
+
+Return ONLY a JSON array sorted by score descending. Include only calls with score >= 20. Maximum 15 results. No markdown fences.
+
+[
+  {
+    "idx": <0-based original index>,
+    "title": "<exact call title from input>",
+    "score": <integer 0-100>,
+    "tier": "high" | "medium" | "low",
+    "rationale": "<2 sentences in Italian explaining relevance for this specific project>",
+    "match_keywords": ["kw1","kw2","kw3"],
+    "deadline": "<deadline string or empty>"
+  }
+]
+
+Score guide: 80-100 = direct thematic match + strong exploitation potential; 50-79 = partial overlap; 20-49 = adjacent area worth considering.`;
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      const data = await resp.json();
+      const rawTxt = (data.content || []).find(b => b.type === 'text')?.text || '[]';
+      gaRankedResults = JSON.parse(rawTxt.replace(/```json|```/g, '').trim());
+
+      gaRenderResults(gaRankedResults, top50);
+      gaHideStatus('gaRankStatus');
+      document.getElementById('gaStep2').style.opacity = '1';
+      document.getElementById('stepNum2').classList.add('done');
+      document.getElementById('stepNum2').textContent = '✓';
+    } catch(err) {
+      gaSetStatus('gaRankStatus', 'error', `✕ Errore AI: ${esc(err.message)}`);
+    }
+    btn.disabled = false;
+  };
+
+  function gaRenderResults(results, originalCalls) {
+    document.getElementById('gaResultsCount').textContent = `${results.length} call rilevanti`;
+    const listEl = document.getElementById('gaResultsList');
+    listEl.innerHTML = '';
+
+    results.forEach((r, rank) => {
+      const orig = originalCalls[r.idx] || {};
+      const tierClass = r.tier === 'high' ? 'tier-high' : r.tier === 'medium' ? 'tier-med' : 'tier-low';
+      const badgeClass = r.tier === 'high' ? 'high' : r.tier === 'medium' ? 'med' : 'low';
+
+      const item = document.createElement('div');
+      item.className = `ga-result-item ${tierClass}`;
+
+      const kws = (r.match_keywords || []).map(k =>
+        `<span class="ga-result-kw">${esc(k)}</span>`).join('');
+      const metaParts = [orig.thematic_cluster, orig.action, r.deadline || orig.deadline].filter(Boolean);
+      const urlHtml = orig.url
+        ? `<a class="ga-result-link" href="${esc(orig.url)}" target="_blank" rel="noopener">↗ ${esc(orig.url.slice(0,60))}${orig.url.length > 60 ? '…' : ''}</a>`
+        : '';
+
+      item.innerHTML = `
+        <div class="ga-result-top">
+          <span class="ga-result-rank">#${rank+1}</span>
+          <span class="ga-result-title">${esc(r.title || orig.name || 'N/A')}</span>
+          <span class="ga-score-badge ${badgeClass}">${r.score}</span>
+        </div>
+        <div class="ga-result-rationale">${esc(r.rationale || '')}</div>
+        ${kws ? `<div class="ga-result-footer">${kws}</div>` : ''}
+        ${metaParts.length ? `<div class="ga-result-meta">${esc(metaParts.join(' · '))}</div>` : ''}
+        ${urlHtml}
+      `;
+      listEl.appendChild(item);
+    });
+
+    document.getElementById('gaStep3').style.display = 'block';
+    /* scroll step 3 into view */
+    setTimeout(() => document.getElementById('gaStep3').scrollIntoView({ behavior:'smooth', block:'nearest' }), 80);
+  }
+
+  window.gaExportCsv = function() {
+    if (!gaRankedResults.length) return;
+    const headers = ['rank','score','tier','title','rationale','keywords','deadline'];
+    const rows = gaRankedResults.map((r, i) => [
+      i+1, r.score, r.tier,
+      '"'+String(r.title||'').replace(/"/g,'""')+'"',
+      '"'+String(r.rationale||'').replace(/"/g,'""')+'"',
+      '"'+(r.match_keywords||[]).join('; ')+'"',
+      r.deadline||''
+    ].join(','));
+    const csv = headers.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob(['\ufeff'+csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ga_${document.getElementById('gaNumberInput').value}_matches.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  window.gaReset = function() {
+    gaProjectData   = null;
+    gaRankedResults = [];
+    document.getElementById('gaNumberInput').value    = '';
+    document.getElementById('gaCallsTextarea').value  = '';
+    document.getElementById('gaProjectCard').classList.remove('visible');
+    document.getElementById('gaStep2').style.opacity      = '0.45';
+    document.getElementById('gaStep2').style.pointerEvents = 'none';
+    document.getElementById('gaStep3').style.display      = 'none';
+    document.getElementById('gaResultsList').innerHTML    = '';
+    document.getElementById('stepNum1').classList.remove('done');
+    document.getElementById('stepNum1').textContent = '1';
+    document.getElementById('stepNum2').classList.remove('done');
+    document.getElementById('stepNum2').textContent = '2';
+    gaHideStatus('gaFetchStatus');
+    gaHideStatus('gaRankStatus');
+  };
+
+  /* ═══════════════════════════════════════════
+     CLOSED CALLS INDEX
+  ═══════════════════════════════════════════ */
+  async function loadClosedIndex() {
+    try {
+      const res  = await fetch('./closed_calls_autofill_index.json', {cache:'no-store'});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      CLOSED_INDEX     = data.index || {};
+      closedIndexCount = Object.keys(CLOSED_INDEX).length;
+      closedIndexReady = true;
+      updateIndexStatus();
+    } catch(err) {
+      closedIndexReady = false;
+      updateIndexStatus();
+    }
+  }
+
+  function updateIndexStatus() {
+    const openDot   = `<span class="idx-dot green"></span>`;
+    const closedDot = closedIndexReady ? `<span class="idx-dot cyan"></span>` : `<span class="idx-dot grey"></span>`;
+    const items = [
+      `${openDot} <strong>${CALLS.length}</strong> call aperte (dataset locale)`,
+      closedIndexReady
+        ? `${closedDot} <strong>${closedIndexCount}</strong> call chiuse indicizzate`
+        : `${closedDot} Index call chiuse non disponibile`,
+      `<span class="idx-dot orange"></span> Parsing strutturale ID (fallback)`,
+    ];
+    indexStatusEl.innerHTML = items.join('<span style="margin:0 6px;opacity:0.3">·</span>');
+    indexStatusEl.classList.remove('hidden');
+  }
+
+  function lookupClosedIndex(rawInput) {
+    const key = rawInput.trim().toUpperCase();
+    if (CLOSED_INDEX[key]) return CLOSED_INDEX[key];
+    const slugMatch = key.match(/(?:TOPIC-DETAILS\/|COMPETITIVE-CALLS-CS\/)([^?#/]+)/);
+    const slug = slugMatch ? slugMatch[1] : key;
+    if (slug !== key && CLOSED_INDEX[slug]) return CLOSED_INDEX[slug];
+    for (const [k, v] of Object.entries(CLOSED_INDEX)) {
+      if (k.startsWith(slug) || slug.startsWith(k)) return v;
+    }
+    return null;
+  }
+
+  function lookupLocalCalls(rawInput) {
+    const idUp = rawInput.trim().toUpperCase();
+    function topicSlug(url) {
+      const m = String(url||'').match(/topic-details\/([^?#/]+)/i);
+      return m ? m[1].toUpperCase() : '';
+    }
+    return CALLS.find(c => topicSlug(c.url) === idUp)
+      || CALLS.find(c => { const t=topicSlug(c.url); return t && (t.startsWith(idUp)||idUp.startsWith(t)); })
+      || CALLS.find(c => String(c.call_id||'').toUpperCase() === idUp)
+      || CALLS.find(c => { const cid=String(c.call_id||'').toUpperCase(); return cid&&(cid.startsWith(idUp)||idUp.startsWith(cid)); })
+      || CALLS.find(c => String(c.url||'').toUpperCase().includes(idUp))
+      || null;
+  }
+
+  function parseCallIdStructural(raw) {
+    const id = raw.trim().toUpperCase();
+    let thematic = null, actionType = null;
+    const clMatch = id.match(/HORIZON-CL([1-6])-/);
+    if (clMatch) thematic = CL_MAP[clMatch[1]] || null;
+    if (!thematic) {
+      for (const rule of URL_RULES) {
+        if (!id.includes(rule.p)) continue;
+        if (rule.s && !id.includes(rule.s)) continue;
+        thematic = rule.t; break;
+      }
+    }
+    for (const {re, v} of ACTION_TYPE_PATTERNS) {
+      if (re.test(id)) { actionType = v; break; }
+    }
+    return { thematic, actionType };
+  }
+
+  /* ═══════════════════════════════════════════
+     AUTOFILL (call number → form)
+  ═══════════════════════════════════════════ */
+  async function doAutofill() {
+    const rawInput = callNumberInput.value.trim();
+    if (!rawInput) {
+      showFeedback('error', '✕', 'Inserisci un numero di call o topic ID prima di procedere.');
+      return;
+    }
+    autofillBtn.disabled = true;
+    showFeedback('loading', null, 'Ricerca in corso…');
+    const localMatch = lookupLocalCalls(rawInput);
+    if (localMatch) { autofillBtn.disabled = false; applyAutofillResult(rawInput, localMatch, 'local'); return; }
+    if (closedIndexReady) {
+      const closedMatch = lookupClosedIndex(rawInput);
+      if (closedMatch) { autofillBtn.disabled = false; applyAutofillResult(rawInput, closedMatch, 'closed'); return; }
+    }
+    autofillBtn.disabled = false;
+    applyAutofillResult(rawInput, parseCallIdStructural(rawInput), 'structural');
+  }
+
+  function applyAutofillResult(rawInput, data, source) {
+    if (!data) { showFeedback('warning', '!', `Nessun dato trovato per <strong>${esc(rawInput)}</strong>. Compila manualmente.`); return; }
+    const thematic      = data.thematic_cluster || data.thematic || null;
+    const multiThematic = Array.isArray(data.multi_thematic) ? data.multi_thematic : [];
+    const action        = normalizeAction(data.action || data.actionType || '');
+    const title         = data.name || null;
+    const keywordHits   = data.keyword_hits || {};
+    let secondary = null;
+    if (multiThematic.length > 0) {
+      const candidates = multiThematic
+        .filter(t => t !== thematic && THEMATIC_OPTIONS.includes(t))
+        .map(t => ({ t, count: (keywordHits[t] || []).length }))
+        .sort((a, b) => b.count - a.count);
+      if (candidates.length > 0) secondary = candidates[0].t;
+    }
+    const injected = [];
+    if (thematic && THEMATIC_OPTIONS.includes(thematic)) {
+      primaryEl.value = thematic; flashInjected(primaryEl);
+      injected.push({ label: 'Area primaria', value: thematic });
+    }
+    if (secondary && secondary !== thematic) {
+      secondaryEl.value = secondary; flashInjected(secondaryEl);
+      const kwHint = (keywordHits[secondary] || []).slice(0,3).join(', ');
+      injected.push({ label: 'Area secondaria', value: secondary, hint: kwHint || null });
+    }
+    if (action && ['RIA','IA','CSA','COFUND'].includes(action)) {
+      document.getElementById('action_type').value = action; flashInjected(document.getElementById('action_type'));
+      injected.push({ label: 'Action type', value: action });
+    }
+    const sourceLabels = {
+      local:      { cls:'local',      icon:'●', text:'Dataset call aperte' },
+      closed:     { cls:'closed',     icon:'◎', text:'Index call chiuse' },
+      structural: { cls:'structural', icon:'◈', text:'Parsing strutturale ID' },
+    };
+    const sl = sourceLabels[source] || sourceLabels.structural;
+    const sourceBadge = `<span class="autofill-source-badge ${sl.cls}">${sl.icon} ${sl.text}</span>`;
+    let msg = `Compilazione per <strong>${esc(rawInput)}</strong>. ${sourceBadge}`;
+    if (title) msg += `<br><em style="opacity:0.72;font-size:0.9em">${esc(title.substring(0,120))}${title.length > 120 ? '…' : ''}</em>`;
+    const chipsHtml = injected.map(i => {
+      const hintSpan = i.hint ? ` <span style="opacity:0.6;font-weight:400;font-size:0.88em">(${esc(i.hint)})</span>` : '';
+      return `<span class="autofill-chip"><span class="chip-label">${esc(i.label)}</span>${esc(i.value)}${hintSpan}</span>`;
+    }).join('');
+    const noteHtml = source === 'structural'
+      ? `<div style="margin-top:8px;font-size:0.78rem;opacity:0.6">Nessuna call corrispondente trovata nei dataset. Campi compilati da parsing dell'ID — verifica e correggi se necessario.</div>`
+      : `<div style="margin-top:8px;font-size:0.78rem;opacity:0.6">Puoi modificare i campi in qualsiasi momento.</div>`;
+    if (injected.length === 0) {
+      showFeedback('warning', '!', `${msg}<br>Nessun campo compilabile automaticamente — procedi manualmente.`);
+    } else {
+      showFeedback('success', '✓', `${msg}<div class="autofill-chips" style="margin-top:10px">${chipsHtml}</div>${noteHtml}`);
+    }
+  }
+
+  function showFeedback(type, icon, html) {
+    autofillFeedback.className = `autofill-feedback ${type}`;
+    if (type === 'loading') {
+      autofillFeedback.innerHTML = `<div class="spinner"></div><span>${html}</span>`;
+    } else {
+      autofillFeedback.innerHTML = `<span class="autofill-feedback-icon">${icon||''}</span><div>${html}</div>`;
+    }
+  }
+  function flashInjected(el) {
+    el.classList.remove('injected'); void el.offsetWidth;
+    el.classList.add('injected'); setTimeout(() => el.classList.remove('injected'), 1400);
+  }
+
+  callNumberInput.addEventListener('input', () => {
+    const has = callNumberInput.value.trim().length > 0;
+    autofillClearBtn.classList.toggle('visible', has);
+    if (!has) autofillFeedback.className = 'autofill-feedback';
+  });
+  autofillClearBtn.addEventListener('click', () => {
+    callNumberInput.value = ''; autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className = 'autofill-feedback'; callNumberInput.focus();
+  });
+  callNumberInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doAutofill(); } });
+  autofillBtn.addEventListener('click', doAutofill);
+
+  /* ═══════════════════════════════════════════
+     UTILITIES
+  ═══════════════════════════════════════════ */
+  function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function norm(s){ return String(s||'').trim(); }
+  function lower(s){ return String(s||'').toLowerCase(); }
+  function escapeRegExp(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+  function projectEndIso(y,q){
+    return {Q1:`${y}-03-31`,Q2:`${y}-06-30`,Q3:`${y}-09-30`,Q4:`${y}-12-31`}[q]||'';
+  }
+
+  function normalizeAction(v){
+    const s=lower(v);
+    if(s.includes('research and innovation action')) return 'RIA';
+    if(s.includes('innovation action')) return 'IA';
+    if(s.includes('coordination and support')) return 'CSA';
+    if(s.includes('cofund')) return 'COFUND';
+    const u=String(v||'').toUpperCase();
+    if(/\bRIA\b/.test(u)) return 'RIA';
+    if(/(?<![A-Z])IA(?![A-Z])/.test(u)) return 'IA';
+    if(/\bCSA\b/.test(u)) return 'CSA';
+    if(/COFUND/.test(u)) return 'COFUND';
+    return String(v||'').toUpperCase();
+  }
+
+  function parseBudgetValue(value){
+    if(value===null||value===undefined||value==='') return null;
+    let s=String(value).trim();
+    const sh=s.match(/^[€$\s]*([\d.,]+)\s*([KkMmBb])\b/);
+    if(sh){const num=parseFloat(sh[1].replace(',','.'));const mult={k:1e3,m:1e6,b:1e9}[sh[2].toLowerCase()]||1;const r=num*mult;return Number.isFinite(r)?r:null;}
+    s=s.replace(/[€$£\s]/g,'');
+    const dc=(s.match(/\./g)||[]).length, cc=(s.match(/,/g)||[]).length;
+    let n;
+    if(dc>1){n=s.replace(/\./g,'').replace(',','.');}
+    else if(cc>1){n=s.replace(/,/g,'');}
+    else if(dc===1&&cc===1){n=s.lastIndexOf(',')>s.lastIndexOf('.')?s.replace('.','').replace(',','.'):s.replace(',','');}
+    else if(cc===1){const a=s.split(',')[1]||'';n=a.length===3&&/^\d+$/.test(a)?s.replace(',',''):s.replace(',','.');}
+    else{n=dc===1&&(s.split('.')[1]||'').length===3&&/^\d+$/.test(s.split('.')[1])?s.replace('.',''):s;}
+    const m=n.match(/^-?[\d.]+/);
+    if(!m) return null;
+    const p=Number(m[0]);
+    return Number.isFinite(p)&&p>=0?p:null;
+  }
+
+  function formatBudget(v){
+    return Number.isFinite(v)?v.toLocaleString('it-IT',{maximumFractionDigits:0})+' EUR':'';
+  }
+
+  function getBudgetRange(){
+    let min=Number(budgetMinEl.value), max=Number(budgetMaxEl.value);
+    if(!Number.isFinite(min)) min=0;
+    if(!Number.isFinite(max)) max=BUDGET_MAX;
+    if(min>max) [min,max]=[max,min];
+    return {minBudget:min,maxBudget:max};
+  }
+  function budgetFilterActive(){
+    const {minBudget,maxBudget}=getBudgetRange();
+    return minBudget>0||maxBudget<BUDGET_MAX;
+  }
+  function updateBudgetUi(){
+    const {minBudget,maxBudget}=getBudgetRange();
+    budgetMinLabelEl.textContent=formatBudget(minBudget);
+    budgetMaxLabelEl.textContent=formatBudget(maxBudget);
+    const sMin=Number(budgetMinEl.min||0), sMax=Number(budgetMinEl.max||BUDGET_MAX);
+    const left=((minBudget-sMin)/(sMax-sMin))*100;
+    const right=((maxBudget-sMin)/(sMax-sMin))*100;
+    budgetRangeFillEl.style.left=left+'%';
+    budgetRangeFillEl.style.width=Math.max(right-left,0)+'%';
+    budgetPresetEls.forEach(b=>b.classList.toggle('active',Number(b.dataset.min)===minBudget&&Number(b.dataset.max)===maxBudget));
+    budgetWarningEl.classList.toggle('visible',budgetFilterActive());
+  }
+
+  const BOILERPLATE_PATTERNS=[
+    /food,\s*bioeconomy,\s*natural resources,\s*agriculture\s*and\s*environment/gi,
+    /eu policies on climate,\s*environment,\s*transport,\s*agriculture\s*and\s*secure society/gi,
+    /this site uses cookies[^.]{0,200}/gi,
+    /accept (all )?cookies[^.]{0,80}/gi,
+    /eu funding & tenders portal[^.]{0,80}/gi,
+    /home funding calls for proposals[^.]{0,80}/gi,
+  ];
+  function stripBoilerplate(t){
+    let x=String(t||'');
+    BOILERPLATE_PATTERNS.forEach(p=>{x=x.replace(p,' ');});
+    return x;
+  }
+
+  function textForSearch(call){
+    return lower(stripBoilerplate([call.full_text,call.name,call.programme,call.cluster_label,call.thematic_cluster,call.action,call.budget].filter(Boolean).join(' ')));
+  }
+  function titleHasSpecial(title){
+    const t=lower(title);
+    return TITLE_SPECIAL_KEYWORDS.some(k=>new RegExp(`(^|[^a-z])${escapeRegExp(k)}([^a-z]|$)`,'i').test(t));
+  }
+  function keywordHits(text,thematic){
+    const kws=KEYWORDS[thematic]||[];
+    return [...new Set(kws.filter(k=>new RegExp(`(^|[^a-z])${escapeRegExp(lower(k))}([^a-z]|$)`,'i').test(text)))];
+  }
+  function enrichCall(raw){
+    const c={...raw};
+    c._assigned=norm(c.thematic_cluster);
+    c._action_norm=normalizeAction(c.action);
+    c._deadline_norm=c.deadline_iso||'';
+    c._budget_value=parseBudgetValue(c.budget);
+    c._search=textForSearch(c);
+    c._special=Boolean(c.is_special_basic_research||titleHasSpecial(c.name));
+    c._keyword_hits={};
+    THEMATIC_OPTIONS.forEach(t=>{
+      if(t===SPECIAL) return;
+      const h=keywordHits(c._search,t);
+      if(h.length) c._keyword_hits[t]=h;
+    });
+    if(c._special) c._keyword_hits[SPECIAL]=TITLE_SPECIAL_KEYWORDS.filter(k=>lower(c.name).includes(k));
+    return c;
+  }
+
+  function isAssignedTo(call,thematic){
+    if(!thematic) return false;
+    if(thematic===SPECIAL) return !!call._special;
+    return norm(call._assigned)===thematic;
+  }
+  function hitsFor(call,thematic){
+    if(!thematic) return [];
+    if(thematic===SPECIAL) return call._special?['title match']:[];
+    return Array.isArray(call._keyword_hits[thematic])?call._keyword_hits[thematic]:keywordHits(call._search,thematic);
+  }
+  /* =================================================================
      FIELD-WEIGHTED SCORE — replica logica ranking portale SEDIA
-     Pesi per campo (BM25-like con boost per campo):
-       title        ×8  → "robotics" nel titolo = ~2× rispetto al body
-       summary      ×4  → primi 300 chars del full_text (partnership...)
-       call_id/url  ×3  → keyword presente nell'ID del topic o URL
-       keyword_hits ×3  → keyword esplicitamente taggata dallo scraper
-       cluster      ×2  → area tematica / cluster label / programme
-       full_text    ×1  → TF nel corpo, cappato a 10 occorrenze
-     ================================================================= */
+     Pesi per campo calibrati sul rapporto ~2:1 osservato nei dati:
+       #1 score 14475 — "AI-Driven Robotics for Industry" (titolo)
+       #2 score  7016 — "Partnership in AI, Data and Robotics" (summary)
+     title        x8  -> "robotics" nel titolo = ~2x rispetto al body
+     summary      x4  -> primi 300 chars del full_text (partnership...)
+     call_id/url  x3  -> keyword nell'ID del topic o URL
+     keyword_hits x3  -> keyword esplicitamente taggata dallo scraper
+     cluster      x2  -> area tematica / cluster label / programme
+     full_text    x1  -> TF nel corpo, cappato a 10 occorrenze
+  ================================================================= */
   function fieldWeightedScore(call, terms) {
     if (!terms || !terms.length) return 0;
-    let total = 0;
-    terms.forEach(term => {
-      const re = new RegExp('(?<![a-z])' + escapeRegExp(term.toLowerCase()) + '(?![a-z])', 'gi');
-      // Titolo — peso ×8
+    var total = 0;
+    terms.forEach(function(term) {
+      var escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var re = new RegExp('\\b' + escaped, 'gi');
+      // Titolo — peso x8
       total += Math.min((lower(call.name || '').match(re) || []).length, 3) * 8;
-      // Summary/partnership: primi 300 chars — peso ×4
+      // Summary/partnership: primi 300 chars del full_text — peso x4
       total += Math.min((lower((call.full_text || '').slice(0, 300)).match(re) || []).length, 3) * 4;
-      // Call ID + URL — peso ×3
+      // Call ID + URL — peso x3
       total += Math.min((lower((call.call_id || '') + ' ' + (call.url || '')).match(re) || []).length, 2) * 3;
-      // keyword_hits espliciti — peso ×3
-      total += Math.min((lower(Object.values(call._keyword_hits || {}).flat().join(' ')).match(re) || []).length, 4) * 3;
-      // Cluster / thematic / programme — peso ×2
+      // keyword_hits espliciti (taggati dallo scraper) — peso x3
+      var allKws = Object.values(call._keyword_hits || {}).reduce(function(a,b){return a.concat(b);}, []);
+      total += Math.min((lower(allKws.join(' ')).match(re) || []).length, 4) * 3;
+      // Cluster / thematic / programme — peso x2
       total += Math.min((lower([call.cluster_label, call.thematic_cluster, call.programme].filter(Boolean).join(' ')).match(re) || []).length, 2) * 2;
-      // Corpo (full_text dopo i primi 300 chars) — peso ×1, max 10
+      // Corpo (full_text dopo i primi 300 chars) — peso x1, max 10
       total += Math.min((lower((call.full_text || '').slice(300)).match(re) || []).length, 10) * 1;
     });
     return total;
   }
 
-  /* Termini attivi per ranking SEDIA-style.
-     Usa il filtro keyword se compilato, altrimenti le prime keyword dell'area primaria. */
+  /* Termini attivi per il ranking SEDIA-style.
+     Usa il filtro keyword se compilato, altrimenti le prime 5 keyword dell'area primaria. */
   function getActiveTerms(primaryThematic) {
-    const kw = lower((keywordFilterEl ? keywordFilterEl.value : '') || '').trim();
-    if (kw) return kw.split(/\\s+/).filter(Boolean);
+    var kw = lower((keywordFilterEl ? keywordFilterEl.value : '') || '').trim();
+    if (kw) return kw.split(/\s+/).filter(Boolean);
     return (KEYWORDS[primaryThematic] || []).slice(0, 5);
   }
 
-  function scoreNature(call,nature){"""
-
-if FIND_1 not in html:
-    print("ERRORE: stringa target 1 non trovata. Il file potrebbe essere già patchato?")
-    sys.exit(1)
-
-html = html.replace(FIND_1, INJECT_1, 1)
-print("✓ Patch 1 applicata: fieldWeightedScore + getActiveTerms aggiunte")
-
-# ── PATCH 2: aggiungi fws calcolo alla fine di bucketAndScore ──
-FIND_2 = """    if(call._special&&(primary===SPECIAL||secondary===SPECIAL)) score+=16;
-    return {bucket,score,primaryAssigned:pA,secondaryAssigned:sA,primaryHits:pH,secondaryHits:sH};"""
-
-REPLACE_2 = """    if(call._special&&(primary===SPECIAL||secondary===SPECIAL)) score+=16;
-    // ── Field-weighted score: tiebreak SEDIA-style dentro ogni bucket ──
-    // Es: "robotics" nel titolo → +24 pts; "robotics" solo nel body → +1-10 pts
-    const _fwsTerms = getActiveTerms(primary);
-    const _fws = fieldWeightedScore(call, _fwsTerms);
+  function scoreNature(call,nature){
+    if(!nature) return 0;
+    const a=call._action_norm;
+    if(nature==='basic')    return (a==='RIA'?14:0)+(a==='CSA'?6:0)+(call._special?8:0);
+    if(nature==='applied')  return (a==='RIA'?9:0)+(a==='IA'?9:0);
+    if(nature==='industrial') return (a==='IA'?14:0);
+    return 0;
+  }
+  function bucketAndScore(call,answers){
+    const primary=answers.thematic_cluster||'';
+    const secondary=answers.secondary_thematic_cluster||'';
+    const pA=isAssignedTo(call,primary);
+    const sA=secondary?isAssignedTo(call,secondary):false;
+    const pH=hitsFor(call,primary);
+    const sH=secondary?hitsFor(call,secondary):[];
+    const other=!pA&&!sA;
+    let bucket=99;
+    if(!secondary){
+      if(pA)             bucket=1;
+      else if(pH.length) bucket=2;
+    } else {
+      if(pA&&sH.length)                       bucket=1;
+      else if(sA&&pH.length)                  bucket=2;
+      else if(pA)                             bucket=3;
+      else if(sA)                             bucket=4;
+      else if(other&&pH.length&&sH.length)    bucket=5;
+      else if(other&&(pH.length||sH.length))  bucket=6;
+    }
+    if(bucket===99) return null;
+    let score=1000-bucket*100;
+    score+=pA?40:0; score+=sA?18:0;
+    score+=Math.min(pH.length,4)*6; score+=Math.min(sH.length,4)*6;
+    score+=scoreNature(call,answers.project_nature||'');
+    const at=answers.action_type||'';
+    if(at&&at!=='OTHER') score+=(call._action_norm===at?10:-50);
+    if(at==='OTHER')     score+=(!['RIA','IA','CSA','COFUND'].includes(call._action_norm)?8:-50);
+    if(call._special&&(primary===SPECIAL||secondary===SPECIAL)) score+=16;
+    // Field-weighted score: tiebreak SEDIA-style dentro ogni bucket
+    // "robotics" nel titolo -> +24 pts; solo nel body -> +1-10 pts
+    var _fwsTerms = getActiveTerms(primary);
+    var _fws = fieldWeightedScore(call, _fwsTerms);
     score += Math.min(_fws, 99);
-    return {bucket,score,primaryAssigned:pA,secondaryAssigned:sA,primaryHits:pH,secondaryHits:sH};"""
+    return {bucket,score,primaryAssigned:pA,secondaryAssigned:sA,primaryHits:pH,secondaryHits:sH};
+  }
 
-if FIND_2 not in html:
-    print("ERRORE: stringa target 2 non trovata.")
-    sys.exit(1)
+  function passedBudgetFilter(call){
+    if(!budgetFilterActive()) return true;
+    const v=call._budget_value;
+    if(!Number.isFinite(v)) return false;
+    const {minBudget,maxBudget}=getBudgetRange();
+    return v>=minBudget&&v<=maxBudget;
+  }
 
-html = html.replace(FIND_2, REPLACE_2, 1)
-print("✓ Patch 2 applicata: field-weighted score integrato in bucketAndScore")
+  function applyFilters(calls,answers){
+    const projectEnd=projectEndIso(answers.closure_year,answers.closure_quarter);
+    return calls
+      .map(enrichCall)
+      .map(call=>{
+        if(projectEnd&&call._deadline_norm&&call._deadline_norm<=projectEnd) return null;
+        const bs=bucketAndScore(call,answers);
+        if(!bs) return null;
+        return {...call,_bucket:bs.bucket,_score:bs.score,_primaryAssigned:bs.primaryAssigned,_secondaryAssigned:bs.secondaryAssigned,_primaryHits:bs.primaryHits,_secondaryHits:bs.secondaryHits};
+      })
+      .filter(Boolean)
+      .sort((a,b)=>{
+        if(a._bucket!==b._bucket) return a._bucket-b._bucket;
+        if(b._score!==a._score)   return b._score-a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
+  }
 
-# ── Write output ──
-out = src.with_name(src.stem + "_patched" + src.suffix)
-out.write_text(html, encoding="utf-8")
-print(f"\n✓ File scritto: {out}")
-print("  Verifica in browser: apri index_patched.html e cerca con una keyword")
-print("  Es. 'robotics' → le call con 'robotics' nel titolo devono precedere quelle con 'robotics' solo nel testo")
+  function applyDisplayFilters(results){
+    const raw=lower(keywordFilterEl.value||'').trim();
+    const terms=raw.split(/\s+/).filter(Boolean);
+    return results.filter(c=>{
+      if(terms.length){
+        const h=searchScope==='title'?lower(c.name||''):(c._search||lower([c.name,c.full_text,c.programme,c.cluster_label,c.thematic_cluster,c.action,c.budget].filter(Boolean).join(' ')));
+        if(!terms.every(t=>h.includes(t))) return false;
+      }
+      if(!passedBudgetFilter(c)) return false;
+      return true;
+    });
+  }
+
+  function getSortedFiltered(){
+    let filtered=applyDisplayFilters(lastScoredResults);
+    if(sortMode==='deadline'){
+      filtered=[...filtered].sort((a,b)=>String(a._deadline_norm||'9999').localeCompare(String(b._deadline_norm||'9999')));
+    } else {
+      filtered=[...filtered].sort((a,b)=>{
+        if(a._bucket!==b._bucket) return a._bucket-b._bucket;
+        if(b._score!==a._score)   return b._score-a._score;
+        return String(a._deadline_norm||'').localeCompare(String(b._deadline_norm||''));
+      });
+    }
+    filtered.forEach((c,i)=>{ c._filteredIdx=i; });
+    return filtered;
+  }
+
+  function bucketLabel(call){
+    if(call._bucket===1) return 'Primario · con keyword secondaria';
+    if(call._bucket===2) return 'Secondario · con keyword primaria';
+    if(call._bucket===3) return 'Primario · senza keyword secondaria';
+    if(call._bucket===4) return 'Secondario · senza keyword primaria';
+    if(call._bucket===5) return 'Altra area · keyword primaria + secondaria';
+    if(call._bucket===6) return 'Altra area · keyword parziale';
+    return 'Match';
+  }
+
+  function renderSummary(a){
+    const {minBudget,maxBudget}=getBudgetRange();
+    const budgetLabel=budgetFilterActive()?`${formatBudget(minBudget)} – ${formatBudget(maxBudget)}`:'Qualsiasi';
+    const items=[
+      {l:'Chiusura',  v:`${esc(a.closure_year)} ${esc(a.closure_quarter)}`},
+      {l:'Natura',    v:esc(a.project_nature||'Qualsiasi')},
+      {l:'Primaria',  v:esc(a.thematic_cluster||'—')},
+      {l:'Secondaria',v:esc(a.secondary_thematic_cluster||'—')},
+      {l:'Action',    v:esc(a.action_type||'Qualsiasi')},
+      {l:'Budget',    v:esc(budgetLabel)},
+    ];
+    return '<div class="summary">'+items.map(i=>`<span class="pill">${i.l}<strong>${i.v}</strong></span>`).join('')+'</div>';
+  }
+
+  function updateSelectionUi(){
+    const n=selectedIds.size;
+    selCountNumEl.textContent=n;
+    selectionBarEl.classList.toggle('visible', lastFiltered.length>0);
+    if(n>0){
+      downloadResultsBtn.textContent=`↓ Selezione (${n}) CSV`;
+      downloadExcelBtn.textContent=`↓ Selezione (${n}) Excel`;
+    } else {
+      downloadResultsBtn.textContent='↓ Scarica CSV';
+      downloadExcelBtn.textContent='↓ Scarica Excel';
+    }
+  }
+
+  function toggleSelection(idx){
+    if(selectedIds.has(idx)) selectedIds.delete(idx);
+    else selectedIds.add(idx);
+    updateSelectionUi();
+    const card=resultsEl.querySelector(`.call[data-idx="${idx}"]`);
+    if(card){
+      card.classList.toggle('selected', selectedIds.has(idx));
+      const cb=card.querySelector('.call-checkbox');
+      if(cb) cb.checked=selectedIds.has(idx);
+    }
+  }
+
+  selAllBtn.addEventListener('click',()=>{ lastFiltered.forEach(c=>selectedIds.add(c._filteredIdx)); renderCalls(); });
+  deselAllBtn.addEventListener('click',()=>{ selectedIds.clear(); renderCalls(); });
+
+  function renderCalls(){
+    lastFiltered = getSortedFiltered();
+    const visible=lastFiltered.slice(0,visibleCount);
+    document.getElementById('statsCount').innerHTML=`<strong>${lastFiltered.length}</strong> call trovate`;
+    updateSelectionUi();
+    let html=renderSummary(lastAnswers);
+    if(!lastFiltered.length){
+      resultsEl.innerHTML=html+'<div class="empty">Nessuna call corrisponde ai filtri attivi.</div>';
+      resultsFooterEl.classList.add('hidden'); return;
+    }
+    visible.forEach(call=>{
+      const meta=[
+        call.programme?`Programme: ${esc(call.programme)}`:'',
+        call.thematic_cluster?`Thematic area: ${esc(call.thematic_cluster)}`:'',
+        call.cluster_label?`Horizon area: ${esc(call.cluster_label)}`:'',
+        call.action?`Action: ${esc(call.action)}`:'',
+        call.budget?`Budget: ${esc(call.budget)}`:'',
+        call.opening?`Opening: ${esc(call.opening)}`:'',
+        call.deadline?`Deadline: ${esc(call.deadline)}`:'',
+      ].filter(Boolean).join(' · ');
+      const bucketClass=`badge-b${call._bucket||6}`;
+      const badges=[`<span class="badge ${bucketClass}">${bucketLabel(call)}</span>`];
+      if(call._special) badges.push('<span class="badge badge-special">internships / fellowships</span>');
+      const tags=[...(call._primaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`),...(call._secondaryHits||[]).map(t=>`<span class="tag">${esc(t)}</span>`)];
+      const urlAttr=call.url?` data-url="${esc(call.url)}"`:'' ;
+      const isSelected=selectedIds.has(call._filteredIdx);
+      html+=`<article class="call${isSelected?' selected':''}" data-bucket="${call._bucket||6}"${urlAttr} data-idx="${call._filteredIdx}">
+        <div class="call-checkbox-wrap">
+          <input type="checkbox" class="call-checkbox" data-idx="${call._filteredIdx}" ${isSelected?'checked':''} title="Seleziona per export" />
+        </div>
+        <h3>${esc(call.name||'(senza nome)')}</h3>
+        <div class="meta">${meta}</div>
+        <div class="matchbadges">${badges.join('')}</div>
+        ${tags.length?`<div class="tags">${tags.join('')}</div>`:''}
+        ${call.url?`<div class="call-link"><a href="${encodeURI(call.url)}" target="_blank" rel="noopener noreferrer">${esc(call.url)}</a></div>`:''}
+      </article>`;
+    });
+    resultsEl.innerHTML=html;
+    const shown=Math.min(visibleCount,lastFiltered.length);
+    resultsProgressEl.textContent=`Stai vedendo ${shown} risultati su ${lastFiltered.length}.`;
+    resultsFooterEl.classList.remove('hidden');
+    loadMoreBtn.classList.toggle('hidden',shown>=lastFiltered.length);
+  }
+
+  resultsEl.addEventListener('click', e=>{
+    const cb=e.target.closest('.call-checkbox');
+    if(cb){ e.stopPropagation(); toggleSelection(Number(cb.dataset.idx)); return; }
+    if(e.target.closest('a')) return;
+    const card=e.target.closest('.call');
+    if(card&&card.dataset.url) window.open(card.dataset.url,'_blank','noopener,noreferrer');
+  });
+
+  function getExportRows(){
+    const rows = selectedIds.size>0
+      ? lastFiltered.filter(c=>selectedIds.has(c._filteredIdx))
+      : lastFiltered;
+    return rows.map(c=>({
+      name:c.name||'',programme:c.programme||'',thematic_cluster:c.thematic_cluster||'',
+      cluster_label:c.cluster_label||'',action:c.action||'',budget:c.budget||'',
+      opening:c.opening||'',deadline:c.deadline||'',url:c.url||'',
+      bucket:c._bucket||'',score:c._score||''
+    }));
+  }
+  function downloadCsv(){
+    const rows=getExportRows(), headers=Object.keys(rows[0]||{});
+    const csv=[headers.join(',')].concat(rows.map(r=>headers.map(h=>'"'+String(r[h]??'').replace(/"/g,'""')+'"').join(','))).join('\n');
+    const b=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='results.csv'; a.click(); URL.revokeObjectURL(a.href);
+  }
+  function downloadExcel(){
+    const rows=getExportRows(), headers=Object.keys(rows[0]||{});
+    const table=`<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${esc(r[h]??'')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    const b=new Blob(['\ufeff'+table],{type:'application/vnd.ms-excel;charset=utf-8;'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='results.xls'; a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  /* ── Form events ── */
+  form.addEventListener('submit', e=>{
+    e.preventDefault();
+    const fd=new FormData(form);
+    const answers={
+      closure_year:fd.get('closure_year')||'',
+      closure_quarter:fd.get('closure_quarter')||'',
+      project_nature:fd.get('project_nature')||'',
+      thematic_cluster:fd.get('thematic_cluster')||'',
+      secondary_thematic_cluster:fd.get('secondary_thematic_cluster')||'',
+      action_type:fd.get('action_type')||''
+    };
+    if(answers.secondary_thematic_cluster&&answers.secondary_thematic_cluster===answers.thematic_cluster){
+      alert('Area primaria e secondaria devono essere diverse.'); return;
+    }
+    lastAnswers=answers; visibleCount=PAGE_SIZE; selectedIds.clear();
+    lastScoredResults=applyFilters(CALLS,answers);
+    resultsSection.classList.remove('hidden');
+    renderCalls();
+    resultsSection.scrollIntoView({behavior:'smooth',block:'start'});
+  });
+
+  let _kwTimer=null;
+  keywordFilterEl.addEventListener('input',()=>{
+    clearTimeout(_kwTimer);
+    _kwTimer=setTimeout(()=>{ if(lastAnswers){ visibleCount=PAGE_SIZE; selectedIds.clear(); renderCalls(); } },180);
+  });
+
+  budgetMinEl.addEventListener('input',()=>{
+    if(Number(budgetMinEl.value)>Number(budgetMaxEl.value)) budgetMinEl.value=budgetMaxEl.value;
+    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  });
+  budgetMaxEl.addEventListener('input',()=>{
+    if(Number(budgetMaxEl.value)<Number(budgetMinEl.value)) budgetMaxEl.value=budgetMinEl.value;
+    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  });
+  budgetPresetEls.forEach(b=>b.addEventListener('click',()=>{
+    budgetMinEl.value=b.dataset.min||'0'; budgetMaxEl.value=b.dataset.max||String(BUDGET_MAX);
+    updateBudgetUi(); if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  }));
+
+  document.getElementById('scopeFullText').addEventListener('click',()=>{
+    searchScope='fulltext';
+    document.getElementById('scopeFullText').classList.add('active');
+    document.getElementById('scopeTitle').classList.remove('active');
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  });
+  document.getElementById('scopeTitle').addEventListener('click',()=>{
+    searchScope='title';
+    document.getElementById('scopeTitle').classList.add('active');
+    document.getElementById('scopeFullText').classList.remove('active');
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  });
+  document.getElementById('sortRelevance').addEventListener('click',()=>{
+    sortMode='relevance';
+    document.getElementById('sortRelevance').classList.add('active');
+    document.getElementById('sortDeadline').classList.remove('active');
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  });
+  document.getElementById('sortDeadline').addEventListener('click',()=>{
+    sortMode='deadline';
+    document.getElementById('sortDeadline').classList.add('active');
+    document.getElementById('sortRelevance').classList.remove('active');
+    if(lastAnswers){visibleCount=PAGE_SIZE;selectedIds.clear();renderCalls();}
+  });
+
+  loadMoreBtn.addEventListener('click',()=>{visibleCount+=PAGE_SIZE;renderCalls();});
+  downloadResultsBtn.addEventListener('click',()=>{if(lastAnswers)downloadCsv();});
+  downloadExcelBtn.addEventListener('click',()=>{if(lastAnswers)downloadExcel();});
+
+  resetBtn.addEventListener('click',()=>{
+    form.reset(); secondaryEl.value='';
+    resultsSection.classList.add('hidden'); resultsEl.innerHTML='';
+    resultsFooterEl.classList.add('hidden'); keywordFilterEl.value='';
+    budgetMinEl.value='0'; budgetMaxEl.value=String(BUDGET_MAX); updateBudgetUi();
+    lastAnswers=null; lastScoredResults=[]; lastFiltered=[]; selectedIds.clear();
+    callNumberInput.value=''; autofillClearBtn.classList.remove('visible');
+    autofillFeedback.className='autofill-feedback';
+    searchScope='fulltext';
+    document.getElementById('scopeFullText').classList.add('active');
+    document.getElementById('scopeTitle').classList.remove('active');
+    selectionBarEl.classList.remove('visible');
+    downloadResultsBtn.textContent='↓ Scarica CSV';
+    downloadExcelBtn.textContent='↓ Scarica Excel';
+  });
+
+  /* ── Populate selects ── */
+  function populateSelects(){
+    primaryEl.innerHTML='<option value="" selected disabled>Seleziona…</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    secondaryEl.innerHTML='<option value="">Nessuna</option>'+THEMATIC_OPTIONS.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  }
+
+  /* ── Init ── */
+  updateBudgetUi();
+  populateSelects();
+
+  async function loadCalls(){
+    try {
+      const res=await fetch('./calls.json',{cache:'no-store'});
+      const data=await res.json();
+      if(data.generated){
+        const d=new Date(data.generated);
+        lastUpdatedEl.textContent=`Dati aggiornati al: ${d.toLocaleDateString('it-IT')} ${d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} UTC`;
+      }
+      CALLS=Array.isArray(data.calls)?data.calls:[];
+    } catch(err){
+      lastUpdatedEl.textContent='Errore nel caricamento di calls.json';
+      CALLS=[];
+    }
+    updateIndexStatus();
+  }
+
+  Promise.all([loadCalls(), loadClosedIndex()]);
+})();
+</script>
+</body>
+</html>
