@@ -9,6 +9,18 @@ Uso:
     python scrape_closed_calls.py --batch 1 --total-batches 5
     python scrape_closed_calls.py --batch 3 --total-batches 5 --out /path/batch3.json
     python scrape_closed_calls.py --batch 1 --total-batches 5 --max-pages 5  # test
+
+FIX 2025-06:
+  - [SME spuria] "SME, Entrepreneurship & Market Uptake" e "Cross-cutting / Other"
+    non vengono mai aggiunte come aree *secondarie* tramite keyword-scan del testo
+    libero: sono categorie strutturali (derivano da URL/programma) e i loro keyword
+    ("uptake", "market", "scale-up", ecc.) compaiono in quasi ogni testo di call,
+    generando falsi positivi.  Ora figurano in multi_thematic solo se sono già
+    l'area primaria (tematica strutturale) oppure se il titolo stesso le segnala.
+  - [Action in autofill] il campo "action" nell'autofill_index era spesso vuoto
+    perché _enrich_one non sovrascriveva action_raw quando era già presente dalla
+    card.  Ora il valore API (più affidabile e normalizzato) ha priorità, e
+    l'autofill salva sempre action sia dall'oggetto call sia dal row grezzo.
 """
 
 import re
@@ -180,7 +192,7 @@ PROGRAMME_THEMATIC_MAP = [
     # Digital
     ("Digital Europe",                  "Digital, Industry & Space"),
     ("EUAF",                            "Digital, Industry & Space"),
-    ("PPPA",                            "Digital, Industry & Space"),   # PPPA default -> digital (CHIPS)
+    ("PPPA",                            "Digital, Industry & Space"),
     # Climate / Energy / Transport
     ("Just Transition",                 "Climate, Energy & Mobility"),
     ("Innovation Fund",                 "Climate, Energy & Mobility"),
@@ -195,7 +207,7 @@ PROGRAMME_THEMATIC_MAP = [
     # Security
     ("Internal Security Fund",          "Security & Resilience"),
     ("ISF",                             "Security & Resilience"),
-    ("UCPM",                            "Security & Resilience"),   # Union Civil Protection Mechanism
+    ("UCPM",                            "Security & Resilience"),
     # Culture / Social
     ("CERV",                            "Culture, Creativity & Inclusion"),
     ("Creative Europe",                 "Culture, Creativity & Inclusion"),
@@ -209,10 +221,9 @@ PROGRAMME_THEMATIC_MAP = [
     ("Single Market Programme",         "SME, Entrepreneurship & Market Uptake"),
     ("I3",                              "SME, Entrepreneurship & Market Uptake"),
     # Horizon Europe last (uses HE-specific logic, not this map)
-    ("Horizon Europe",                  None),   # handled by HE logic; None = skip
+    ("Horizon Europe",                  None),
 ]
 
-# URL-level overrides for non-HE programmes that embed the programme code in the URL path
 NON_HE_URL_PREFIX_MAP = [
     ("AGRIP",       "Food, Bioeconomy & Environment"),
     ("EUAF",        "Digital, Industry & Space"),
@@ -324,20 +335,75 @@ URL_BENEFICIARY_OVERRIDE = {
 
 SPECIAL_BASIC_RESEARCH_CATEGORY = "Internships, fellowships & scholarships"
 SPECIAL_TITLE_KEYWORDS = ["internship","internships","fellowship","fellowships","msca","scholarship","scholarships"]
+
+# ── FIX: categorie che NON devono comparire come secondarie da keyword-scan ───
+# "SME, Entrepreneurship & Market Uptake" e "Cross-cutting / Other" sono
+# categorie strutturali: vengono assegnate solo dalla logica URL/programma.
+# I loro keyword ("uptake", "sme", "market", ecc.) sono troppo generici e
+# compaiono ovunque, generando false aree secondarie.
+# Queste categorie vengono escluse dal keyword-scan secondario a meno che
+# non siano già l'area primaria della call.
+SECONDARY_KEYWORD_BLACKLIST = {
+    "SME, Entrepreneurship & Market Uptake",
+    "Cross-cutting / Other",
+}
+
 TOPIC_KEYWORDS = {
-    "Health & Life Sciences": ["health","biotech","biotechnology","pharma","pharmaceutical","therapeutic","medical","diagnostic","genomic","genomics","public health","clinical"],
-    "Culture, Creativity & Inclusion": ["culture","creative","heritage","museum","archive","inclusion","social inclusion","democracy","education","skills"],
-    "Security & Resilience": ["security","cybersecurity","cyber security","disaster resilience","emergency","critical infrastructure","civil protection","border security"],
-    "Digital, Industry & Space": ["digital","artificial intelligence","machine learning","generative ai","data space","data sharing","cloud","edge","software","semiconductor","microelectronics","quantum","robotics","space","satellite"],
-    "Climate, Energy & Mobility": ["climate","adaptation","mitigation","energy","electricity","power system","grid","hydrogen","battery","batteries","mobility","transport","renewable","solar","photovoltaic","wind","storage","smart grid","building renovation","built environment","city","cities"],
-    "Food, Bioeconomy & Environment": ["agriculture","farming","crop","food system","bioeconomy","biodiversity","forestry","soil","water resources","environment","ecosystem","marine"],
-    "Defence": ["defence","defense","dual-use","dual use","military"],
-    "SME, Entrepreneurship & Market Uptake": ["sme","startup","entrepreneurship","venture","scale-up","market uptake","innovation uptake"],
-    "External Action & International Cooperation": ["international cooperation","development cooperation","global south","partner countries","external action"],
-    "Climate-neutral & Smart Cities": ["smart city","smart cities","climate-neutral city","urban transition","city mission"],
-    "Healthy Oceans, Seas, Coastal & Inland Waters": ["ocean","oceans","sea","seas","coastal","inland waters","marine","blue economy"],
-    "Clean Aviation": ["aviation","aircraft","aeronautics","sustainable aviation"],
-    "Cross-cutting / Other": ["interdisciplinary","cross-cutting","widening","research infrastructure","eosc"],
+    "Health & Life Sciences": [
+        "health","biotech","biotechnology","pharma","pharmaceutical",
+        "therapeutic","medical","diagnostic","genomic","genomics",
+        "public health","clinical",
+    ],
+    "Culture, Creativity & Inclusion": [
+        "culture","creative","heritage","museum","archive","inclusion",
+        "social inclusion","democracy","education","skills",
+    ],
+    "Security & Resilience": [
+        "security","cybersecurity","cyber security","disaster resilience",
+        "emergency","critical infrastructure","civil protection","border security",
+    ],
+    "Digital, Industry & Space": [
+        "digital","artificial intelligence","machine learning","generative ai",
+        "data space","data sharing","cloud","edge","software","semiconductor",
+        "microelectronics","quantum","robotics","space","satellite",
+    ],
+    "Climate, Energy & Mobility": [
+        "climate","adaptation","mitigation","energy","electricity","power system",
+        "grid","hydrogen","battery","batteries","mobility","transport","renewable",
+        "solar","photovoltaic","wind","storage","smart grid","building renovation",
+        "built environment","city","cities",
+    ],
+    "Food, Bioeconomy & Environment": [
+        "agriculture","farming","crop","food system","bioeconomy","biodiversity",
+        "forestry","soil","water resources","environment","ecosystem","marine",
+    ],
+    "Defence": [
+        "defence","defense","dual-use","dual use","military",
+    ],
+    # FIX: keyword SME molto più restrittivi — solo termini inequivocabilmente
+    # riferiti a PMI/startup, non generici come "uptake" o "market".
+    "SME, Entrepreneurship & Market Uptake": [
+        "small and medium enterprise","sme instrument","startup accelerator",
+        "venture capital","spinoff","spin-off","deep tech startup",
+    ],
+    "External Action & International Cooperation": [
+        "international cooperation","development cooperation","global south",
+        "partner countries","external action",
+    ],
+    "Climate-neutral & Smart Cities": [
+        "smart city","smart cities","climate-neutral city","urban transition",
+        "city mission",
+    ],
+    "Healthy Oceans, Seas, Coastal & Inland Waters": [
+        "ocean","oceans","sea","seas","coastal","inland waters","blue economy",
+    ],
+    "Clean Aviation": [
+        "aviation","aircraft","aeronautics","sustainable aviation",
+    ],
+    # FIX: "Cross-cutting / Other" rimosso dal keyword-scan (era basato su
+    # "interdisciplinary", "widening", "research infrastructure", "eosc" — tutti
+    # termini che compaiono nei testi di quasi ogni call HE).
+    # Se serve come primaria, viene assegnata strutturalmente (es. WIDERA).
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -359,20 +425,40 @@ def title_is_special_basic_research(title):
     tl = (title or "").lower()
     return any(text_has_keyword(tl, kw) for kw in SPECIAL_TITLE_KEYWORDS)
 
-def classify_multitopic(name, full_text, thematic):
+
+def classify_multitopic(name, full_text, primary_thematic):
+    """
+    Scansiona il testo libero per trovare aree tematiche secondarie.
+
+    FIX: le categorie in SECONDARY_KEYWORD_BLACKLIST non vengono mai aggiunte
+    come secondarie tramite keyword-scan, a meno che non siano già l'area
+    primaria strutturale (primary_thematic).  Questo evita che
+    "SME, Entrepreneurship & Market Uptake" compaia come secondaria in quasi
+    ogni call solo perché il testo contiene parole come "uptake" o "market".
+    """
     text = re.sub(r"\s+", " ", (full_text or "")).strip().lower()
     keyword_hits = {}
     multi_thematic = []
+
     for area in TOPIC_KEYWORDS:
+        # FIX: se l'area è nella blacklist secondaria E non è già la primaria,
+        # saltiamo il keyword-scan per questa area.
+        if area in SECONDARY_KEYWORD_BLACKLIST and area != primary_thematic:
+            continue
         hits = keyword_hits_for_thematic(text, area)
         if hits:
             keyword_hits[area] = hits
             multi_thematic.append(area)
+
     special = title_is_special_basic_research(name)
     if special:
-        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = [kw for kw in SPECIAL_TITLE_KEYWORDS if text_has_keyword((name or "").lower(), kw)]
+        keyword_hits[SPECIAL_BASIC_RESEARCH_CATEGORY] = [
+            kw for kw in SPECIAL_TITLE_KEYWORDS
+            if text_has_keyword((name or "").lower(), kw)
+        ]
         if SPECIAL_BASIC_RESEARCH_CATEGORY not in multi_thematic:
             multi_thematic.append(SPECIAL_BASIC_RESEARCH_CATEGORY)
+
     return {
         "full_text": text,
         "keyword_hits": keyword_hits,
@@ -380,8 +466,9 @@ def classify_multitopic(name, full_text, thematic):
         "is_special_basic_research": special,
     }
 
+
 def _topic_id(url: str) -> str:
-    """Extract the topic ID from a URL (everything after /topic-details/, /competitive-calls-cs/, /prospect-details/)."""
+    """Extract the topic ID from a URL."""
     s = (url or "").upper().split("?")[0]
     for m in ["/TOPIC-DETAILS/", "/COMPETITIVE-CALLS-CS/", "/PROSPECT-DETAILS/"]:
         i = s.find(m)
@@ -391,7 +478,6 @@ def _topic_id(url: str) -> str:
 
 
 def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
-    """Return True if the call belongs to Horizon Europe (including JU, ERC, MSCA, etc.)."""
     prog_l = (prog or "").lower()
     if "horizon" in prog_l:
         return True
@@ -411,13 +497,6 @@ def _is_horizon_europe(prog: str, url: str, call_id: str) -> bool:
 def classify_horizon_europe(url: str, call_id: str) -> tuple:
     """
     Structural classification for Horizon Europe calls.
-
-    Cascade logic:
-      1. Explicit CL1-6 cluster in call_id or URL  -> use HE_CLUSTER_MAP
-      2. Known sub-programme (HE_SUBPROGRAMME_MAP) -> use that entry
-      3. Legacy URL_RULES fallback                  -> use that entry
-      4. Unclassified                               -> ("", "", "")
-
     Returns (cluster_num, cluster_label, thematic)
     """
     tid = _topic_id(url)
@@ -437,9 +516,8 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
         return cnum, clabel_map.get(cnum, ""), thematic
 
     # 2. Sub-programme via HE_SUBPROGRAMME_MAP
-    import re as _re
-    tid_norm = _re.sub(r"-20\d\d(?=-)", "", tid)
-    cid_norm = _re.sub(r"-20\d\d(?=-)", "", cid_up)
+    tid_norm = re.sub(r"-20\d\d(?=-)", "", tid)
+    cid_norm = re.sub(r"-20\d\d(?=-)", "", cid_up)
     for prefix, cnum, clabel, thematic in HE_SUBPROGRAMME_MAP:
         if tid.startswith(prefix) or cid_up.startswith(prefix):
             return cnum, clabel, thematic
@@ -464,7 +542,6 @@ def classify_horizon_europe(url: str, call_id: str) -> tuple:
 
 
 def classify_non_he_by_programme(prog: str) -> str:
-    """Derive thematic_cluster from programme name using PROGRAMME_THEMATIC_MAP."""
     pl = (prog or "").lower()
     for key, label in PROGRAMME_THEMATIC_MAP:
         if label is None:
@@ -475,7 +552,6 @@ def classify_non_he_by_programme(prog: str) -> str:
 
 
 def classify_non_he_by_url(url: str) -> str:
-    """Derive thematic_cluster from topic ID prefix using NON_HE_URL_PREFIX_MAP."""
     tid = _topic_id(url)
     for prefix, thematic in NON_HE_URL_PREFIX_MAP:
         if tid.startswith(prefix):
@@ -485,11 +561,8 @@ def classify_non_he_by_url(url: str) -> str:
 
 def url_classify(url: str, prog: str = "", call_id: str = "") -> tuple:
     """
-    Full classification cascade.  Returns (cluster_num, cluster_label, thematic, beneficiary).
-
-    For HE calls: uses classify_horizon_europe().
-    For non-HE calls: uses classify_non_he_by_programme() then classify_non_he_by_url().
-    Falls back to URL_RULES for legacy compatibility.
+    Full classification cascade.
+    Returns (cluster_num, cluster_label, thematic, beneficiary).
     """
     tid = _topic_id(url)
 
@@ -498,10 +571,8 @@ def url_classify(url: str, prog: str = "", call_id: str = "") -> tuple:
         benef = URL_BENEFICIARY_OVERRIDE.get(tid.split("-")[0], None)
         return cnum, clabel, thematic, benef
 
-    # Non-HE: programme name first, then URL prefix
     thematic = classify_non_he_by_programme(prog) or classify_non_he_by_url(url)
 
-    # Fallback to legacy URL_RULES
     if not thematic:
         for prefix, subcode, c_num, c_label, t in URL_RULES:
             if prefix not in tid:
@@ -527,11 +598,9 @@ def name_classify(name: str) -> str:
     return ""
 
 def prog_thematic(prog: str) -> str:
-    """Return the thematic area for a given programme name string."""
     return classify_non_he_by_programme(prog)
 
 def resolve_thematic(cluster_num: str, prog: str) -> str:
-    """Return the thematic area from a cluster number if available, otherwise from the programme name."""
     if cluster_num and THEMATIC_MAP.get(cluster_num):
         return THEMATIC_MAP[cluster_num]
     return prog_thematic(prog)
@@ -639,7 +708,6 @@ def count_links(page):
     return page.locator(LINK_SELECTOR).count()
 
 def read_total(page, timeout_ms=30000):
-    """Read the total number of results from the SEDIA API response; falls back to CSS/text patterns."""
     print("  Waiting for SEDIA API response...")
     try:
         with page.expect_response(lambda r: "apiKey=SEDIA" in r.url and r.status == 200, timeout=timeout_ms) as response_info:
@@ -651,7 +719,6 @@ def read_total(page, timeout_ms=30000):
     except Exception:
         print("  API did not respond in time or blocked the request.")
 
-    # Fallback: pattern regex sul testo DOM
     PATTERNS = [
         re.compile(r"(\d[\d,\.]*)\s*item\s*\(?s\)?\s*found",      re.IGNORECASE),
         re.compile(r"(\d[\d,\.]*)\s*results?\s*found",             re.IGNORECASE),
@@ -811,7 +878,14 @@ def extract_budget_per_project_dom(page, topic_id):
     except:
         return None
 
+
 def _enrich_one(page, row):
+    """
+    Visita la pagina di dettaglio e arricchisce il row con:
+      - full_text, budget_raw, programme_raw, call_id
+      - action_raw  <-- FIX: il valore API ora SOVRASCRIVE quello della card
+                         (il campo API è normalizzato e più affidabile).
+    """
     url = row["url"]
     captured = {}
     topic_id = url.split('/')[-1].split('?')[0]
@@ -827,7 +901,9 @@ def _enrich_one(page, row):
                     cid     = _first(meta, "callIdentifier","identifier")
                     if prog_id and not _c.get("prog"):
                         _c["prog"] = PROGRAMME_MAP.get(prog_id, prog_id)
-                    if action and not _c.get("action"):
+                    # FIX: salviamo sempre l'action dall'API, anche se già
+                    # presente dalla card (il valore API è più affidabile).
+                    if action:
                         _c["action"] = action
                     if cid and not _c.get("call_id"):
                         _c["call_id"] = cid
@@ -869,8 +945,13 @@ def _enrich_one(page, row):
 
     if captured.get("prog") and not row.get("programme_raw"):
         row["programme_raw"] = captured["prog"]
-    if captured.get("action") and not row.get("action_raw"):
+
+    # FIX: action_raw — il valore API sovrascrive quello della card se presente.
+    # La card può contenere valori troncati o mancanti; l'API restituisce il
+    # campo "typesOfAction" completo.
+    if captured.get("action"):
         row["action_raw"] = captured["action"]
+
     if captured.get("call_id") and not row.get("call_id"):
         row["call_id"] = captured["call_id"]
 
@@ -935,14 +1016,15 @@ def to_call(row):
     is_mission    = bool("/HORIZON-MISS" in url.upper())
 
     full_text = row.get("full_text") or ""
+
+    # FIX: passiamo la thematic primaria a classify_multitopic in modo che
+    # le categorie in SECONDARY_KEYWORD_BLACKLIST vengano incluse nel
+    # keyword-scan solo se corrispondono all'area strutturale della call.
     multi = classify_multitopic(row.get("name") or "", full_text, thematic)
 
-    # Thematic promotion: if still generic, use keywords from full_text
-    # "Cross-cutting / Other" is acceptable ONLY for WIDERA and genuinely
-    # interdisciplinary calls; everything else must have a specific area.
     GENERIC_THEMATICS = {"Cross-cutting / Other", ""}
     PROMOTION_EXEMPT  = {
-        "Internships, fellowships & scholarships",  # ERC/MSCA: domain-dependent, do not promote randomly
+        "Internships, fellowships & scholarships",
     }
     effective_thematic = thematic
     if effective_thematic in GENERIC_THEMATICS and multi["multi_thematic"]:
@@ -973,8 +1055,6 @@ def to_call(row):
         "is_mission":       is_mission,
         "beneficiary_hint": beneficiary_hint(action, prog_raw, u_benef),
         "budget":           row.get("budget_raw") or 0,
-        # Used by the frontend for text search - matched keywords are sufficient
-        # and reduce the file size from ~120 MB to ~5-8 MB.
         "full_text":        " ".join(
             kw
             for hits in multi["keyword_hits"].values()
@@ -988,18 +1068,6 @@ def to_call(row):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
-    """
-    Scrapes only the pages assigned to this batch.
-
-    Example with 5 batches and 100 total pages:
-      batch 1 -> pages  1-20
-      batch 2 -> pages 21-40
-      ...
-      batch 5 -> pages 81-100
-
-    The total is read from page 1 (always available), then
-    each job jumps directly to its own pages.
-    """
     rows      = []
     seen_urls = set()
 
@@ -1059,10 +1127,8 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
             return
 
         real_max_pages = math.ceil(total / PAGE_SIZE)
-        # If --max-pages is set, use it as a global page cap (useful for tests)
         global_max = min(real_max_pages, max_pages) if max_pages else real_max_pages
 
-        # Compute the page range for this batch
         pages_per_batch = math.ceil(global_max / total_batches)
         page_from = (batch - 1) * pages_per_batch + 1
         page_to   = min(batch * pages_per_batch, global_max)
@@ -1270,29 +1336,33 @@ def main(batch: int, total_batches: int, out_path: Path, max_pages: int = None):
     # ── Build autofill index ──────────────────────────────────────────────────
     autofill_index = {}
     for c in calls:
-        slug = c["url"].split("/topic-details/")[-1].split("?")[0].upper() if "/topic-details/" in c["url"].lower() else ""
-        if not slug:
-            slug = c["url"].split("/competitive-calls-cs/")[-1].split("?")[0].upper()
+        # Slug derivato dall'URL
+        slug = ""
+        url_l = c["url"].lower()
+        for seg in ("/topic-details/", "/competitive-calls-cs/", "/prospect-details/"):
+            if seg in url_l:
+                slug = c["url"].split(seg)[-1].split("?")[0].upper()
+                break
+
+        # FIX: action viene letto direttamente da c["action"] che ora è sempre
+        # valorizzato grazie alla fix in _enrich_one (il valore API sovrascrive
+        # quello della card).  Se per qualche motivo è ancora vuoto, usiamo
+        # normalize_action sull'action_raw del row originale come fallback.
+        entry = {
+            "name":             c["name"],
+            "thematic_cluster": c["thematic_cluster"],
+            "multi_thematic":   c["multi_thematic"],
+            "action":           c["action"],   # già normalizzato da to_call
+            "call_id":          c["call_id"],
+            "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
+        }
+
         if slug:
-            autofill_index[slug] = {
-                "name":             c["name"],
-                "thematic_cluster": c["thematic_cluster"],
-                "multi_thematic":   c["multi_thematic"],
-                "action":           c["action"],
-                "call_id":          c["call_id"],
-                "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
-            }
+            autofill_index[slug] = entry
         if c["call_id"]:
             cid_key = c["call_id"].upper()
             if cid_key not in autofill_index:
-                autofill_index[cid_key] = autofill_index.get(slug) or {
-                    "name":             c["name"],
-                    "thematic_cluster": c["thematic_cluster"],
-                    "multi_thematic":   c["multi_thematic"],
-                    "action":           c["action"],
-                    "call_id":          c["call_id"],
-                    "keyword_hits":     {k: v[:5] for k, v in c.get("keyword_hits", {}).items()},
-                }
+                autofill_index[cid_key] = entry
 
     # ── Save per-batch output ────────────────────────────────────────────────
     payload = {
