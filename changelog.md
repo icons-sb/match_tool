@@ -1,53 +1,41 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-07 16:30:58.40
+**Last updated:** 2026-06-08 07:11:18.95
 
 ## Summary
 
 | | Count |
 |---|---|
-| Total calls (new) | 598 |
-| Total calls (previous) | 593 |
-| **New calls added** | **5** |
-| Calls removed (expired/closed) | 0 |
+| Total calls (new) | 593 |
+| Total calls (previous) | 598 |
+| **New calls added** | **0** |
+| Calls removed (expired/closed) | 5 |
 
-## Calls added (5)
+## Calls added
 
-### Food, Bioeconomy & Environment (5)
+No new calls compared to the previous snapshot.
 
-- **Science-policy support to the implementation of EU and global biodiversity policies and strategies**
-  Horizon Europe · CSA · Deadline: 2027-09-22
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL6-2027-01-BIODIV-02
+## Calls removed (5)
 
-- **Technical innovation to protect ecosystems and to scale up their restoration**
-  Horizon Europe · IA · Deadline: 2027-09-22
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL6-2027-01-BIODIV-03
-
-- **Living Labs for the eradication and/or management of invasive alien species**
-  Horizon Europe · RIA · Deadline: 2027-09-22
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL6-2027-01-BIODIV-04
-
-- **Innovative circular solutions for end-of-life footwear through collection, sorting and recycling**
-  Horizon Europe · RIA · Deadline: 2027-09-22
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL6-2027-01-CIRCBIO-05
-
-- **Improving biomass flows for a sustainable and circular bioeconomy**
-  Horizon Europe · IA · Deadline: 2027-09-22
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL6-2027-01-CIRCBIO-07
+- **Digital solutions for regulatory compliance through data** — Digital Europe Programme · Deadline: 2026-10-01
+- **Research Support Framework for Situational Awareness on information integrity** — Digital Europe Programme · Deadline: 2026-10-01
+- **Addressing disabilities through the life course to support independent living and inclusion** — Horizon Europe · Deadline: 2027-04-13
+- **MSCA Staff Exchanges 2027** — Horizon Europe · Deadline: 2027-04-15
+- **Strategic Integrated Projects - Environment** — 43252405 · Deadline: 2027-03-04
 
 ## Distribution by thematic area (new dataset)
 
 | Thematic area | Calls |
 |---|---|
 | Climate, Energy & Mobility | 169 |
-| Food, Bioeconomy & Environment | 103 |
-| Digital, Industry & Space | 82 |
+| Food, Bioeconomy & Environment | 102 |
+| Digital, Industry & Space | 80 |
 | Culture, Creativity & Inclusion | 76 |
 | Security & Resilience | 48 |
 | Defence | 38 |
-| Health & Life Sciences | 34 |
+| Health & Life Sciences | 33 |
 | Climate-neutral & Smart Cities | 19 |
 | SME, Entrepreneurship & Market Uptake | 15 |
-| Internships, fellowships & scholarships | 11 |
+| Internships, fellowships & scholarships | 10 |
 | (unclassified) | 2 |
 | External Action & International Cooperation | 1 |
