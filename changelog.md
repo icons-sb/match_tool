@@ -1,35 +1,40 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-11 07:17:53.38
+**Last updated:** 2026-06-12 07:11:13.80
 
 ## Summary
 
 | | Count |
 |---|---|
-| Total calls (new) | 598 |
-| Total calls (previous) | 599 |
-| **New calls added** | **1** |
-| Calls removed (expired/closed) | 2 |
+| Total calls (new) | 597 |
+| Total calls (previous) | 598 |
+| **New calls added** | **2** |
+| Calls removed (expired/closed) | 3 |
 
-## Calls added (1)
+## Calls added (2)
 
-### Culture, Creativity & Inclusion (1)
+### Food, Bioeconomy & Environment (2)
 
-- **Transaction Costs Support for social finance intermediaries**
-  European Social Fund+ (ESF+) · ESF-PJG ESF Project Grants · Deadline: 2026-09-23
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ESF-2026-AG-TCS
+- **Strategic Integrated Projects - Climate Action**
+  43252405 · LIFE-PJG LIFE Project Grants · Deadline: 2027-03-04
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/LIFE-2026-STRAT-CLIMA-SIP-two-stage
 
-## Calls removed (2)
+- **Strategic Nature Projects**
+  43252405 · LIFE-PJG LIFE Project Grants · Deadline: 2027-03-04
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/LIFE-2026-STRAT-NAT-SNAP-two-stage
 
-- **Strategic Integrated Projects - Climate Action** — 43252405 · Deadline: 2027-03-04
-- **Strategic Nature Projects** — 43252405 · Deadline: 2027-03-04
+## Calls removed (3)
+
+- **EYE 2027 - ORGANISATION OF THE PROGRAMME OF THE EYE VILLAGE** — 43697167 · Deadline: 2026-06-11
+- **EYE 2027 - MUSIC PROGRAMME** — 43697167 · Deadline: 2026-06-11
+- **MSCA Staff Exchanges 2027** — Horizon Europe · Deadline: 2027-04-15
 
 ## Distribution by thematic area (new dataset)
 
 | Thematic area | Calls |
 |---|---|
 | Climate, Energy & Mobility | 169 |
-| Food, Bioeconomy & Environment | 101 |
+| Food, Bioeconomy & Environment | 103 |
 | Digital, Industry & Space | 82 |
 | Culture, Creativity & Inclusion | 78 |
 | Security & Resilience | 48 |
@@ -37,6 +42,5 @@
 | Health & Life Sciences | 34 |
 | Climate-neutral & Smart Cities | 19 |
 | SME, Entrepreneurship & Market Uptake | 15 |
-| Internships, fellowships & scholarships | 11 |
-| (unclassified) | 2 |
+| Internships, fellowships & scholarships | 10 |
 | External Action & International Cooperation | 1 |
