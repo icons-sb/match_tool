@@ -1,33 +1,23 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-12 07:11:13.80
+**Last updated:** 2026-06-13 06:43:03.19
 
 ## Summary
 
 | | Count |
 |---|---|
-| Total calls (new) | 597 |
-| Total calls (previous) | 598 |
-| **New calls added** | **2** |
-| Calls removed (expired/closed) | 3 |
+| Total calls (new) | 598 |
+| Total calls (previous) | 597 |
+| **New calls added** | **1** |
+| Calls removed (expired/closed) | 0 |
 
-## Calls added (2)
+## Calls added (1)
 
-### Food, Bioeconomy & Environment (2)
+### Internships, fellowships & scholarships (1)
 
-- **Strategic Integrated Projects - Climate Action**
-  43252405 · LIFE-PJG LIFE Project Grants · Deadline: 2027-03-04
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/LIFE-2026-STRAT-CLIMA-SIP-two-stage
-
-- **Strategic Nature Projects**
-  43252405 · LIFE-PJG LIFE Project Grants · Deadline: 2027-03-04
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/LIFE-2026-STRAT-NAT-SNAP-two-stage
-
-## Calls removed (3)
-
-- **EYE 2027 - ORGANISATION OF THE PROGRAMME OF THE EYE VILLAGE** — 43697167 · Deadline: 2026-06-11
-- **EYE 2027 - MUSIC PROGRAMME** — 43697167 · Deadline: 2026-06-11
-- **MSCA Staff Exchanges 2027** — Horizon Europe · Deadline: 2027-04-15
+- **MSCA Staff Exchanges 2027**
+  Horizon Europe · HORIZON-TMA-MSCA-SE HORIZON TMA MSCA Staff Exchanges · Deadline: 2027-04-15
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MSCA-2027-SE-01-01
 
 ## Distribution by thematic area (new dataset)
 
@@ -42,5 +32,5 @@
 | Health & Life Sciences | 34 |
 | Climate-neutral & Smart Cities | 19 |
 | SME, Entrepreneurship & Market Uptake | 15 |
-| Internships, fellowships & scholarships | 10 |
+| Internships, fellowships & scholarships | 11 |
 | External Action & International Cooperation | 1 |
