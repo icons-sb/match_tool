@@ -1,23 +1,19 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-13 06:43:03.19
+**Last updated:** 2026-06-14 07:13:46.19
 
 ## Summary
 
 | | Count |
 |---|---|
 | Total calls (new) | 598 |
-| Total calls (previous) | 597 |
-| **New calls added** | **1** |
+| Total calls (previous) | 598 |
+| **New calls added** | **0** |
 | Calls removed (expired/closed) | 0 |
 
-## Calls added (1)
+## Calls added
 
-### Internships, fellowships & scholarships (1)
-
-- **MSCA Staff Exchanges 2027**
-  Horizon Europe · HORIZON-TMA-MSCA-SE HORIZON TMA MSCA Staff Exchanges · Deadline: 2027-04-15
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-MSCA-2027-SE-01-01
+No new calls compared to the previous snapshot.
 
 ## Distribution by thematic area (new dataset)
 
