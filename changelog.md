@@ -1,48 +1,51 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-24 06:33:49.06
+**Last updated:** 2026-06-25 06:40:32.98
 
 ## Summary
 
 | | Count |
 |---|---|
-| Total calls (new) | 606 |
-| Total calls (previous) | 603 |
-| **New calls added** | **5** |
-| Calls removed (expired/closed) | 2 |
+| Total calls (new) | 612 |
+| Total calls (previous) | 606 |
+| **New calls added** | **7** |
+| Calls removed (expired/closed) | 1 |
 
-## Calls added (5)
+## Calls added (7)
 
-### Culture, Creativity & Inclusion (1)
+### Culture, Creativity & Inclusion (7)
 
-- **AI integration in CCSI work practice: catalysing innovation and competitiveness**
-  Horizon Europe · IA · Deadline: 2026-09-23
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL2-2026-01-HERITAGE-03
+- **#BeActive-EU-SPORT-AWARDS - Across generations**
+  Erasmus+ · ERASMUS-PRIZE ERASMUS Prizes · Deadline: 2026-09-17
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ERASMUS-SPORT-2026-EU-AWARDS-GENERATIONS
 
-### Defence (2)
+- **#BeActive-EU-SPORT-AWARDS – Inclusion**
+  Erasmus+ · ERASMUS-PRIZE ERASMUS Prizes · Deadline: 2026-09-17
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ERASMUS-SPORT-2026-EU-AWARDS-INCLUSION
 
-- **Air and missile defence systems**
-  European Defence Fund · EDF-LS EDF Lump Sum Grants · Deadline: 2027-02-16
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/EDF-EDIP-P-2027-FNLC-CPA-AMDS
+- **#BeActive-EU-SPORT-AWARDS-Peace**
+  Erasmus+ · ERASMUS-PRIZE ERASMUS Prizes · Deadline: 2026-09-17
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ERASMUS-SPORT-2026-EU-AWARDS-PEACE
 
-- **C5ISR and other space-related products**
-  European Defence Fund · EDF-LS EDF Lump Sum Grants · Deadline: 2027-02-16
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/EDF-EDIP-P-2027-FNLC-CPA-C5ISRS
+- **#BeActive-EU-SPORT-AWARDS – Physical activity**
+  Erasmus+ · ERASMUS-PRIZE ERASMUS Prizes · Deadline: 2026-09-17
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ERASMUS-SPORT-2026-EU-AWARDS-PHYSICAL-ACTIVITY
 
-### SME, Entrepreneurship & Market Uptake (2)
+- **#BeActive-EU-SPORT-AWARDS-Volunteering**
+  Erasmus+ · ERASMUS-PRIZE ERASMUS Prizes · Deadline: 2026-09-17
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/ERASMUS-SPORT-2026-EU-AWARDS-VOLUNTEERING
 
-- **EIC defence call**
-  Horizon Europe · HORIZON-EIC-EQU HORIZON EIC Equity Only · Deadline: 2026-10-28
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-EIC-2026-DEFENCE-01
+- **Call for proposals for action grants to support transnational projects in the fields of e-Justice, victims’ rights and procedural rights**
+  JUST · JUST-LS JUST Lump Sum Grants · Deadline: 2026-10-15
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/JUST-2027-JACC-EJUSTICE-DIGITAL
 
-- **Biotechnology for Healthy Ageing**
-  Horizon Europe · HORIZON-EIC HORIZON EIC Grants · Deadline: 2026-10-28
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-EIC-2026-PATHFINDERCHALLENGES-01-02
+- **Call for proposals for action grants to support transnational projects in the fields of e-Justice, victims’ rights and procedural rights**
+  JUST · JUST-LS JUST Lump Sum Grants · Deadline: 2026-10-15
+  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/JUST-2027-JACC-EJUSTICE-RIGHTS
 
-## Calls removed (2)
+## Calls removed (1)
 
-- **Biotechnology for Healthy Ageing** — Horizon Europe · Deadline: 2026-10-28
-- **Cooperation of Artificial Intelligence Factories and Factories Antennas** — Horizon Europe · Deadline: 2026-06-23
+- **Information and training measures for workers' organisations** — SOCPL · Deadline: 2026-06-24
 
 ## Distribution by thematic area (new dataset)
 
@@ -50,7 +53,7 @@
 |---|---|
 | Climate, Energy & Mobility | 184 |
 | Food, Bioeconomy & Environment | 103 |
-| Culture, Creativity & Inclusion | 81 |
+| Culture, Creativity & Inclusion | 87 |
 | Digital, Industry & Space | 70 |
 | Security & Resilience | 48 |
 | Defence | 37 |
