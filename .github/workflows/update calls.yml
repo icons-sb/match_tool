@@ -53,7 +53,7 @@ jobs:
       # The result is written to calls.json.
       - name: Scrape open/forthcoming EU calls
         run: xvfb-run python scrape_to_json.py --out calls.json
-        timeout-minutes: 150  # Kill the job if it exceeds 150 minutes
+        timeout-minutes: 250  # Kill the job if it exceeds 250 minutes
 
       # Commit calls.json (and the changelog files) only if they changed.
       # A retry loop handles transient push conflicts (e.g. concurrent runs).
