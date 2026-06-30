@@ -1,23 +1,19 @@
 # Changelog calls.json
 
-**Last updated:** 2026-06-29 09:32:02.62
+**Last updated:** 2026-06-30 08:55:29.77
 
 ## Summary
 
 | | Count |
 |---|---|
 | Total calls (new) | 1413 |
-| Total calls (previous) | 1412 |
-| **New calls added** | **1** |
+| Total calls (previous) | 1413 |
+| **New calls added** | **0** |
 | Calls removed (expired/closed) | 0 |
 
-## Calls added (1)
+## Calls added
 
-### Digital, Industry & Space (1)
-
-- **Youth-Driven Social Media Design: Safe, Inclusive, and Publicly-Owned Social Media**
-  PPPA · PPPA-PJG PPPA Project Grants · Deadline: 2026-10-06
-  https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/PPPA-2026-YOUTH-SOCIAL-MEDIA-DESIGN
+No new calls compared to the previous snapshot.
 
 ## Distribution by thematic area (new dataset)
 
